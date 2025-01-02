@@ -1,0 +1,83 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: ubuntu-latest
+            python: "3.12"
+            pip-flags: "--pre"
+        group: ["unit", "docs"]
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        with:
+          repository: laminlabs/lndocs
+          ssh-key: ${{ secrets.READ_LNDOCS }}
+          path: lndocs
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - run: pip install git+https://github.com/laminlabs/laminci
+      # - run: sudo apt-get -y install graphviz
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Run lint
+        if: matrix.group == 'unit'
+        run: nox -s lint
+
+      - name: Run build
+        if: ${{ !(matrix.group == 'docs' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+        run: nox -s "build(group='${{ matrix.group }}')"
+
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - uses: cloudflare/wrangler-action@v3
+        if: ${{ !(matrix.group == 'docs' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+        id: cloudflare
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 472bdad691b4483dea759eadb37110bd
+          command: pages deploy "_build/html" --project-name=PROJECTNAME
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - uses: edumserrano/find-create-or-update-comment@v2
+        if: ${{ !(matrix.group == 'docs' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-includes: "Deployment URL"
+          comment-author: "github-actions[bot]"
+          body: |
+            Deployment URL: ${{ steps.cloudflare.outputs.deployment-url }}
+          edit-mode: replace
