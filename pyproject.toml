@@ -16,6 +16,7 @@ Home = "https://github.com/laminlabs/moscan"
 
 [project.optional-dependencies]
 dev = [
+    "lamindb",
     "pre-commit",
     "nox",
     "pytest>=6.0",
