@@ -9,7 +9,6 @@ authors = [{name = "Lamin Labs", email = "open-source@lamin.ai"}]
 readme = "README.md"
 dynamic = ["version", "description"]
 dependencies = [
-    "lamindb",
 ]
 
 [project.urls]
@@ -17,6 +16,7 @@ Home = "https://github.com/laminlabs/moscan"
 
 [project.optional-dependencies]
 dev = [
+    "lamindb",
     "pre-commit",
     "nox",
     "pytest>=6.0",
