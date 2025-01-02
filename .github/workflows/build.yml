@@ -53,13 +53,16 @@ jobs:
 
       - run: nox -s lint
 
-      - run: nox -s build
+      - run: nox -s test
 
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+      - run: nox -s docs
+        if: ${{ github.event_name == 'push' || (github.event.pull_request && github.event.pull_request.head.repo.full_name == github.repository) }}
       - uses: cloudflare/wrangler-action@v3
+        if: ${{ github.event_name == 'push' || (github.event.pull_request && github.event.pull_request.head.repo.full_name == github.repository) }}
         id: cloudflare
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -67,6 +70,7 @@ jobs:
           command: pages deploy "_build/html" --project-name=PROJECTNAME
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
       - uses: edumserrano/find-create-or-update-comment@v2
+        if: ${{ github.event_name == 'push' || (github.event.pull_request && github.event.pull_request.head.repo.full_name == github.repository) }}
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body-includes: "Deployment URL"
