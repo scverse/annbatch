@@ -1,5 +1,5 @@
 # Reference
 
 ```{eval-rst}
-.. automodule:: moscan
+.. automodule:: modlyn
 ```

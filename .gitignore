@@ -102,7 +102,7 @@ ENV/
 
 # Lamin
 _build
-docs/moscan.*
+docs/modlyn.*
 lamin_sphinx
 docs/conf.py
 _docs_tmp*

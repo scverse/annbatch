@@ -2,7 +2,7 @@
 
 Import the package::
 
-   import moscan
+   import modlyn
 
 This is the complete API reference:
 

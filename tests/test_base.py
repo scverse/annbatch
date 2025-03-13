@@ -1,4 +1,4 @@
-from moscan import ExampleClass, example_function
+from modlyn import ExampleClass, example_function
 
 
 def test_dummy():

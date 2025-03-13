@@ -20,4 +20,4 @@ jobs:
         env:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           docs_token: ${{ secrets.LAMIN_BUILD_DOCS }}
-          changelog_file: lamin-docs/docs/changelog/soon/moscan.md
+          changelog_file: lamin-docs/docs/changelog/soon/modlyn.md

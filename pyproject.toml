@@ -3,7 +3,7 @@ requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "moscan"
+name = "modlyn"
 requires-python = ">=3.9,<3.13"
 authors = [{name = "Lamin Labs", email = "open-source@lamin.ai"}]
 readme = "README.md"
@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.urls]
-Home = "https://github.com/laminlabs/moscan"
+Home = "https://github.com/laminlabs/modlyn"
 
 [project.optional-dependencies]
 dev = [
