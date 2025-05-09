@@ -1,9 +1,9 @@
 import os
 import random
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from os import PathLike
 from os.path import join
-from typing import Any, Iterable
+from typing import Any
 
 import anndata as ad
 import h5py
@@ -20,7 +20,6 @@ def _write_sharded(
     chunk_size: int = 4096,
     shard_size: int = 65536,
 ):
-
     def callback(
         func: ad.experimental.Write,
         g: zarr.Group,
@@ -86,7 +85,7 @@ def create_store_from_h5ads(
     shard_size: int = 65536,
     shuffle_buffer_size: int = 1_048_576,
 ):
-    os.makedirs(output_path, exist_ok=True)
+    os.makedirs(output_path, exist_ok=True)  # noqa: PTH103
     adata_concat = _lazy_load_h5ads(adata_paths)
     shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
 
@@ -104,12 +103,12 @@ def create_store_from_h5ads(
             var=adata_concat if var_subset is None else adata_concat.var[var_subset],
         )
         # shuffle adata in memory to break up individual chunks
-        idxs = np.random.permutation(np.arange(len(adata_chunk)))
+        idxs = np.random.permutation(np.arange(len(adata_chunk)))  # noqa: NPY002
         adata_chunk.X = adata_chunk.X[idxs, :]
         adata_chunk.obs = adata_chunk.obs.iloc[idxs]
         # convert to dense format before writing to disk
         adata_chunk.X = adata_chunk.X.map_blocks(
             lambda xx: xx.toarray().astype("f4"), dtype="f4"
         )
-        f = zarr.open(join(output_path, f"chunk_{i}.zarr"), mode="w")
+        f = zarr.open(join(output_path, f"chunk_{i}.zarr"), mode="w")  # noqa: PTH118
         _write_sharded(f, adata_chunk, chunk_size=chunk_size, shard_size=shard_size)

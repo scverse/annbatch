@@ -1,13 +1,10 @@
 import lightning as L
 import torch
 import torch.nn.functional as F
-
-
-from torchmetrics import MetricCollection, F1Score, Accuracy
+from torchmetrics import Accuracy, F1Score, MetricCollection
 
 
 class Linear(L.LightningModule):
-
     def __init__(self, n_genes: int, n_covariates: int, learning_rate: float = 1e-3):
         super().__init__()
         self.learning_rate = learning_rate

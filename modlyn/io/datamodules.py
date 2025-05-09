@@ -6,7 +6,6 @@ from modlyn.io.loading import ZarrDataset
 
 
 class ClassificationDataModule(L.LightningDataModule):
-
     def __init__(
         self,
         adata_train: ad.AnnData,

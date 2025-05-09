@@ -3,7 +3,6 @@ import random
 import anndata as ad
 import numpy as np
 import zarr
-
 from torch.utils.data import IterableDataset
 
 
@@ -24,14 +23,13 @@ def _yield_samples(x, y, shuffle=True):
     num_samples = len(x)
     indices = np.arange(num_samples)
     if shuffle:
-        np.random.shuffle(indices)
+        np.random.shuffle(indices)  # noqa: NPY002
 
     for i in indices:
         yield x[i], y[i]
 
 
 class ZarrDataset(IterableDataset):
-
     def __init__(
         self,
         adata: ad.AnnData,
@@ -51,7 +49,7 @@ class ZarrDataset(IterableDataset):
             for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:])
         ]
         blocks_idxs = np.arange(len(self.adata.X.chunks[0]))
-        assert len(slices) == len(blocks_idxs)
+        assert len(slices) == len(blocks_idxs)  # noqa: S101
         chunks = list(zip(blocks_idxs, slices))
         if self.shuffle:
             random.shuffle(chunks)
@@ -63,8 +61,7 @@ class ZarrDataset(IterableDataset):
             block_idxs, slices = zip(*chunks)
             x = self.adata.X.blocks[list(block_idxs)].compute(scheduler="threads")
             obs = self.adata.obs[self.label_column].iloc[np.r_[slices]].to_numpy()
-            for elem in _yield_samples(x, obs, self.shuffle):
-                yield elem
+            yield from _yield_samples(x, obs, self.shuffle)
 
     def __len__(self):
         return len(self.adata)
