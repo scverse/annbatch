@@ -2,7 +2,7 @@ import anndata as ad
 import lightning as L
 from torch.utils.data import DataLoader
 
-from modlyn.io.loading import ZarrDataset
+from .loading import ZarrDataset
 
 
 class ClassificationDataModule(L.LightningDataModule):

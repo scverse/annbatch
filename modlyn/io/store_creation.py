@@ -11,8 +11,6 @@ import numpy as np
 import zarr
 from tqdm import tqdm
 
-ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
-
 
 def _write_sharded(
     group: zarr.Group,
@@ -86,6 +84,8 @@ def create_store_from_h5ads(
     shuffle_buffer_size: int = 1_048_576,
 ):
     os.makedirs(output_path, exist_ok=True)  # noqa: PTH103
+    ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
+    print("setting ad.settings.zarr_write_format to 3")
     adata_concat = _lazy_load_h5ads(adata_paths)
     shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
 
