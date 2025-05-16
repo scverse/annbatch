@@ -1,9 +1,8 @@
-import os
 import random
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from os import PathLike
-from os.path import join
-from typing import Any, Iterable
+from pathlib import Path
+from typing import Any
 
 import anndata as ad
 import h5py
@@ -20,7 +19,6 @@ def _write_sharded(
     chunk_size: int = 4096,
     shard_size: int = 65536,
 ):
-
     def callback(
         func: ad.experimental.Write,
         g: zarr.Group,
@@ -44,7 +42,8 @@ def _write_sharded(
 
         func(g, k, elem, dataset_kwargs=dataset_kwargs)
 
-    return ad.experimental.write_dispatched(group, "/", adata, callback=callback)
+    ad.experimental.write_dispatched(group, "/", adata, callback=callback)
+    zarr.consolidate_metadata(group)
 
 
 def _lazy_load_h5ads(
@@ -80,13 +79,13 @@ def _create_chunks_for_shuffling(
 
 def create_store_from_h5ads(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
-    output_path: PathLike[str],
+    output_path: PathLike[str] | str,
     var_subset: Iterable[str] = None,
     chunk_size: int = 4096,
     shard_size: int = 65536,
     shuffle_buffer_size: int = 1_048_576,
 ):
-    os.makedirs(output_path, exist_ok=True)
+    Path(output_path).mkdir(parents=True, exist_ok=True)
     adata_concat = _lazy_load_h5ads(adata_paths)
     shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
 
@@ -104,12 +103,12 @@ def create_store_from_h5ads(
             var=adata_concat if var_subset is None else adata_concat.var[var_subset],
         )
         # shuffle adata in memory to break up individual chunks
-        idxs = np.random.permutation(np.arange(len(adata_chunk)))
+        idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
         adata_chunk.X = adata_chunk.X[idxs, :]
         adata_chunk.obs = adata_chunk.obs.iloc[idxs]
         # convert to dense format before writing to disk
         adata_chunk.X = adata_chunk.X.map_blocks(
             lambda xx: xx.toarray().astype("f4"), dtype="f4"
         )
-        f = zarr.open(join(output_path, f"chunk_{i}.zarr"), mode="w")
+        f = zarr.open(Path(output_path) / f"chunk_{i}.zarr", mode="w")
         _write_sharded(f, adata_chunk, chunk_size=chunk_size, shard_size=shard_size)
