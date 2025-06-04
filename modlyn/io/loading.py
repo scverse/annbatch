@@ -2,6 +2,7 @@ import random
 from typing import Literal
 
 import anndata as ad
+import dask
 import numpy as np
 import pandas as pd
 import zarr
@@ -40,6 +41,21 @@ def _yield_samples(x, y, shuffle=True):
 
     for i in indices:
         yield x[i], y[i]
+
+
+def _sample_rows(
+    x_list: list[np.ndarray], y_list: list[np.ndarray], shuffle: bool = True
+):
+    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
+    cum = np.concatenate(([0], np.cumsum(lengths)))
+    total = cum[-1]
+    idxs = np.arange(total)
+    if shuffle:
+        np.random.default_rng().shuffle(idxs)
+    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
+    row_idxs = idxs - cum[arr_idxs]
+    for ai, ri in zip(arr_idxs, row_idxs):
+        yield x_list[ai][ri], y_list[ai][ri]
 
 
 class ZarrDataset(IterableDataset):
@@ -96,11 +112,17 @@ class ZarrDataset(IterableDataset):
     def __iter__(self):
         for chunks in _combine_chunks(self._get_chunks(), self.n_chunks):
             block_idxs, slices = zip(*chunks)
-            x = self.adata.X.blocks[list(block_idxs)].compute(
-                scheduler=self.dask_scheduler
-            )
-            obs = self.adata.obs[self.label_column].iloc[np.r_[slices]].to_numpy()
-            yield from _yield_samples(x, obs, self.shuffle)
+            # x = self.adata.X.blocks[list(block_idxs)].compute(
+            #     scheduler=self.dask_scheduler
+            # )
+            x_list = dask.compute(
+                [self.adata.X.blocks[i] for i in block_idxs],
+                scheduler=self.dask_scheduler,
+            )[0]
+            obs_list = [
+                self.adata.obs[self.label_column].iloc[s].to_numpy() for s in slices
+            ]
+            yield from _sample_rows(x_list, obs_list, self.shuffle)
 
     def __len__(self):
         return len(self.adata)

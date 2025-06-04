@@ -5,6 +5,7 @@ import lightning as L
 from torch.utils.data import DataLoader
 
 from .loading import ZarrDataset
+from .pure_zarr import ZarrArraysDataset
 
 
 class ClassificationDataModule(L.LightningDataModule):

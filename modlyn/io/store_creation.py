@@ -9,6 +9,8 @@ import h5py
 import numpy as np
 import zarr
 from tqdm import tqdm
+from zarr.abc.codec import BytesBytesCodec
+from zarr.codecs import BloscCodec, BloscShuffle
 
 
 def _write_sharded(
@@ -16,6 +18,9 @@ def _write_sharded(
     adata: ad.AnnData,
     chunk_size: int = 4096,
     shard_size: int = 65536,
+    compressors: Iterable[BytesBytesCodec] = (
+        BloscCodec(cname="lz4", clevel=1, shuffle=BloscShuffle.shuffle),
+    ),
 ):
     def callback(
         func: ad.experimental.Write,
@@ -29,19 +34,21 @@ def _write_sharded(
             dataset_kwargs = {
                 "shards": (shard_size,) + (elem.shape[1:]),  # only shard over 1st dim
                 "chunks": (chunk_size,) + (elem.shape[1:]),  # only chunk over 1st dim
+                "compressors": compressors,
                 **dataset_kwargs,
             }
         elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
             dataset_kwargs = {
                 "shards": (shard_size,),
                 "chunks": (chunk_size,),
+                "compressors": compressors,
                 **dataset_kwargs,
             }
 
         func(g, k, elem, dataset_kwargs=dataset_kwargs)
 
     ad.experimental.write_dispatched(group, "/", adata, callback=callback)
-    zarr.consolidate_metadata(group)
+    zarr.consolidate_metadata(group.store)
 
 
 def _lazy_load_h5ads(
@@ -81,6 +88,9 @@ def create_store_from_h5ads(
     var_subset: Iterable[str] = None,
     chunk_size: int = 4096,
     shard_size: int = 65536,
+    compressors: Iterable[BytesBytesCodec] = (
+        BloscCodec(cname="lz4", clevel=1, shuffle=BloscShuffle.shuffle),
+    ),
     shuffle_buffer_size: int = 1_048_576,
 ):
     Path(output_path).mkdir(parents=True, exist_ok=True)
@@ -100,7 +110,9 @@ def create_store_from_h5ads(
                 else adata_concat.X[chunk, :][:, var_subset].persist()
             ),
             obs=adata_concat.obs.iloc[chunk],
-            var=adata_concat if var_subset is None else adata_concat.var[var_subset],
+            var=(
+                adata_concat.var if var_subset is None else adata_concat.var[var_subset]
+            ),
         )
         # shuffle adata in memory to break up individual chunks
         idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
@@ -111,4 +123,10 @@ def create_store_from_h5ads(
             lambda xx: xx.toarray().astype("f4"), dtype="f4"
         )
         f = zarr.open(Path(output_path) / f"chunk_{i}.zarr", mode="w")
-        _write_sharded(f, adata_chunk, chunk_size=chunk_size, shard_size=shard_size)
+        _write_sharded(
+            f,
+            adata_chunk,
+            chunk_size=chunk_size,
+            shard_size=shard_size,
+            compressors=compressors,
+        )
