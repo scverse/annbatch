@@ -2,7 +2,7 @@
 
 Import the package::
 
-   import modlyn
+   import arrayloaders
 
 The package has two modules.
 

@@ -1,5 +1,5 @@
 # Reference
 
 ```{eval-rst}
-.. automodule:: modlyn
+.. automodule:: arrayloaders
 ```

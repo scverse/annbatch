@@ -105,7 +105,7 @@ ENV/
 
 # Lamin
 _build
-docs/modlyn.*
+docs/arrayloaders.*
 lamin_sphinx
 docs/conf.py
 _docs_tmp*
