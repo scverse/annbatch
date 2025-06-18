@@ -5,13 +5,16 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "arrayloaders"
 requires-python = ">=3.9,<3.13"
-authors = [{name = "Lamin Labs", email = "open-source@lamin.ai"}]
+authors = [{ name = "Lamin Labs", email = "open-source@lamin.ai" }]
 readme = "README.md"
 dynamic = ["version", "description"]
 dependencies = [
     "anndata>=0.12.0rc1",
     "zarr>=3",
-    "lightning"
+    "lightning",
+    "torch",
+    "dask[array]",
+    "tqdm",
 ]
 
 [project.urls]
@@ -39,20 +42,20 @@ filterwarnings = [
 src = ["src"]
 line-length = 88
 select = [
-    "F",  # Errors detected by Pyflakes
-    "E",  # Error detected by Pycodestyle
-    "W",  # Warning detected by Pycodestyle
-    "I",  # isort
-    "D",  # pydocstyle
-    "B",  # flake8-bugbear
-    "TID",  # flake8-tidy-imports
-    "C4",  # flake8-comprehensions
-    "BLE",  # flake8-blind-except
-    "UP",  # pyupgrade
-    "RUF100",  # Report unused noqa directives
-    "TCH",  # Typing imports
-    "NPY",  # Numpy specific rules
-    "PTH",  # Use pathlib
+    "F", # Errors detected by Pyflakes
+    "E", # Error detected by Pycodestyle
+    "W", # Warning detected by Pycodestyle
+    "I", # isort
+    "D", # pydocstyle
+    "B", # flake8-bugbear
+    "TID", # flake8-tidy-imports
+    "C4", # flake8-comprehensions
+    "BLE", # flake8-blind-except
+    "UP", # pyupgrade
+    "RUF100", # Report unused noqa directives
+    "TCH", # Typing imports
+    "NPY", # Numpy specific rules
+    "PTH", # Use pathlib
     "S"  # Security
 ]
 ignore = [
@@ -132,7 +135,7 @@ convention = "google"
 [tool.ruff.per-file-ignores]
 "docs/*" = ["I"]
 "tests/**/*.py" = [
-    "D",  # docstrings are allowed to look a bit off
+    "D", # docstrings are allowed to look a bit off
     "S101", # asserts allowed in tests...
     "ARG", # Unused function args -> fixtures nevertheless are functionally relevant...
     "FBT", # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
