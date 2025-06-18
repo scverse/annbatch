@@ -15,6 +15,7 @@ dependencies = [
     "torch",
     "dask[array]",
     "tqdm",
+    "universal_pathlib>=0.2.6"
 ]
 
 [project.urls]
