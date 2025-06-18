@@ -5,14 +5,13 @@ import lightning as L
 from torch.utils.data import DataLoader
 
 from .loading import ZarrDataset
-from .pure_zarr import ZarrArraysDataset
 
 
 class ClassificationDataModule(L.LightningDataModule):
     def __init__(
         self,
-        adata_train: ad.AnnData,
-        adata_val: ad.AnnData,
+        adata_train: ad.AnnData | None,
+        adata_val: ad.AnnData | None,
         label_column: str,
         train_dataloader_kwargs=None,
         val_dataloader_kwargs=None,

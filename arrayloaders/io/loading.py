@@ -1,4 +1,7 @@
+import os
+import pathlib
 import random
+import warnings
 from typing import Literal
 
 import anndata as ad
@@ -24,23 +27,31 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
     adata = ad.AnnData(
         X=ad.experimental.read_elem_lazy(g["X"]),
         obs=obs,
+        var=ad.io.read_elem(g["var"]),
     )
+
+    return adata
+
+
+def read_lazy_store(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
+    path = pathlib.Path(path)
+
+    with warnings.catch_warnings():
+        # Ignore zarr v3 warnings
+        warnings.simplefilter("ignore")
+        adata = ad.concat(
+            [
+                read_lazy(path / shard, obs_columns, read_obs_lazy)
+                for shard in os.listdir(path)
+                if shard.endswith(".zarr")
+            ]
+        )
 
     return adata
 
 
 def _combine_chunks(lst, chunk_size):
     return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
-
-
-def _yield_samples(x, y, shuffle=True):
-    num_samples = len(x)
-    indices = np.arange(num_samples)
-    if shuffle:
-        np.random.default_rng().shuffle(indices)
-
-    for i in indices:
-        yield x[i], y[i]
 
 
 def _sample_rows(
@@ -112,9 +123,6 @@ class ZarrDataset(IterableDataset):
     def __iter__(self):
         for chunks in _combine_chunks(self._get_chunks(), self.n_chunks):
             block_idxs, slices = zip(*chunks)
-            # x = self.adata.X.blocks[list(block_idxs)].compute(
-            #     scheduler=self.dask_scheduler
-            # )
             x_list = dask.compute(
                 [self.adata.X.blocks[i] for i in block_idxs],
                 scheduler=self.dask_scheduler,

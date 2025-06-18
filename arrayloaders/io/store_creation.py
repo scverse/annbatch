@@ -19,9 +19,11 @@ def _write_sharded(
     chunk_size: int = 4096,
     shard_size: int = 65536,
     compressors: Iterable[BytesBytesCodec] = (
-        BloscCodec(cname="lz4", clevel=1, shuffle=BloscShuffle.shuffle),
+        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
 ):
+    ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
+
     def callback(
         func: ad.experimental.Write,
         g: zarr.Group,
@@ -64,7 +66,7 @@ def _lazy_load_h5ads(
             )
             adatas.append(adata)
 
-    return ad.concat(adatas)
+    return ad.concat(adatas, join="outer")
 
 
 def _create_chunks_for_shuffling(
@@ -85,34 +87,30 @@ def _create_chunks_for_shuffling(
 def create_store_from_h5ads(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
-    var_subset: Iterable[str] = None,
+    var_subset: Iterable[str] | None = None,
     chunk_size: int = 4096,
     shard_size: int = 65536,
     compressors: Iterable[BytesBytesCodec] = (
-        BloscCodec(cname="lz4", clevel=1, shuffle=BloscShuffle.shuffle),
+        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
     shuffle_buffer_size: int = 1_048_576,
 ):
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
     print("setting ad.settings.zarr_write_format to 3")
-    adata_concat = _lazy_load_h5ads(adata_paths)
+    adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
+    adata_concat.obs_names_make_unique()
     shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
 
-    if var_subset is not None:
-        var_subset = adata_concat.var_names.isin(var_subset)
+    if var_subset is None:
+        var_subset = adata_concat.var_names.tolist()
 
     for i, chunk in enumerate(tqdm(shuffle_chunks)):
+        var_mask = adata_concat.var_names.isin(var_subset)
         adata_chunk = ad.AnnData(
-            X=(
-                adata_concat.X[chunk, :].persist()
-                if var_subset is None
-                else adata_concat.X[chunk, :][:, var_subset].persist()
-            ),
+            X=adata_concat.X[chunk, :][:, var_mask].persist(),
             obs=adata_concat.obs.iloc[chunk],
-            var=(
-                adata_concat.var if var_subset is None else adata_concat.var[var_subset]
-            ),
+            var=adata_concat.var.loc[var_mask],
         )
         # shuffle adata in memory to break up individual chunks
         idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
