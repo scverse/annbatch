@@ -1,16 +1,22 @@
+from __future__ import annotations
+
 import random
-from collections.abc import Iterable, Mapping
-from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import h5py
 import numpy as np
 import zarr
 from tqdm import tqdm
-from zarr.abc.codec import BytesBytesCodec
 from zarr.codecs import BloscCodec, BloscShuffle
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+    from os import PathLike
+    from typing import Any
+
+    from zarr.abc.codec import BytesBytesCodec
 
 
 def _write_sharded(
