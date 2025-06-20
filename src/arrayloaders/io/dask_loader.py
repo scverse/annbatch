@@ -47,7 +47,7 @@ def read_lazy_store(
             [
                 read_lazy(path / shard, obs_columns, read_obs_lazy)
                 for shard in path.iterdir()
-                if shard.endswith(".zarr")
+                if str(shard).endswith(".zarr")
             ]
         )
 
