@@ -11,6 +11,8 @@ import pandas as pd
 import zarr
 from torch.utils.data import IterableDataset, get_worker_info
 
+from .utils import sample_rows
+
 
 def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
     g = zarr.open(path, mode="r")
@@ -52,22 +54,6 @@ def read_lazy_store(path, obs_columns: list[str] = None, read_obs_lazy: bool = F
 
 def _combine_chunks(lst, chunk_size):
     return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
-
-
-def _sample_rows(
-    x_list: list[np.ndarray], y_list: list[np.ndarray], shuffle: bool = True
-):
-    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
-    cum = np.concatenate(([0], np.cumsum(lengths)))
-    total = cum[-1]
-    idxs = np.arange(total)
-    if shuffle:
-        np.random.default_rng().shuffle(idxs)
-    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
-    row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs):
-        yield x_list[ai][ri], y_list[ai][ri]
-
 
 class DaskDataset(IterableDataset):
     def __init__(
@@ -130,7 +116,7 @@ class DaskDataset(IterableDataset):
             obs_list = [
                 self.adata.obs[self.label_column].iloc[s].to_numpy() for s in slices
             ]
-            yield from _sample_rows(x_list, obs_list, self.shuffle)
+            yield from sample_rows(x_list, obs_list, self.shuffle)
 
     def __len__(self):
         return len(self.adata)

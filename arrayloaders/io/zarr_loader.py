@@ -11,6 +11,8 @@ import zarr.core.sync as zsync
 from torch.utils.data import IterableDataset
 from upath import UPath
 
+from .utils import sample_rows
+
 
 def _encode_str_to_int(obs_list: list[pd.DataFrame]):
     """Encodes string and categorical columns in a list of DataFrames to integer codes, modifying the DataFrames in place.
@@ -69,30 +71,6 @@ def _batched(iterable, n):
     while batch := list(islice(it, n)):
         yield batch
 
-
-def _sample_rows(
-    x_list: list[np.ndarray], obs_list: list[np.ndarray], shuffle: bool = True
-):
-    """Samples rows from multiple arrays and their corresponding observation arrays.
-
-    Args:
-        x_list (list[np.ndarray]): A list of numpy arrays containing the data to sample from.
-        obs_list (list[np.ndarray]): A list of numpy arrays containing the corresponding observations.
-        shuffle (bool): Whether to shuffle the rows before sampling. Defaults to True.
-
-    Yields:
-        tuple: A tuple containing a row from `x_list` and the corresponding row from `obs_list`.
-    """
-    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
-    cum = np.concatenate(([0], np.cumsum(lengths)))
-    total = cum[-1]
-    idxs = np.arange(total)
-    if shuffle:
-        np.random.default_rng().shuffle(idxs)
-    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
-    row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs):
-        yield x_list[ai][ri], obs_list[ai][ri]
 
 
 class ZarrDenseDataset(IterableDataset):
@@ -169,7 +147,7 @@ class ZarrDenseDataset(IterableDataset):
             np.random.shuffle(chunks_global)  # noqa: NPY002
 
         for batch in _batched(chunks_global, self.preload_chunks):
-            yield from _sample_rows(
+            yield from sample_rows(
                 list(zsync.sync(self._fetch_chunks_x(batch))),
                 self._fetch_chunks_obs(batch),
                 self.shuffle,
