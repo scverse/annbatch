@@ -72,7 +72,6 @@ def _batched(iterable, n):
         yield batch
 
 
-
 class ZarrDenseDataset(IterableDataset):
     def __init__(
         self,

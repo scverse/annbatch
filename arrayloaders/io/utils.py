@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def sample_rows(
     x_list: list[np.ndarray], obs_list: list[np.ndarray], shuffle: bool = True
 ):
