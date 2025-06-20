@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import os
 import random
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
@@ -10,6 +12,9 @@ from scipy.sparse import random as sparse_random
 
 from arrayloaders.io.dask_loader import read_lazy_store
 from arrayloaders.io.store_creation import create_store_from_h5ads
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)

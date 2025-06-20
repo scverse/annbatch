@@ -24,6 +24,8 @@ Array store creation.
 
 """
 
+from __future__ import annotations
+
 from .dask_loader import DaskDataset, read_lazy
 from .datamodules import ClassificationDataModule
 from .store_creation import create_store_from_h5ads

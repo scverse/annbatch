@@ -1,9 +1,14 @@
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from arrayloaders.io import ClassificationDataModule
 from arrayloaders.io.dask_loader import read_lazy_store
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_datamodule(mock_store: Path):

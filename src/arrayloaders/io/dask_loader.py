@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import os
 import pathlib
 import random
 import warnings
-from typing import Literal
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import dask
@@ -12,6 +14,9 @@ import zarr
 from torch.utils.data import IterableDataset, get_worker_info
 
 from .utils import sample_rows
+
+if TYPE_CHECKING:
+    from typing import Literal
 
 
 def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):

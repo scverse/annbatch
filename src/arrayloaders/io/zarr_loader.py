@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import asyncio
-from collections.abc import Iterable
 from itertools import islice
-from os import PathLike
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
@@ -12,6 +13,10 @@ from torch.utils.data import IterableDataset
 from upath import UPath
 
 from .utils import sample_rows
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from os import PathLike
 
 
 def _encode_str_to_int(obs_list: list[pd.DataFrame]):

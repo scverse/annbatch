@@ -1,9 +1,14 @@
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 
 from arrayloaders.io.dask_loader import DaskDataset, read_lazy_store
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.mark.parametrize("shuffle", [True, False], ids=["shuffled", "unshuffled"])

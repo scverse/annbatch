@@ -1,10 +1,16 @@
-from typing import Literal
+from __future__ import annotations
 
-import anndata as ad
+from typing import TYPE_CHECKING
+
 import lightning as L
 from torch.utils.data import DataLoader
 
 from .dask_loader import DaskDataset
+
+if TYPE_CHECKING:
+    from typing import Literal
+
+    import anndata as ad
 
 
 class ClassificationDataModule(L.LightningDataModule):
