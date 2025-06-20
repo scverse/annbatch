@@ -41,6 +41,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 88
+[tool.ruff.lint]
 select = [
     "F", # Errors detected by Pyflakes
     "E", # Error detected by Pycodestyle
@@ -53,7 +54,7 @@ select = [
     "BLE", # flake8-blind-except
     "UP", # pyupgrade
     "RUF100", # Report unused noqa directives
-    "TCH", # Typing imports
+    "TC", # Typing imports
     "NPY", # Numpy specific rules
     "PTH", # Use pathlib
     "S"  # Security
