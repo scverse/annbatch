@@ -1,5 +1,10 @@
+from __future__ import annotations
+
+import os
+import pathlib
 import random
-from typing import Literal
+import warnings
+from typing import TYPE_CHECKING
 
 import anndata as ad
 import dask
@@ -7,6 +12,11 @@ import numpy as np
 import pandas as pd
 import zarr
 from torch.utils.data import IterableDataset, get_worker_info
+
+from .utils import sample_rows
+
+if TYPE_CHECKING:
+    from typing import Literal
 
 
 def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
@@ -24,7 +34,27 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
     adata = ad.AnnData(
         X=ad.experimental.read_elem_lazy(g["X"]),
         obs=obs,
+        var=ad.io.read_elem(g["var"]),
     )
+
+    return adata
+
+
+def read_lazy_store(
+    path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False
+):
+    path = pathlib.Path(path)
+
+    with warnings.catch_warnings():
+        # Ignore zarr v3 warnings
+        warnings.simplefilter("ignore")
+        adata = ad.concat(
+            [
+                read_lazy(path / shard, obs_columns, read_obs_lazy)
+                for shard in path.iterdir()
+                if str(shard).endswith(".zarr")
+            ]
+        )
 
     return adata
 
@@ -33,32 +63,7 @@ def _combine_chunks(lst, chunk_size):
     return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
 
 
-def _yield_samples(x, y, shuffle=True):
-    num_samples = len(x)
-    indices = np.arange(num_samples)
-    if shuffle:
-        np.random.default_rng().shuffle(indices)
-
-    for i in indices:
-        yield x[i], y[i]
-
-
-def _sample_rows(
-    x_list: list[np.ndarray], y_list: list[np.ndarray], shuffle: bool = True
-):
-    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
-    cum = np.concatenate(([0], np.cumsum(lengths)))
-    total = cum[-1]
-    idxs = np.arange(total)
-    if shuffle:
-        np.random.default_rng().shuffle(idxs)
-    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
-    row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs):
-        yield x_list[ai][ri], y_list[ai][ri]
-
-
-class ZarrDataset(IterableDataset):
+class DaskDataset(IterableDataset):
     def __init__(
         self,
         adata: ad.AnnData,
@@ -66,7 +71,7 @@ class ZarrDataset(IterableDataset):
         n_chunks: int = 8,
         shuffle: bool = True,
         dask_scheduler: Literal["synchronous", "threads"] = "threads",
-        n_workers: int = None,
+        n_workers: int | None = None,
     ):
         self.adata = adata
         self.label_column = label_column
@@ -77,12 +82,12 @@ class ZarrDataset(IterableDataset):
 
         self.worker_info = get_worker_info()
         if self.worker_info is None:
-            self.rng_split = random.Random()
+            self.rng_split = random.Random()  # noqa: S311
         else:
             # This is used for the _get_chunks function
             # Use the same seed for all workers that the resulting splits are the same across workers
             # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            self.rng_split = random.Random(self.worker_info.seed - self.worker_info.id)
+            self.rng_split = random.Random(self.worker_info.seed - self.worker_info.id)  # noqa: S311
 
     def _get_chunks(self):
         chunk_boundaries = np.cumsum([0] + list(self.adata.X.chunks[0]))
@@ -112,9 +117,6 @@ class ZarrDataset(IterableDataset):
     def __iter__(self):
         for chunks in _combine_chunks(self._get_chunks(), self.n_chunks):
             block_idxs, slices = zip(*chunks)
-            # x = self.adata.X.blocks[list(block_idxs)].compute(
-            #     scheduler=self.dask_scheduler
-            # )
             x_list = dask.compute(
                 [self.adata.X.blocks[i] for i in block_idxs],
                 scheduler=self.dask_scheduler,
@@ -122,7 +124,7 @@ class ZarrDataset(IterableDataset):
             obs_list = [
                 self.adata.obs[self.label_column].iloc[s].to_numpy() for s in slices
             ]
-            yield from _sample_rows(x_list, obs_list, self.shuffle)
+            yield from sample_rows(x_list, obs_list, self.shuffle)
 
     def __len__(self):
         return len(self.adata)

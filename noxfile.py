@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import nox
 from laminci.nox import build_docs, run, run_pre_commit, run_pytest
 

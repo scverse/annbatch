@@ -12,7 +12,7 @@ Torch data loaders.
 .. autosummary::
    :toctree: .
 
-   ZarrDataset
+   DaskDataset
    read_lazy
 
 Array store creation.
@@ -23,7 +23,10 @@ Array store creation.
    create_store_from_h5ads
 
 """
+
+from __future__ import annotations
+
+from .dask_loader import DaskDataset, read_lazy
 from .datamodules import ClassificationDataModule
-from .loading import ZarrDataset, read_lazy
-from .pure_zarr import ZarrArraysDataset
 from .store_creation import create_store_from_h5ads
+from .zarr_loader import ZarrDenseDataset

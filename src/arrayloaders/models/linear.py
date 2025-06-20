@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import lightning as L
 import torch
 import torch.nn.functional as F
