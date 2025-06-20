@@ -70,9 +70,9 @@ def test_store_creation(mock_anndatas_path):
     adata = read_lazy_store(mock_anndatas_path / "zarr_store")
     assert adata.X.shape[0] == sum([adata.shape[0] for adata in adatas])
     assert adata.X.shape[1] == len(
-        [gene for gene in var_subset if gene in adata.var.index.tolist()]
+        [gene for gene in var_subset if gene in adata.var.index]
     )
     assert np.array_equal(
-        sorted(adata.var.index.tolist()),
-        sorted([gene for gene in var_subset if gene in adata.var.index.tolist()]),
+        sorted(adata.var.index),
+        sorted([gene for gene in var_subset if gene in adata.var.index]),
     )

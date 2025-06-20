@@ -109,7 +109,7 @@ def create_store_from_h5ads(
     shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
 
     if var_subset is None:
-        var_subset = adata_concat.var_names.tolist()
+        var_subset = adata_concat.var_names
 
     for i, chunk in enumerate(tqdm(shuffle_chunks)):
         var_mask = adata_concat.var_names.isin(var_subset)
