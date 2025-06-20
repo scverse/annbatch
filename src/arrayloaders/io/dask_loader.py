@@ -46,7 +46,7 @@ def read_lazy_store(
         adata = ad.concat(
             [
                 read_lazy(path / shard, obs_columns, read_obs_lazy)
-                for shard in os.listdir(path)
+                for shard in path.iterdir()
                 if shard.endswith(".zarr")
             ]
         )
@@ -77,12 +77,12 @@ class DaskDataset(IterableDataset):
 
         self.worker_info = get_worker_info()
         if self.worker_info is None:
-            self.rng_split = random.Random()
+            self.rng_split = random.Random()  # noqa: S311
         else:
             # This is used for the _get_chunks function
             # Use the same seed for all workers that the resulting splits are the same across workers
             # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            self.rng_split = random.Random(self.worker_info.seed - self.worker_info.id)
+            self.rng_split = random.Random(self.worker_info.seed - self.worker_info.id)  # noqa: S311
 
     def _get_chunks(self):
         chunk_boundaries = np.cumsum([0] + list(self.adata.X.chunks[0]))

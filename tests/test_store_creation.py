@@ -18,7 +18,7 @@ def anndata_settings():
 
 
 @pytest.fixture
-def mock_anndatas(tmp_path: Path, n_adatas: int = 4):
+def mock_anndatas_path(tmp_path: Path, n_adatas: int = 4):
     """Create mock anndata objects for testing."""
     (tmp_path / "adatas").mkdir(parents=True, exist_ok=True)
     n_features = [random.randint(50, 100) for _ in range(n_adatas)]
@@ -39,17 +39,17 @@ def mock_anndatas(tmp_path: Path, n_adatas: int = 4):
     return tmp_path
 
 
-def test_store_creation(tmp_path: Path):
+def test_store_creation(mock_anndatas_path):
     var_subset = [f"gene_{i}" for i in range(100)]
 
-    (tmp_path / "zarr_store").mkdir(parents=True, exist_ok=True)
+    (mock_anndatas_path / "zarr_store").mkdir(parents=True, exist_ok=True)
     create_store_from_h5ads(
         [
-            tmp_path / f"adatas/{f}"
-            for f in os.listdir(tmp_path / "adatas")
+            mock_anndatas_path / f"adatas/{f}"
+            for f in (mock_anndatas_path / "adatas").iterdir()
             if f.endswith(".h5ad")
         ],
-        tmp_path / "zarr_store",
+        mock_anndatas_path / "zarr_store",
         var_subset,
         chunk_size=10,
         shard_size=20,
@@ -57,11 +57,11 @@ def test_store_creation(tmp_path: Path):
     )
 
     adatas = [
-        ad.read_h5ad(tmp_path / f"adatas/{f}")
-        for f in os.listdir(tmp_path / "adatas")
+        ad.read_h5ad(mock_anndatas_path / f"adatas/{f}")
+        for f in (mock_anndatas_path / "adatas").iterdir()
         if f.endswith(".h5ad")
     ]
-    adata = read_lazy_store(tmp_path / "zarr_store")
+    adata = read_lazy_store(mock_anndatas_path / "zarr_store")
     assert adata.X.shape[0] == sum([adata.shape[0] for adata in adatas])
     assert adata.X.shape[1] == len(
         [gene for gene in var_subset if gene in adata.var.index.tolist()]
