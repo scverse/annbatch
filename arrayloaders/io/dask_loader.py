@@ -35,7 +35,9 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
     return adata
 
 
-def read_lazy_store(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
+def read_lazy_store(
+    path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False
+):
     path = pathlib.Path(path)
 
     with warnings.catch_warnings():
@@ -55,6 +57,7 @@ def read_lazy_store(path, obs_columns: list[str] = None, read_obs_lazy: bool = F
 def _combine_chunks(lst, chunk_size):
     return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
 
+
 class DaskDataset(IterableDataset):
     def __init__(
         self,
@@ -63,7 +66,7 @@ class DaskDataset(IterableDataset):
         n_chunks: int = 8,
         shuffle: bool = True,
         dask_scheduler: Literal["synchronous", "threads"] = "threads",
-        n_workers: int = None,
+        n_workers: int | None = None,
     ):
         self.adata = adata
         self.label_column = label_column

@@ -1,5 +1,6 @@
 import os
 import random
+from pathlib import Path
 
 import anndata as ad
 import numpy as np
@@ -16,7 +17,7 @@ def anndata_settings():
 
 
 @pytest.fixture
-def mock_anndatas(tmp_path, n_adatas: int = 4):
+def mock_anndatas(tmp_path: Path, n_adatas: int = 4):
     """Create mock anndata objects for testing."""
     (tmp_path / "adatas").mkdir(parents=True, exist_ok=True)
     n_features = [random.randint(50, 100) for _ in range(n_adatas)]
@@ -37,7 +38,7 @@ def mock_anndatas(tmp_path, n_adatas: int = 4):
     return tmp_path
 
 
-def test_store_creation(mock_anndatas, tmp_path):
+def test_store_creation(tmp_path: Path):
     var_subset = [f"gene_{i}" for i in range(100)]
 
     (tmp_path / "zarr_store").mkdir(parents=True, exist_ok=True)

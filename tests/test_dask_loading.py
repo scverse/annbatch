@@ -1,10 +1,12 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from arrayloaders.io.dask_loader import DaskDataset, read_lazy_store
 
 
 @pytest.mark.parametrize("shuffle", [True, False], ids=["shuffled", "unshuffled"])
-def test_zarr_store(mock_store, *, shuffle: bool):
+def test_zarr_store(mock_store: Path, *, shuffle: bool):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -29,5 +31,3 @@ def test_zarr_store(mock_store, *, shuffle: bool):
         assert (np.vstack(batches) == adata.X.compute()).all()
     else:
         assert n_elems == adata.shape[0]
-
-

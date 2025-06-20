@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import numpy as np
 from arrayloaders.io import ClassificationDataModule
 from arrayloaders.io.dask_loader import read_lazy_store
 
 
-def test_datamodule(mock_store):
+def test_datamodule(mock_store: Path):
     """
     This test verifies that the dataloader for training works correctly:
         1. The training dataloader correctly initializes with training data
@@ -28,7 +30,7 @@ def test_datamodule(mock_store):
         assert y.shape[0] == 15
 
 
-def test_datamodule_inference(mock_store):
+def test_datamodule_inference(mock_store: Path):
     """
     This test verifies that the dataloader for inference (validation) works correctly:
         1. The validation dataloader correctly loads data from the mock store
