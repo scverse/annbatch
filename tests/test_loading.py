@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 import zarr
 from arrayloaders.io import ClassificationDataModule
-from arrayloaders.io.loading import ZarrDataset, _sample_rows, read_lazy_store
+from arrayloaders.io.dask_loader import DaskDataset, _sample_rows, read_lazy_store
 from arrayloaders.io.store_creation import _write_sharded
 
 
@@ -48,14 +48,14 @@ def mock_store(tmp_path, n_shards: int = 3):
 
 def test_zarr_store(mock_store):
     """
-    This test verifies that the ZarrDataset works correctly:
-        1. The ZarrDataset correctly loads data from the mock store
+    This test verifies that the DaskDataset works correctly:
+        1. The DaskDataset correctly loads data from the mock store
         2. Each sample has the expected feature dimension
         3. All samples from the dataset are processed
     """
     adata = read_lazy_store(mock_store, obs_columns=["label"])
 
-    loader = ZarrDataset(adata, label_column="label", n_chunks=4)
+    loader = DaskDataset(adata, label_column="label", n_chunks=4)
     n_elems = 0
     for batch in loader:
         x, y = batch

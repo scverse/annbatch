@@ -95,7 +95,7 @@ def _sample_rows(
         yield x_list[ai][ri], obs_list[ai][ri]
 
 
-class ZarrArraysDataset(IterableDataset):
+class ZarrDenseDataset(IterableDataset):
     def __init__(
         self,
         x_list: list[zarr.Array],

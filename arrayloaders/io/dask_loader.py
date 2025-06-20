@@ -69,7 +69,7 @@ def _sample_rows(
         yield x_list[ai][ri], y_list[ai][ri]
 
 
-class ZarrDataset(IterableDataset):
+class DaskDataset(IterableDataset):
     def __init__(
         self,
         adata: ad.AnnData,

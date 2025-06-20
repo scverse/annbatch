@@ -4,7 +4,7 @@ import anndata as ad
 import lightning as L
 from torch.utils.data import DataLoader
 
-from .loading import ZarrDataset
+from .dask_loader import DaskDataset
 
 
 class ClassificationDataModule(L.LightningDataModule):
@@ -33,7 +33,7 @@ class ClassificationDataModule(L.LightningDataModule):
         self.dask_scheduler = dask_scheduler
 
     def train_dataloader(self):
-        train_dataset = ZarrDataset(
+        train_dataset = DaskDataset(
             self.adata_train,
             label_column=self.label_col,
             n_chunks=self.n_chunks,
@@ -43,7 +43,7 @@ class ClassificationDataModule(L.LightningDataModule):
         return DataLoader(train_dataset, **self.train_dataloader_kwargs)
 
     def val_dataloader(self):
-        val_dataset = ZarrDataset(
+        val_dataset = DaskDataset(
             self.adata_val,
             label_column=self.label_col,
             shuffle=False,

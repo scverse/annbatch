@@ -5,7 +5,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
-from arrayloaders.io.loading import read_lazy_store
+from arrayloaders.io.dask_loader import read_lazy_store
 from arrayloaders.io.store_creation import create_store_from_h5ads
 from scipy.sparse import random as sparse_random
 
