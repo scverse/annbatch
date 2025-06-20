@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+
 from arrayloaders.io import ClassificationDataModule
 from arrayloaders.io.dask_loader import read_lazy_store
 

@@ -40,7 +40,6 @@ filterwarnings = [
 ]
 
 [tool.ruff]
-src = ["src"]
 line-length = 88
 select = [
     "F", # Errors detected by Pyflakes
