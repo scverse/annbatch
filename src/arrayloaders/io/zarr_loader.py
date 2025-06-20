@@ -233,7 +233,7 @@ class SparseDataset(IterableDataset):
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
         start_indptr = indptr_indices[0] - next(offsets)
         if len(slices) < 2:  # there is only one slice so no need to concatenate
-            return sp.csr_matrix((data_np, indices_np, start_indptr), shape=(4096, shape[1]))
+            return sp.csr_matrix((data_np, indices_np, start_indptr), shape=(start_indptr.shape[0] - 1, shape[1]))
         end_indptr = np.concatenate(
             [s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)]
         )
