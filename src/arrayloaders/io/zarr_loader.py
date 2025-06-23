@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from itertools import islice
+from collections import defaultdict
+from functools import cache
+from itertools import accumulate, chain, islice, pairwise
 from typing import TYPE_CHECKING
 
 import anndata as ad
@@ -164,9 +166,11 @@ class ZarrDenseDataset(IterableDataset):
 
 class MultiBasicIndexer:
     def __init__(self, indexers: list):
-        self.shape = [sum(i.shape[k] for i in indexers) for k in range(len(indexers[0].shape))]
-        self.drop_axes = indexers[0].drop_axes # maybe?
-        self.indexers= indexers
+        self.shape = [
+            sum(i.shape[k] for i in indexers) for k in range(len(indexers[0].shape))
+        ]
+        self.drop_axes = indexers[0].drop_axes  # maybe?
+        self.indexers = indexers
 
     def __iter__(self):
         for i in self.indexers:
@@ -175,26 +179,32 @@ class MultiBasicIndexer:
 
 def chunked(l, n):
     for i in range(0, len(l), n):
-        yield l[i:i+n]
+        yield l[i : i + n]
+
 
 class SparseDataset(IterableDataset):
-    """
+    """A loader for on-disk sparse data.
+
     This loader batches together slice requests to the underlying sparse stores to acheive higher performance.
     This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
     At the moment, the loader is agnostic to the on-disk chunking/sharding, but initial tests show excellent performance for
     sharded data/indices where the shards are extremely small (only ~30,000 elements).
     """
+
     def __init__(
         self,
         sparse_datasets: list[ad.abc.CSRDataset],
         *,
         chunk_size: int = 512,
-        preload_nchunks: int = 32
+        preload_nchunks: int = 32,
+        shuffle: bool = True,
     ):
         self.arrays = sparse_datasets
         self.n_obs = sum(a.shape[0] for a in self.arrays)
         self.chunk_size = chunk_size
         self.preload_nchunks = preload_nchunks
+        self.shuffle = shuffle
+        self._var_size = self.arrays[0].shape[1]
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         min_idx = 0
@@ -203,7 +213,9 @@ class SparseDataset(IterableDataset):
         for anndata_idx, array in enumerate(self.arrays):
             max_idx += array.shape[0]
             if (index.start >= min_idx) and (index.stop < max_idx):
-                return [(slice(index.start - min_idx, index.stop - min_idx), anndata_idx)]
+                return [
+                    (slice(index.start - min_idx, index.stop - min_idx), anndata_idx)
+                ]
             if (index.start >= min_idx) and (index.stop >= max_idx):
                 res += [(slice(index.start - min_idx, max_idx), anndata_idx)]
             if (index.start < min_idx) and (index.stop < max_idx):
@@ -211,57 +223,103 @@ class SparseDataset(IterableDataset):
             min_idx += array.shape[0]
         raise StopIteration()
 
-    @cache
+    @cache  # noqa: B019
     def get_groups(self, anndata_idx: int):
         indptr = self.arrays[anndata_idx].group["indptr"][...]
         indices = self.arrays[anndata_idx].group["indices"]
         data = self.arrays[anndata_idx].group["data"]
         return indptr, indices, data
 
-    async def _fetch_data(self, anndata_index, slices):
-        indptr, indices, data = self.get_groups(anndata_index)
-        shape = self.arrays[anndata_index].shape
+    async def _fetch_data(self, anndata_index, slices, indptr, indices, data):
         indptr_indices = [indptr[s] for s in slices]
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
-        indexer_data = MultiBasicIndexer([zarr.core.indexing.BasicIndexer(l, shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid) for l in indptr_limits])
-        indexer_indices = MultiBasicIndexer([zarr.core.indexing.BasicIndexer(l, shape=indices.metadata.shape, chunk_grid=indices.metadata.chunk_grid) for l in indptr_limits])
+        indexer_data = MultiBasicIndexer(
+            [
+                zarr.core.indexing.BasicIndexer(
+                    l, shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid
+                )
+                for l in indptr_limits
+            ]
+        )
+        indexer_indices = MultiBasicIndexer(
+            [
+                zarr.core.indexing.BasicIndexer(
+                    l,
+                    shape=indices.metadata.shape,
+                    chunk_grid=indices.metadata.chunk_grid,
+                )
+                for l in indptr_limits
+            ]
+        )
         data_np, indices_np = await asyncio.gather(
-            data._async_array._get_selection(indexer_data, prototype=zarr.core.buffer.default_buffer_prototype()),
-            indices._async_array._get_selection(indexer_indices, prototype=zarr.core.buffer.default_buffer_prototype())
+            data._async_array._get_selection(
+                indexer_data, prototype=zarr.core.buffer.default_buffer_prototype()
+            ),
+            indices._async_array._get_selection(
+                indexer_indices, prototype=zarr.core.buffer.default_buffer_prototype()
+            ),
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
         start_indptr = indptr_indices[0] - next(offsets)
         if len(slices) < 2:  # there is only one slice so no need to concatenate
-            return sp.csr_matrix((data_np, indices_np, start_indptr), shape=(start_indptr.shape[0] - 1, shape[1]))
+            return sp.csr_matrix(
+                (data_np, indices_np, start_indptr),
+                shape=(start_indptr.shape[0] - 1, self._var_size),
+            )
         end_indptr = np.concatenate(
             [s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)]
         )
         indptr_np = np.concatenate([start_indptr, end_indptr])
-        return sp.csr_matrix((data_np, indices_np, indptr_np), shape=(indptr_np.shape[0] - 1, shape[1]))
+        return sp.csr_matrix(
+            (data_np, indices_np, indptr_np),
+            shape=(indptr_np.shape[0] - 1, self._var_size),
+        )
 
-
-    def _slices_to_slices_with_array_index(self, slices: list[slice]):
-        anndata_index_to_slices = defaultdict(list)
+    def _slices_to_slices_with_array_index(
+        self, slices: list[slice]
+    ) -> defaultdict[int, list[slice]]:
+        anndata_index_to_slices: defaultdict[int, list[slice]] = defaultdict(list)
         for slice in slices:
             for relative_obs_indices in self._get_relative_obs_indices(slice):
-                anndata_index_to_slices[relative_obs_indices[1]] += [relative_obs_indices[0]]
+                anndata_index_to_slices[relative_obs_indices[1]] += [
+                    relative_obs_indices[0]
+                ]
         return anndata_index_to_slices
 
     def __iter__(self):
         shuffled_chunk_indices = np.array(list(range(self.n_obs // self.chunk_size)))
-        np.random.shuffle(shuffled_chunk_indices)
-        tasks = []
+        if self.shuffle:
+            np.random.shuffle(shuffled_chunk_indices)
+        for i, _ in enumerate(self.arrays):
+            self.get_groups(i)  # TODO: asyncify
+
         for chunks in chunked(shuffled_chunk_indices, self.preload_nchunks):
-            slices = [slice(index, min(self.n_obs, index + self.chunk_size) + 1) for index in chunks]
-            anndata_index_to_slices = self._slices_to_slices_with_array_index(slices)
-            for anndata_idx in anndata_index_to_slices:
-                tasks.append(self._fetch_data(anndata_idx, anndata_index_to_slices[anndata_idx]))
-            chunks = zsync.sync(asyncio.gather(tasks))
-            yield from _sample_rows(
+
+            async def get():
+                slices = [
+                    slice(index, min(self.n_obs, index + self.chunk_size) + 1)
+                    for index in chunks
+                ]
+                tasks = []
+                anndata_index_to_slices = self._slices_to_slices_with_array_index(
+                    slices
+                )
+                for anndata_idx in anndata_index_to_slices:
+                    tasks.append(
+                        self._fetch_data(
+                            anndata_idx,
+                            anndata_index_to_slices[anndata_idx],
+                            *self.get_groups(anndata_idx),
+                        )
+                    )
+                return await asyncio.gather(*tasks)
+
+            chunks = zsync.sync(get())
+            yield from sample_rows(
                 list(chunks),
                 None,
-                True,
+                self.shuffle,
             )
 
     def __len__(self):

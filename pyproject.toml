@@ -29,6 +29,8 @@ dev = [
     "pytest>=6.0",
     "pytest-cov",
     "nbproject_test",
+    "pytest-asyncio",
+
 ]
 
 [tool.pytest.ini_options]
@@ -38,6 +40,7 @@ testpaths = [
 filterwarnings = [
     "ignore:Jupyter is migrating its paths to use standard platformdirs:DeprecationWarning"
 ]
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 88
