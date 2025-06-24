@@ -192,7 +192,7 @@ def chunked(l, n):
         yield chunk
 
 
-class SparseDataset(IterableDataset):
+class ZarrSparseDataset(IterableDataset):
     """A loader for on-disk sparse data.
 
     This loader batches together slice requests to the underlying sparse stores to acheive higher performance.

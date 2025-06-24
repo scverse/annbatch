@@ -8,8 +8,12 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from arrayloaders.io.dask_loader import DaskDataset, read_lazy_store
-from arrayloaders.io.zarr_loader import SparseDataset, ZarrDenseDataset
+from arrayloaders.io import (
+    DaskDataset,
+    ZarrDenseDataset,
+    ZarrSparseDataset,
+    read_lazy_store,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -33,7 +37,7 @@ if TYPE_CHECKING:
             shuffle=shuffle,
             obs_column="label",
         ),
-        lambda path, shuffle: SparseDataset(
+        lambda path, shuffle: ZarrSparseDataset(
             [
                 ad.io.sparse_dataset(zarr.open(p)["layers"]["sparse"])
                 for p in path.glob("*.zarr")
