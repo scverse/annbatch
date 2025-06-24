@@ -187,9 +187,7 @@ class MultiBasicIndexer:
 
 def chunked(l, n):
     for i in range(0, len(l), n):
-        chunk = l[i : i + n]
-        chunk.sort()
-        yield chunk
+        yield l[i : i + n]
 
 
 class ZarrSparseDataset(IterableDataset):
