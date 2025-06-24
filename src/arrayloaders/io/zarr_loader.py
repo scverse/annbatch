@@ -213,6 +213,7 @@ class ZarrSparseDataset(IterableDataset):
         self.preload_nchunks = preload_nchunks
         self.shuffle = shuffle
         self._var_size = self.arrays[0].shape[1]
+        self._groups_cache: dict[int, list] = {}
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         min_idx = index.start
@@ -233,12 +234,23 @@ class ZarrSparseDataset(IterableDataset):
             curr_pos += n_obs
         return slices
 
-    @cache  # noqa: B019
-    def get_groups(self, anndata_idx: int):
-        indptr = self.arrays[anndata_idx].group["indptr"][...]
-        indices = self.arrays[anndata_idx].group["indices"]
-        data = self.arrays[anndata_idx].group["data"]
-        return indptr, indices, data
+    async def get_sparse_elems(self, anndata_idx: int):
+        if anndata_idx not in self._groups_cache:
+
+            async def get_arr(idx):
+                indptr = await self.arrays[idx].group._async_group.getitem("indptr")
+                return await asyncio.gather(
+                    indptr.getitem(Ellipsis),
+                    self.arrays[idx].group._async_group.getitem("indices"),
+                    self.arrays[idx].group._async_group.getitem("data"),
+                )
+
+            arrs = await asyncio.gather(
+                *(get_arr(idx) for idx in range(len(self.arrays)))
+            )
+            for idx, arr in enumerate(arrs):
+                self._groups_cache[idx] = arr
+        return self._groups_cache[anndata_idx]
 
     async def _fetch_data(self, anndata_index, slices, indptr, indices, data):
         indptr_indices = [indptr[slice(s.start, s.stop + 1)] for s in slices]
@@ -262,10 +274,10 @@ class ZarrSparseDataset(IterableDataset):
             ]
         )
         data_np, indices_np = await asyncio.gather(
-            data._async_array._get_selection(
+            data._get_selection(
                 indexer_data, prototype=zarr.core.buffer.default_buffer_prototype()
             ),
-            indices._async_array._get_selection(
+            indices._get_selection(
                 indexer_indices, prototype=zarr.core.buffer.default_buffer_prototype()
             ),
         )
@@ -303,9 +315,9 @@ class ZarrSparseDataset(IterableDataset):
         )
         if self.shuffle:
             np.random.shuffle(maybe_shuffled_chunk_indices)  # noqa: NPY002 # TODO: remove
-        for i, _ in enumerate(self.arrays):
-            self.get_groups(i)  # TODO: asyncify
-
+        zsync.sync(
+            self.get_sparse_elems(0)
+        )  # activate cache, TODO: better way of handling this?
         for chunks in chunked(maybe_shuffled_chunk_indices, self.preload_nchunks):
 
             async def get(chunks):
@@ -325,7 +337,7 @@ class ZarrSparseDataset(IterableDataset):
                         self._fetch_data(
                             anndata_idx,
                             anndata_index_to_slices[anndata_idx],
-                            *self.get_groups(anndata_idx),
+                            *(await self.get_sparse_elems(anndata_idx)),
                         )
                     )
                 return await asyncio.gather(*tasks)
