@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from typing import Literal
 
 
+# TODO: refactor to read full lazy and then simply pick out the needed columns into memory isnted of having `read_obs_lazy` as a separate arg
 def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
     g = zarr.open(path, mode="r")
     if read_obs_lazy:
@@ -35,9 +36,9 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
         X=ad.experimental.read_elem_lazy(g["X"]),
         obs=obs,
         var=ad.io.read_elem(g["var"]),
-        layers={
-            "sparse": ad.experimental.read_elem_lazy(g["layers"]["sparse"])
-        },  # TODO: make work
+        layers={"sparse": ad.experimental.read_elem_lazy(g["layers"]["sparse"])}
+        if ("layers" in g and "sparse" in g["layers"])
+        else None,  # TODO: make work
     )
 
     return adata
