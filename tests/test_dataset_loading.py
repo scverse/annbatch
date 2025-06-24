@@ -39,7 +39,7 @@ if TYPE_CHECKING:
                 for p in path.glob("*.zarr")
             ],
             shuffle=shuffle,
-            chunk_size=10,
+            chunk_size=100,
             preload_nchunks=5,
         ),
     ],

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections import defaultdict
 from functools import cache
 from itertools import accumulate, chain, islice, pairwise
@@ -164,6 +165,9 @@ class ZarrDenseDataset(IterableDataset):
         return self.n_obs
 
 
+# TODO: make this part of the public zarr or zarrs-python API.
+# We can do chunk coalescing in zarrs based on integer arrays, so I think
+# there would make sense with ezclump or similar.
 class MultiBasicIndexer:
     def __init__(self, indexers: list):
         self.shape = [
@@ -173,13 +177,19 @@ class MultiBasicIndexer:
         self.indexers = indexers
 
     def __iter__(self):
+        total = 0
         for i in self.indexers:
-            yield from i
+            for c in i:
+                gap = c[2][0].stop - c[2][0].start
+                yield type(c)(c[0], c[1], (slice(total, total + gap)), c[3])
+                total += gap
 
 
 def chunked(l, n):
     for i in range(0, len(l), n):
-        yield l[i : i + n]
+        chunk = l[i : i + n]
+        chunk.sort()
+        yield chunk
 
 
 class SparseDataset(IterableDataset):
@@ -208,7 +218,7 @@ class SparseDataset(IterableDataset):
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         min_idx = index.start
-        max_idx = index.stop  # handling of the 1 for indptr slices which needs +1
+        max_idx = index.stop
         curr_pos = 0
         slices = []
         for anndata_idx, array in enumerate(self.arrays):
@@ -238,7 +248,7 @@ class SparseDataset(IterableDataset):
         indexer_data = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
-                    l, shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid
+                    (l,), shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid
                 )
                 for l in indptr_limits
             ]
@@ -246,7 +256,7 @@ class SparseDataset(IterableDataset):
         indexer_indices = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
-                    l,
+                    (l,),
                     shape=indices.metadata.shape,
                     chunk_grid=indices.metadata.chunk_grid,
                 )
@@ -291,16 +301,16 @@ class SparseDataset(IterableDataset):
 
     def __iter__(self):
         maybe_shuffled_chunk_indices = np.array(
-            list(range(self.n_obs // self.chunk_size))
+            list(range(math.ceil(self.n_obs / self.chunk_size)))
         )
         if self.shuffle:
-            np.random.shuffle(maybe_shuffled_chunk_indices)
+            np.random.shuffle(maybe_shuffled_chunk_indices)  # noqa: NPY002 # TODO: remove
         for i, _ in enumerate(self.arrays):
             self.get_groups(i)  # TODO: asyncify
 
         for chunks in chunked(maybe_shuffled_chunk_indices, self.preload_nchunks):
 
-            async def get():
+            async def get(chunks):
                 slices = [
                     slice(
                         index * self.chunk_size,
@@ -322,7 +332,7 @@ class SparseDataset(IterableDataset):
                     )
                 return await asyncio.gather(*tasks)
 
-            chunks = zsync.sync(get())
+            chunks = zsync.sync(get(chunks))
             yield from sample_rows(
                 list(chunks),
                 None,
