@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import pathlib
 import random
 import warnings
@@ -20,6 +19,17 @@ if TYPE_CHECKING:
 
 
 def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
+    """Read an individual shard of a Zarr store into an AnnData object.
+
+    Parameters
+    ----------
+    path : pathlib.Path | str
+        Path to individual Zarr based AnnData shard.
+    obs_columns : list[str] | None
+        List of observation columns to read. If None, all columns are read.
+    read_obs_lazy : bool
+        If True, read the obs DataFrame lazily. This is useful for large obs DataFrames.
+    """
     g = zarr.open(path, mode="r")
     if read_obs_lazy:
         obs = ad.experimental.read_elem_lazy(g["obs"])
@@ -43,6 +53,17 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
 def read_lazy_store(
     path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False
 ):
+    """Read a Zarr store containing multiple shards into a single AnnData object.
+
+    Parameters
+    ----------
+    path : pathlib.Path | str
+        Path to the Zarr store containing multiple shards.
+    obs_columns : list[str] | None
+        List of observation columns to read. If None, all columns are read.
+    read_obs_lazy : bool
+        If True, read the obs DataFrame lazily. This is useful for large obs DataqFrames.
+    """
     path = pathlib.Path(path)
 
     with warnings.catch_warnings():
@@ -64,6 +85,39 @@ def _combine_chunks(lst, chunk_size):
 
 
 class DaskDataset(IterableDataset):
+    """Dask-based IterableDataset for loading AnnData objects in chunks.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        The AnnData object to yield samples from.
+    label_column : str
+        The name of the column in `adata.obs` that contains the labels.
+    n_chunks : int = 8
+        Number of chunks of the underlying dask.array to load at a time.
+        Loading more chunks at a time can improve performance and will also improve randomness.
+        However, it increases memory usage.
+    shuffle : bool = True
+        Whether to yield samples in a random order.
+    dask_scheduler : Literal["synchronous", "threads"] = "threads"
+        The Dask scheduler to use for parallel computation.
+        "synchronous" for single-threaded execution, "threads" for multithreaded execution
+    n_workers : int | None = None
+        Number of Dask workers to use. If None, the number of workers is determined by Dask.
+
+    Examples:
+    --------
+    >>> from arrayloaders.io.dask_loader import DaskDataset, read_lazy_store
+    >>> from torch.utils.data import DataLoader
+    >>> label_column = "y"
+    >>> adata = read_lazy_store("path/to/zarr/store", obs_columns=[label_column])
+    >>> dataset = DaskDataset(adata, label_column=label_column, n_chunks=8, shuffle=True)
+    >>> dataloader = DataLoader(dataset, batch_size=2048, num_workers=4, drop_last=True)
+    >>> for batch in dataloader:
+    ...     x, y = batch
+    ...     # Process the batch
+    """
+
     def __init__(
         self,
         adata: ad.AnnData,
@@ -87,7 +141,9 @@ class DaskDataset(IterableDataset):
             # This is used for the _get_chunks function
             # Use the same seed for all workers that the resulting splits are the same across workers
             # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
+            # fmt: off
             self.rng_split = random.Random(self.worker_info.seed - self.worker_info.id)  # noqa: S311
+            # fmt: on
 
     def _get_chunks(self):
         chunk_boundaries = np.cumsum([0] + list(self.adata.X.chunks[0]))

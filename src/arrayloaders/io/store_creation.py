@@ -101,6 +101,38 @@ def create_store_from_h5ads(
     ),
     shuffle_buffer_size: int = 1_048_576,
 ):
+    """Create a Zarr store from multiple h5ad files.
+
+    Parameters
+    ----------
+    adata_paths : Iterable[PathLike[str]] | Iterable[str]
+        Paths to the h5ad files used to create the zarr store.
+    output_path : PathLike[str] | str
+        Path to the output zarr store.
+    var_subset : Iterable[str] | None
+        Subset of genes names to include in the store. If None, all genes are included.
+        Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
+    chunk_size : int = 4096
+        Size of the chunks to use for the data in the zarr store.
+    shard_size : int = 65536
+        Size of the shards to use for the data in the zarr store.
+    compressors : Iterable[BytesBytesCodec]
+        `zarr.codecs.BytesCodec` compressors to use to compress the data in the zarr store.
+    shuffle_buffer_size : int = 1_048_576
+        Number of observations to load into memory at once for shuffling.
+        The higher this number, the more memory is used, but the better the shuffling.
+
+    Examples:
+    --------
+    >>> from arrayloaders.io.store_creation import create_store_from_h5ads
+    >>> from.os import join
+    >>> datasets = [
+    ... "path/to/fist_adata.h5ad",
+    ... "path/to/second_adata.h5ad",
+    ... "path/to/third_adata.h5ad",
+    ... ]
+    >>> create_store_from_h5ads(datasets, "path/to/output/zarr_store")
+    """
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
     print("setting ad.settings.zarr_write_format to 3")
