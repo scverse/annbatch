@@ -23,11 +23,11 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
 
     Parameters
     ----------
-    path : pathlib.Path | str
+    path
         Path to individual Zarr based AnnData shard.
-    obs_columns : list[str] | None
+    obs_columns
         List of observation columns to read. If None, all columns are read.
-    read_obs_lazy : bool
+    read_obs_lazy
         If True, read the obs DataFrame lazily. This is useful for large obs DataFrames.
     """
     g = zarr.open(path, mode="r")
@@ -57,11 +57,11 @@ def read_lazy_store(
 
     Parameters
     ----------
-    path : pathlib.Path | str
+    path
         Path to the Zarr store containing multiple shards.
-    obs_columns : list[str] | None
+    obs_columns
         List of observation columns to read. If None, all columns are read.
-    read_obs_lazy : bool
+    read_obs_lazy
         If True, read the obs DataFrame lazily. This is useful for large obs DataqFrames.
     """
     path = pathlib.Path(path)
@@ -89,20 +89,20 @@ class DaskDataset(IterableDataset):
 
     Parameters
     ----------
-    adata : anndata.AnnData
-        The AnnData object to yield samples from.
-    label_column : str
+    adata
+        The `anndata.AnnData` object to yield samples from.
+    label_column
         The name of the column in `adata.obs` that contains the labels.
-    n_chunks : int = 8
+    n_chunks
         Number of chunks of the underlying dask.array to load at a time.
         Loading more chunks at a time can improve performance and will also improve randomness.
         However, it increases memory usage.
-    shuffle : bool = True
+    shuffle
         Whether to yield samples in a random order.
-    dask_scheduler : Literal["synchronous", "threads"] = "threads"
+    dask_scheduler
         The Dask scheduler to use for parallel computation.
         "synchronous" for single-threaded execution, "threads" for multithreaded execution
-    n_workers : int | None = None
+    n_workers
         Number of Dask workers to use. If None, the number of workers is determined by Dask.
 
     Examples:

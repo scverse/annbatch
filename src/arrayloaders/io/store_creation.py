@@ -105,27 +105,27 @@ def create_store_from_h5ads(
 
     Parameters
     ----------
-    adata_paths : Iterable[PathLike[str]] | Iterable[str]
+    adata_paths
         Paths to the h5ad files used to create the zarr store.
-    output_path : PathLike[str] | str
+    output_path
         Path to the output zarr store.
-    var_subset : Iterable[str] | None
+    var_subset
         Subset of genes names to include in the store. If None, all genes are included.
         Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
-    chunk_size : int = 4096
+    chunk_size
         Size of the chunks to use for the data in the zarr store.
-    shard_size : int = 65536
+    shard_size
         Size of the shards to use for the data in the zarr store.
-    compressors : Iterable[BytesBytesCodec]
+    compressors
         `zarr.codecs.BytesCodec` compressors to use to compress the data in the zarr store.
-    shuffle_buffer_size : int = 1_048_576
+    shuffle_buffer_size
         Number of observations to load into memory at once for shuffling.
         The higher this number, the more memory is used, but the better the shuffling.
 
     Examples:
     --------
     >>> from arrayloaders.io.store_creation import create_store_from_h5ads
-    >>> from.os import join
+    >>> from os.path import join
     >>> datasets = [
     ... "path/to/fist_adata.h5ad",
     ... "path/to/second_adata.h5ad",

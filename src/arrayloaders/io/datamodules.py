@@ -18,21 +18,21 @@ class ClassificationDataModule(L.LightningDataModule):
 
     Parameters
     ----------
-    adata_train : anndata.AnnData | None
+    adata_train
         `anndata.AnnData` object containing the training data.
-    adata_val : anndata.AnnData | None
+    adata_val
         `anndata.AnnData` object containing the validation data.
-    label_column : str
+    label_column
         The name of the column in `obs` that contains the target values.
-    train_dataloader_kwargs : dict
+    train_dataloader_kwargs
         Additional keyword arguments passed to the `torch.utils.data.Dataloader` for the training dataset.
-    val_dataloader_kwargs : dict
+    val_dataloader_kwargs
         Additional keyword arguments passed to the `torch.utils.data.Dataloader` for the validation dataset.
-    n_chunks : int, default=8
+    n_chunks
         Number of chunks of the underlying dask.array to load at a time.
         Loading more chunks at a time can improve performance and will also improve randomness.
         However, it increases memory usage.
-    dask_scheduler : Literal["synchronous", "threads"] = "threads"
+    dask_scheduler
         The Dask scheduler to use for parallel computation.
         "synchronous" for single-threaded execution, "threads" for multithreaded execution
 
