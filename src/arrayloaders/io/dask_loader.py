@@ -35,6 +35,9 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
         X=ad.experimental.read_elem_lazy(g["X"]),
         obs=obs,
         var=ad.io.read_elem(g["var"]),
+        layers={
+            "sparse": ad.experimental.read_elem_lazy(g["layers"]["sparse"])
+        },  # TODO: make work
     )
 
     return adata

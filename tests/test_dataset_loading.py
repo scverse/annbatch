@@ -73,6 +73,9 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader, event_loop):
         ).vstack(batches)
         if not is_dense:
             stacked = stacked.toarray()
-        np.testing.assert_allclose(stacked, np.array(adata.X.compute()))
+            expected = adata.layers["sparse"].compute().toarray()
+        else:
+            expected = adata.X.compute()
+        np.testing.assert_allclose(stacked, expected)
     else:
         assert n_elems == adata.shape[0]

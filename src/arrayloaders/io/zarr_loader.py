@@ -207,21 +207,23 @@ class SparseDataset(IterableDataset):
         self._var_size = self.arrays[0].shape[1]
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
-        min_idx = 0
-        max_idx = 0
-        res = []
+        min_idx = index.start
+        max_idx = index.stop  # handling of the 1 for indptr slices which needs +1
+        curr_pos = 0
+        slices = []
         for anndata_idx, array in enumerate(self.arrays):
-            max_idx += array.shape[0]
-            if (index.start >= min_idx) and (index.stop < max_idx):
-                return [
-                    (slice(index.start - min_idx, index.stop - min_idx), anndata_idx)
-                ]
-            if (index.start >= min_idx) and (index.stop >= max_idx):
-                res += [(slice(index.start - min_idx, max_idx), anndata_idx)]
-            if (index.start < min_idx) and (index.stop < max_idx):
-                return res + [(slice(min_idx, index.stop), anndata_idx)]
-            min_idx += array.shape[0]
-        raise StopIteration()
+            array_start = curr_pos
+            n_obs = array.shape[0]
+            array_end = curr_pos + n_obs
+
+            start = max(min_idx, array_start)
+            stop = min(max_idx, array_end)
+            if start < stop:
+                relative_start = start - array_start
+                relative_stop = stop - array_start
+                slices.append((slice(relative_start, relative_stop), anndata_idx))
+            curr_pos += n_obs
+        return slices
 
     @cache  # noqa: B019
     def get_groups(self, anndata_idx: int):
@@ -231,7 +233,7 @@ class SparseDataset(IterableDataset):
         return indptr, indices, data
 
     async def _fetch_data(self, anndata_index, slices, indptr, indices, data):
-        indptr_indices = [indptr[s] for s in slices]
+        indptr_indices = [indptr[slice(s.start, s.stop + 1)] for s in slices]
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
         indexer_data = MultiBasicIndexer(
             [
@@ -288,17 +290,22 @@ class SparseDataset(IterableDataset):
         return anndata_index_to_slices
 
     def __iter__(self):
-        shuffled_chunk_indices = np.array(list(range(self.n_obs // self.chunk_size)))
+        maybe_shuffled_chunk_indices = np.array(
+            list(range(self.n_obs // self.chunk_size))
+        )
         if self.shuffle:
-            np.random.shuffle(shuffled_chunk_indices)
+            np.random.shuffle(maybe_shuffled_chunk_indices)
         for i, _ in enumerate(self.arrays):
             self.get_groups(i)  # TODO: asyncify
 
-        for chunks in chunked(shuffled_chunk_indices, self.preload_nchunks):
+        for chunks in chunked(maybe_shuffled_chunk_indices, self.preload_nchunks):
 
             async def get():
                 slices = [
-                    slice(index, min(self.n_obs, index + self.chunk_size) + 1)
+                    slice(
+                        index * self.chunk_size,
+                        min(self.n_obs, (index + 1) * self.chunk_size),
+                    )
                     for index in chunks
                 ]
                 tasks = []
