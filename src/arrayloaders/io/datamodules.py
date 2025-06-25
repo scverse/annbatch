@@ -16,44 +16,31 @@ if TYPE_CHECKING:
 class ClassificationDataModule(L.LightningDataModule):
     """A LightningDataModule for classification tasks using arrayloaders.io.DaskDataset.
 
-    Parameters
-    ----------
-    adata_train
-        `anndata.AnnData` object containing the training data.
-    adata_val
-        `anndata.AnnData` object containing the validation data.
-    label_column
-        The name of the column in `obs` that contains the target values.
-    train_dataloader_kwargs
-        Additional keyword arguments passed to the `torch.utils.data.Dataloader` for the training dataset.
-    val_dataloader_kwargs
-        Additional keyword arguments passed to the `torch.utils.data.Dataloader` for the validation dataset.
-    n_chunks
-        Number of chunks of the underlying dask.array to load at a time.
-        Loading more chunks at a time can improve performance and will also improve randomness.
-        However, it increases memory usage.
-    dask_scheduler
-        The Dask scheduler to use for parallel computation.
-        "synchronous" for single-threaded execution, "threads" for multithreaded execution
+    Args:
+        adata_train: anndata.AnnData object containing the training data.
+        adata_val: anndata.AnnData object containing the validation data.
+        label_column: Name of the column in `obs` that contains the target values.
+        train_dataloader_kwargs: Additional keyword arguments passed to the torch DataLoader for the training dataset.
+        val_dataloader_kwargs: Additional keyword arguments passed to the torch DataLoader for the validation dataset.
+        n_chunks: Number of chunks of the underlying dask.array to load at a time. Loading more chunks at a time can improve performance and randomness, but increases memory usage.
+        dask_scheduler: The Dask scheduler to use for parallel computation. Use "synchronous" for single-threaded execution or "threads" for multithreaded execution.
 
     Examples:
-    --------
-    >>> from arrayloaders.io.datamodules import ClassificationDataModule
-    >>> from arrayloaders.io.dask_loader import read_lazy_store
-    >>> adata_train = read_lazy_store("path/to/train/store", obs_columns=["label"])
-    >>> # torch needs int64 encoded labels
-    >>> adata_train.obs["y"] = adata_train.obs["label"].cat.codes.to_numpy().astype("i8")
-    >>> datamodule = ClassificationDataModule(
-    ...    adata_train=adata_train,
-    ...    adata_val=None,
-    ...    label_column="label",
-    ...    train_dataloader_kwargs={
-    ...        "batch_size": 2048,
-    ...        "drop_last": True,
-    ...        "num_workers": 4
-    ...    },
-    ...)
-    >>> train_loader = datamodule.train_dataloader()  # torch dataloader to iterate over the training data
+        >>> from arrayloaders.io.datamodules import ClassificationDataModule
+        >>> from arrayloaders.io.dask_loader import read_lazy_store
+        >>> adata_train = read_lazy_store("path/to/train/store", obs_columns=["label"])
+        >>> adata_train.obs["y"] = adata_train.obs["label"].cat.codes.to_numpy().astype("i8")
+        >>> datamodule = ClassificationDataModule(
+        ...     adata_train=adata_train,
+        ...     adata_val=None,
+        ...     label_column="label",
+        ...     train_dataloader_kwargs={
+        ...         "batch_size": 2048,
+        ...         "drop_last": True,
+        ...         "num_workers": 4
+        ...     },
+        ... )
+        >>> train_loader = datamodule.train_dataloader()
     """
 
     def __init__(
