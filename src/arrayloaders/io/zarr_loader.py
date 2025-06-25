@@ -19,7 +19,7 @@ from upath import UPath
 from .utils import sample_rows
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
     from os import PathLike
 
 
@@ -90,11 +90,11 @@ class ZarrDenseDataset(IterableDataset):
         shuffle: bool = True,
         preload_nchunks: int = 8,
     ):
-        self.arrays = x_list
-        self.obs = obs_list
-        self.obs_column = obs_column
-        self.shuffle = shuffle
-        self.preload_chunks = preload_nchunks
+        self._arrays = x_list
+        self._obs = obs_list
+        self._obs_column = obs_column
+        self._shuffle = shuffle
+        self._preload_nchunks = preload_nchunks
         self._rng = np.random.default_rng()
 
         self.n_obs_list: list[int] = []  # number of observations for each array
@@ -108,7 +108,7 @@ class ZarrDenseDataset(IterableDataset):
             arrays_nchunks.append(array_nchunks)
             arrays_chunks.append(np.arange(array_nchunks))
 
-        self.n_obs = sum(self.n_obs_list)
+        self._n_obs = sum(self.n_obs_list)
         # assumes the same for all arrays
         array0 = x_list[0]
         self.n_vars = array0.shape[1]
@@ -116,7 +116,7 @@ class ZarrDenseDataset(IterableDataset):
         self.order = array0.order
 
         self.chunks = np.hstack(arrays_chunks)
-        self.array_idxs = np.repeat(np.arange(len(self.arrays)), arrays_nchunks)
+        self.array_idxs = np.repeat(np.arange(len(self._arrays)), arrays_nchunks)
         # pre-compute chunk slices
         # slices are needed because we want to iterate over (logical) chunks, not (physical) shards
         # but in zarr array.blocks[i] returns whole shards unlike dask
@@ -135,7 +135,7 @@ class ZarrDenseDataset(IterableDataset):
         tasks = []
         for i in chunk_idxs:
             array_idx = self.array_idxs[i]
-            array = self.arrays[array_idx]
+            array = self._arrays[array_idx]
             tasks.append(array._async_array.getitem(self.chunks_slices[i]))
         return await asyncio.gather(*tasks)
 
@@ -144,7 +144,7 @@ class ZarrDenseDataset(IterableDataset):
         for i in chunk_idxs:
             array_idx = self.array_idxs[i]
             obs.append(
-                self.obs[array_idx][self.obs_column]
+                self._obs[array_idx][self._obs_column]
                 .iloc[self.chunks_slices[i]]
                 .to_numpy()
             )
@@ -152,18 +152,18 @@ class ZarrDenseDataset(IterableDataset):
 
     def __iter__(self):
         chunks_global = np.arange(len(self.chunks))
-        if self.shuffle:
+        if self._shuffle:
             np.random.shuffle(chunks_global)  # noqa: NPY002
 
-        for batch in _batched(chunks_global, self.preload_chunks):
+        for batch in _batched(chunks_global, self._preload_nchunks):
             yield from sample_rows(
                 list(zsync.sync(self._fetch_chunks_x(batch))),
                 self._fetch_chunks_obs(batch),
-                self.shuffle,
+                self._shuffle,
             )
 
     def __len__(self):
-        return self.n_obs
+        return self._n_obs
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
@@ -192,14 +192,6 @@ def chunked(l, n):
 
 
 class ZarrSparseDataset(IterableDataset):
-    """A loader for on-disk sparse data.
-
-    This loader batches together slice requests to the underlying sparse stores to acheive higher performance.
-    This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
-    At the moment, the loader is agnostic to the on-disk chunking/sharding, but initial tests show excellent performance for
-    sharded data/indices where the shards are extremely small (only ~30,000 elements).
-    """
-
     def __init__(
         self,
         sparse_datasets: list[ad.abc.CSRDataset],
@@ -208,21 +200,55 @@ class ZarrSparseDataset(IterableDataset):
         preload_nchunks: int = 32,
         shuffle: bool = True,
     ):
-        self.arrays = sparse_datasets
-        self.n_obs = sum(a.shape[0] for a in self.arrays)
-        self.chunk_size = chunk_size
-        self.preload_nchunks = preload_nchunks
-        self.shuffle = shuffle
-        self._var_size = self.arrays[0].shape[1]
-        self._groups_cache: dict[int, list] = {}
+        """A loader for on-disk sparse data.
+
+        This loader batches together slice requests to the underlying sparse stores to acheive higher performance.
+        This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
+        At the moment, the loader is agnostic to the on-disk chunking/sharding, but initial tests show excellent performance for
+        sharded data/indices where the shards are extremely small (only ~30,000 elements).
+
+        Args:
+            sparse_datasets: Disk-backed sparse data.  For now, must all be of the same var (i.e., axis 1) size.
+            chunk_size: The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
+            preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
+            shuffle: Whether or not to shuffle the data, by default True
+        """
+        if not all(s.shape[1] == sparse_datasets[0].shape[1] for s in sparse_datasets):
+            raise ValueError(
+                "TODO: Implement join indexing for sparse datasets with different axis=1 shapes"
+            )
+        self._sparse_datasets = sparse_datasets
+        self._n_obs = sum(a.shape[0] for a in self._sparse_datasets)
+        self._chunk_size = chunk_size
+        self._preload_nchunks = preload_nchunks
+        self._shuffle = shuffle
+        self._var_size = self._sparse_datasets[0].shape[1]
+        self._groups_cache: dict[
+            int, tuple[np.ndarray, zarr.AsyncArray, zarr.AsyncArray]
+        ] = {}
         self._rng = np.random.default_rng()
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
+        """Generate a slice relative to a dataset given a global slice index over all datasets.
+
+        For a given slice indexer of axis 0, return a new slice relative to the on-disk
+        data it represents given the number of total observations as well as the index of
+        the underlying data on disk from the argument `sparse_datasets` to the initializer.
+
+        For example, given slice index (10, 15), for 4 datasets each with size 5 on axis zero,
+        this function returns ((0,5), 2) representing slice (0,5) along axis zero of sparse dataset 2.
+
+        Args:
+            index: The queried slice.
+
+        Returns:
+            A slice relative to the dataset it represents as well as the index of said dataset in `sparse_datasets`.
+        """
         min_idx = index.start
         max_idx = index.stop
         curr_pos = 0
         slices = []
-        for anndata_idx, array in enumerate(self.arrays):
+        for anndata_idx, array in enumerate(self._sparse_datasets):
             array_start = curr_pos
             n_obs = array.shape[0]
             array_end = curr_pos + n_obs
@@ -236,25 +262,54 @@ class ZarrSparseDataset(IterableDataset):
             curr_pos += n_obs
         return slices
 
-    async def get_sparse_elems(self, anndata_idx: int):
+    async def _get_sparse_elems(
+        self, anndata_idx: int
+    ) -> tuple[np.ndarray, zarr.AsyncArray, zarr.AsyncArray]:
+        """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
+
+        Args:
+            anndata_idx: The index of the dataset whose arrays are sought.
+
+        Returns:
+            The arrays representing the sparse data.
+        """
         if anndata_idx not in self._groups_cache:
 
             async def get_arr(idx):
-                indptr = await self.arrays[idx].group._async_group.getitem("indptr")
+                indptr = await self._sparse_datasets[idx].group._async_group.getitem(
+                    "indptr"
+                )
                 return await asyncio.gather(
                     indptr.getitem(Ellipsis),
-                    self.arrays[idx].group._async_group.getitem("indices"),
-                    self.arrays[idx].group._async_group.getitem("data"),
+                    self._sparse_datasets[idx].group._async_group.getitem("indices"),
+                    self._sparse_datasets[idx].group._async_group.getitem("data"),
                 )
 
             arrs = await asyncio.gather(
-                *(get_arr(idx) for idx in range(len(self.arrays)))
+                *(get_arr(idx) for idx in range(len(self._sparse_datasets)))
             )
             for idx, arr in enumerate(arrs):
-                self._groups_cache[idx] = arr
+                self._groups_cache[idx] = tuple(arr)
         return self._groups_cache[anndata_idx]
 
-    async def _fetch_data(self, anndata_index, slices, indptr, indices, data):
+    async def _fetch_data(
+        self,
+        slices: list[slice],
+        indptr: np.ndarray,
+        indices: zarr.AsyncArray,
+        data: zarr.AsyncArray,
+    ) -> sp.csr_matrix:
+        """Fetch the data for given slices and the arrays representing a sparse dataset on-disk.
+
+        Args:
+            slices: The indexing slices to fetch.
+            indptr: The indptr of a csr matrix.
+            indices: The indices of a csr matrix.
+            data: The data of a csr matrix.
+
+        Returns:
+            The in-memory csr data.
+        """
         indptr_indices = [indptr[slice(s.start, s.stop + 1)] for s in slices]
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
         indexer_data = MultiBasicIndexer(
@@ -303,6 +358,14 @@ class ZarrSparseDataset(IterableDataset):
     def _slices_to_slices_with_array_index(
         self, slices: list[slice]
     ) -> defaultdict[int, list[slice]]:
+        """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
+
+        Args:
+            slices: Slices to relative to the on-disk datasets.
+
+        Returns:
+            A lookup between the dataset and its indexing slices.
+        """
         anndata_index_to_slices: defaultdict[int, list[slice]] = defaultdict(list)
         for slice in slices:
             for relative_obs_indices in self._get_relative_obs_indices(slice):
@@ -311,22 +374,22 @@ class ZarrSparseDataset(IterableDataset):
                 ]
         return anndata_index_to_slices
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[sp.csr_matrix]:
         maybe_shuffled_chunk_indices = np.array(
-            list(range(math.ceil(self.n_obs / self.chunk_size)))
+            list(range(math.ceil(self._n_obs / self._chunk_size)))
         )
-        if self.shuffle:
+        if self._shuffle:
             self._rng.shuffle(maybe_shuffled_chunk_indices)
         zsync.sync(
-            self.get_sparse_elems(0)
+            self._get_sparse_elems(0)
         )  # activate cache, TODO: better way of handling this?
-        for chunks in chunked(maybe_shuffled_chunk_indices, self.preload_nchunks):
+        for chunks in chunked(maybe_shuffled_chunk_indices, self._preload_nchunks):
 
             async def get(chunks):
                 slices = [
                     slice(
-                        index * self.chunk_size,
-                        min(self.n_obs, (index + 1) * self.chunk_size),
+                        index * self._chunk_size,
+                        min(self._n_obs, (index + 1) * self._chunk_size),
                     )
                     for index in chunks
                 ]
@@ -337,9 +400,8 @@ class ZarrSparseDataset(IterableDataset):
                 for anndata_idx in anndata_index_to_slices:
                     tasks.append(
                         self._fetch_data(
-                            anndata_idx,
                             anndata_index_to_slices[anndata_idx],
-                            *(await self.get_sparse_elems(anndata_idx)),
+                            *(await self._get_sparse_elems(anndata_idx)),
                         )
                     )
                 return await asyncio.gather(*tasks)
@@ -348,8 +410,8 @@ class ZarrSparseDataset(IterableDataset):
             yield from sample_rows(
                 list(chunks),
                 None,
-                self.shuffle,
+                self._shuffle,
             )
 
     def __len__(self):
-        return self.n_obs
+        return self._n_obs
