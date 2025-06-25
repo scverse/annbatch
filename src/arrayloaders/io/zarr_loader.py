@@ -23,7 +23,7 @@ def _encode_str_to_int(obs_list: list[pd.DataFrame]):
     """Encodes string and categorical columns in a list of DataFrames to integer codes, modifying the DataFrames in place.
 
     Args:
-        obs_list (list[pd.DataFrame]): A list of pandas DataFrames containing the data to encode.
+        obs_list: A list of pandas DataFrames containing the data to encode.
 
     Returns:
         dict: A mapping of column names to dictionaries, where each dictionary maps integer codes
