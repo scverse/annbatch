@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from typing import Literal
 
 
-# TODO: refactor to read full lazy and then simply pick out the needed columns into memory isnted of having `read_obs_lazy` as a separate arg
+# TODO: refactor to read full lazy and then simply pick out the needed columns into memory instead of having `read_obs_lazy` as a separate arg
 def read_lazy(path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False):
     """Reads an individual shard of a Zarr store into an AnnData object.
 

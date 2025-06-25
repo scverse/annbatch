@@ -322,6 +322,9 @@ class ZarrSparseDataset(IterableDataset):
     ) -> sp.csr_matrix:
         """Fetch the data for given slices and the arrays representing a sparse dataset on-disk.
 
+        See https://github.com/scverse/anndata/blob/361325fc621887bf4f381e9412b150fcff599ff7/src/anndata/_core/sparse_dataset.py#L272-L295
+        for the inspiration of this function.
+
         Args:
             slices: The indexing slices to fetch.
             indptr: The indptr of a csr matrix.
@@ -414,15 +417,15 @@ class ZarrSparseDataset(IterableDataset):
             A one-row sparse matrix.
         """
         zsync.sync(self._ensure_cache())
-        for chunks in _batched(self._get_chunks(), self._preload_nchunks):
+        for chunk_indices in _batched(self._get_chunks(), self._preload_nchunks):
 
-            async def get(chunks):
+            async def get(chunk_indices: np.ndarray) -> list[sp.csr_matrix]:
                 slices = [
                     slice(
                         index * self._chunk_size,
                         min(self._n_obs, (index + 1) * self._chunk_size),
                     )
-                    for index in chunks
+                    for index in chunk_indices
                 ]
                 tasks = []
                 anndata_index_to_slices = self._slices_to_slices_with_array_index(
@@ -437,9 +440,9 @@ class ZarrSparseDataset(IterableDataset):
                     )
                 return await asyncio.gather(*tasks)
 
-            chunks = zsync.sync(get(chunks))
+            chunks = zsync.sync(get(chunk_indices))
             yield from sample_rows(
-                list(chunks),
+                chunks,
                 None,
                 self._shuffle,
             )
