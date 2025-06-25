@@ -13,6 +13,7 @@ Torch data loaders.
    :toctree: .
 
    DaskDataset
+   read_lazy_store
    read_lazy
 
 Array store creation.

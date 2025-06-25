@@ -9,9 +9,9 @@ def sample_rows(
     """Samples rows from multiple arrays and their corresponding observation arrays.
 
     Args:
-        x_list (list[np.ndarray]): A list of numpy arrays containing the data to sample from.
-        obs_list (list[np.ndarray]): A list of numpy arrays containing the corresponding observations.
-        shuffle (bool): Whether to shuffle the rows before sampling. Defaults to True.
+        x_list: A list of numpy arrays containing the data to sample from.
+        obs_list: A list of numpy arrays containing the corresponding observations.
+        shuffle: Whether to shuffle the rows before sampling. Defaults to True.
 
     Yields:
         tuple: A tuple containing a row from `x_list` and the corresponding row from `obs_list`.

@@ -101,8 +101,31 @@ def create_store_from_h5ads(
     ),
     shuffle_buffer_size: int = 1_048_576,
     *,
-    should_denseify: bool = True
+    should_denseify: bool = True,
 ):
+    """Create a Zarr store from multiple h5ad files.
+
+    Args:
+        adata_paths: Paths to the h5ad files used to create the zarr store.
+        output_path: Path to the output zarr store.
+        var_subset: Subset of gene names to include in the store. If None, all genes are included.
+            Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
+        chunk_size: Size of the chunks to use for the data in the zarr store.
+        shard_size: Size of the shards to use for the data in the zarr store.
+        compressors: Compressors to use to compress the data in the zarr store.
+        shuffle_buffer_size: Number of observations to load into memory at once for shuffling.
+            The higher this number, the more memory is used, but the better the shuffling.
+        should_denseify: Whether or not to write as dense on disk.
+
+    Examples:
+        >>> from arrayloaders.io.store_creation import create_store_from_h5ads
+        >>> datasets = [
+        ...     "path/to/first_adata.h5ad",
+        ...     "path/to/second_adata.h5ad",
+        ...     "path/to/third_adata.h5ad",
+        ... ]
+        >>> create_store_from_h5ads(datasets, "path/to/output/zarr_store")
+    """
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
     print("setting ad.settings.zarr_write_format to 3")
