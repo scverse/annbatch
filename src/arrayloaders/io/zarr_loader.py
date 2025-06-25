@@ -95,6 +95,7 @@ class ZarrDenseDataset(IterableDataset):
         self.obs_column = obs_column
         self.shuffle = shuffle
         self.preload_chunks = preload_nchunks
+        self._rng = np.random.default_rng()
 
         self.n_obs_list: list[int] = []  # number of observations for each array
         self.chunks_lengths: list[int] = []  # chunk length for each array
@@ -214,6 +215,7 @@ class ZarrSparseDataset(IterableDataset):
         self.shuffle = shuffle
         self._var_size = self.arrays[0].shape[1]
         self._groups_cache: dict[int, list] = {}
+        self._rng = np.random.default_rng()
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         min_idx = index.start
@@ -314,7 +316,7 @@ class ZarrSparseDataset(IterableDataset):
             list(range(math.ceil(self.n_obs / self.chunk_size)))
         )
         if self.shuffle:
-            np.random.shuffle(maybe_shuffled_chunk_indices)  # noqa: NPY002 # TODO: remove
+            self._rng.shuffle(maybe_shuffled_chunk_indices)
         zsync.sync(
             self.get_sparse_elems(0)
         )  # activate cache, TODO: better way of handling this?
