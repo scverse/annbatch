@@ -19,16 +19,15 @@ if TYPE_CHECKING:
 
 
 def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
-    """Read an individual shard of a Zarr store into an AnnData object.
+    """Reads an individual shard of a Zarr store into an AnnData object.
 
-    Parameters
-    ----------
-    path
-        Path to individual Zarr based AnnData shard.
-    obs_columns
-        List of observation columns to read. If None, all columns are read.
-    read_obs_lazy
-        If True, read the obs DataFrame lazily. This is useful for large obs DataFrames.
+    Args:
+        path: Path to individual Zarr-based AnnData shard.
+        obs_columns: List of observation columns to read. If None, all columns are read.
+        read_obs_lazy: If True, reads the obs DataFrame lazily. Useful for large obs DataFrames.
+
+    Returns:
+        AnnData object loaded from the specified shard.
     """
     g = zarr.open(path, mode="r")
     if read_obs_lazy:
@@ -53,16 +52,15 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
 def read_lazy_store(
     path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False
 ):
-    """Read a Zarr store containing multiple shards into a single AnnData object.
+    """Reads a Zarr store containing multiple shards into a single AnnData object.
 
-    Parameters
-    ----------
-    path
-        Path to the Zarr store containing multiple shards.
-    obs_columns
-        List of observation columns to read. If None, all columns are read.
-    read_obs_lazy
-        If True, read the obs DataFrame lazily. This is useful for large obs DataqFrames.
+    Args:
+        path: Path to the Zarr store containing multiple shards.
+        obs_columns: List of observation columns to read. If None, all columns are read.
+        read_obs_lazy: If True, reads the obs DataFrame lazily. Useful for large obs DataFrames.
+
+    Returns:
+        AnnData: The concatenated AnnData object loaded from all shards.
     """
     path = pathlib.Path(path)
 
@@ -87,35 +85,27 @@ def _combine_chunks(lst, chunk_size):
 class DaskDataset(IterableDataset):
     """Dask-based IterableDataset for loading AnnData objects in chunks.
 
-    Parameters
-    ----------
-    adata
-        The `anndata.AnnData` object to yield samples from.
-    label_column
-        The name of the column in `adata.obs` that contains the labels.
-    n_chunks
-        Number of chunks of the underlying dask.array to load at a time.
-        Loading more chunks at a time can improve performance and will also improve randomness.
-        However, it increases memory usage.
-    shuffle
-        Whether to yield samples in a random order.
-    dask_scheduler
-        The Dask scheduler to use for parallel computation.
-        "synchronous" for single-threaded execution, "threads" for multithreaded execution
-    n_workers
-        Number of Dask workers to use. If None, the number of workers is determined by Dask.
+    Args:
+        adata: The AnnData object to yield samples from.
+        label_column: The name of the column in `adata.obs` that contains the labels.
+        n_chunks: Number of chunks of the underlying dask.array to load at a time.
+            Loading more chunks at a time can improve performance and randomness, but increases memory usage.
+            Defaults to 8.
+        shuffle: Whether to yield samples in a random order. Defaults to True.
+        dask_scheduler: The Dask scheduler to use for parallel computation.
+            "synchronous" for single-threaded execution, "threads" for multithreaded execution. Defaults to "threads".
+        n_workers: Number of Dask workers to use. If None, the number of workers is determined by Dask.
 
     Examples:
-    --------
-    >>> from arrayloaders.io.dask_loader import DaskDataset, read_lazy_store
-    >>> from torch.utils.data import DataLoader
-    >>> label_column = "y"
-    >>> adata = read_lazy_store("path/to/zarr/store", obs_columns=[label_column])
-    >>> dataset = DaskDataset(adata, label_column=label_column, n_chunks=8, shuffle=True)
-    >>> dataloader = DataLoader(dataset, batch_size=2048, num_workers=4, drop_last=True)
-    >>> for batch in dataloader:
-    ...     x, y = batch
-    ...     # Process the batch
+        >>> from arrayloaders.io.dask_loader import DaskDataset, read_lazy_store
+        >>> from torch.utils.data import DataLoader
+        >>> label_column = "y"
+        >>> adata = read_lazy_store("path/to/zarr/store", obs_columns=[label_column])
+        >>> dataset = DaskDataset(adata, label_column=label_column, n_chunks=8, shuffle=True)
+        >>> dataloader = DataLoader(dataset, batch_size=2048, num_workers=4, drop_last=True)
+        >>> for batch in dataloader:
+        ...     x, y = batch
+        ...     # Process the batch
     """
 
     def __init__(
