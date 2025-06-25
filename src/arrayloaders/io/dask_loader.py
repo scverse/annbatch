@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 # TODO: refactor to read full lazy and then simply pick out the needed columns into memory isnted of having `read_obs_lazy` as a separate arg
-def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
+def read_lazy(path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False):
     """Reads an individual shard of a Zarr store into an AnnData object.
 
     Args:
@@ -31,24 +31,15 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
         AnnData object loaded from the specified shard.
     """
     g = zarr.open(path, mode="r")
-    if read_obs_lazy:
-        obs = ad.experimental.read_elem_lazy(g["obs"])
-    else:
-        if obs_columns is None:
-            obs = ad.io.read_elem(g["obs"])
-        else:
-            obs = pd.DataFrame(
-                {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
-            )
 
-    adata = ad.AnnData(
-        X=ad.experimental.read_elem_lazy(g["X"]),
-        obs=obs,
-        var=ad.io.read_elem(g["var"]),
-        layers={"sparse": ad.experimental.read_elem_lazy(g["layers"]["sparse"])}
-        if ("layers" in g and "sparse" in g["layers"])
-        else None,  # TODO: make work
-    )
+    adata = ad.experimental.read_lazy(g)
+    # TODO: Adapt dask code below to just handle an in-memory xarray data array
+    if obs_columns is None:
+        adata.obs = ad.io.read_elem(g["obs"])
+    else:
+        adata.obs = pd.DataFrame(
+            {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
+        )
 
     return adata
 
