@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import random
 from collections import defaultdict
 from functools import cache
 from itertools import accumulate, chain, islice, pairwise
@@ -13,7 +14,7 @@ import pandas as pd
 import zarr
 import zarr.core.sync as zsync
 from scipy import sparse as sp
-from torch.utils.data import IterableDataset
+from torch.utils.data import IterableDataset, get_worker_info
 from upath import UPath
 
 from .utils import sample_rows
@@ -229,6 +230,17 @@ class ZarrSparseDataset(IterableDataset):
             int, tuple[np.ndarray, zarr.AsyncArray, zarr.AsyncArray]
         ] = {}
         self._rng = np.random.default_rng()
+        # TODO: refactor into something reusable
+        self.worker_info = get_worker_info()
+        if self.worker_info is None:
+            self._rng = random.Random()  # noqa: S311
+        else:
+            # This is used for the _get_chunks function
+            # Use the same seed for all workers that the resulting splits are the same across workers
+            # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
+            # fmt: off
+            self._rng = random.Random(self.worker_info.seed - self.worker_info.id)  # noqa: S311
+            # fmt: on
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -376,16 +388,29 @@ class ZarrSparseDataset(IterableDataset):
                 ]
         return anndata_index_to_slices
 
-    def __iter__(self) -> Iterator[sp.csr_matrix]:
-        maybe_shuffled_chunk_indices = np.array(
-            list(range(math.ceil(self._n_obs / self._chunk_size)))
-        )
+    def _get_chunks(self):
+        chunks = np.array(list(range(math.ceil(self._n_obs / self._chunk_size))))
         if self._shuffle:
-            self._rng.shuffle(maybe_shuffled_chunk_indices)
+            self._rng.shuffle(chunks)
+
+        if self.worker_info is None:
+            return chunks
+        else:
+            num_workers, worker_id = self.worker_info.num_workers, self.worker_info.id
+            chunks_per_worker = len(chunks) // num_workers
+            start = worker_id * chunks_per_worker
+            end = (
+                (worker_id + 1) * chunks_per_worker
+                if worker_id != num_workers - 1
+                else None
+            )
+            return chunks[start:end]
+
+    def __iter__(self) -> Iterator[sp.csr_matrix]:
         zsync.sync(
             self._get_sparse_elems(0)
         )  # activate cache, TODO: better way of handling this?
-        for chunks in chunked(maybe_shuffled_chunk_indices, self._preload_nchunks):
+        for chunks in chunked(self._get_chunks(), self._preload_nchunks):
 
             async def get(chunks):
                 slices = [
