@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import math
-import random
 from collections import defaultdict
-from functools import cache
 from itertools import accumulate, chain, islice, pairwise
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import anndata as ad
 import numpy as np
@@ -14,10 +12,10 @@ import pandas as pd
 import zarr
 import zarr.core.sync as zsync
 from scipy import sparse as sp
-from torch.utils.data import IterableDataset, get_worker_info
+from torch.utils.data import IterableDataset
 from upath import UPath
 
-from .utils import sample_rows
+from .utils import WorkerHandle, sample_rows
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -98,7 +96,7 @@ class ZarrDenseDataset(IterableDataset):
         self._obs_column = obs_column
         self._shuffle = shuffle
         self._preload_nchunks = preload_nchunks
-        self._rng = np.random.default_rng()
+        self._worker_handle = WorkerHandle()
 
         self.n_obs_list: list[int] = []  # number of observations for each array
         self.chunks_lengths: list[int] = []  # chunk length for each array
@@ -154,11 +152,12 @@ class ZarrDenseDataset(IterableDataset):
         return obs
 
     def __iter__(self):
-        chunks_global = np.arange(len(self.chunks))
+        chunks = np.arange(len(self.chunks))
         if self._shuffle:
-            np.random.shuffle(chunks_global)  # noqa: NPY002
+            self._worker_handle.shuffle(chunks)
+        chunks = self._worker_handle.get_part_for_worker(chunks)
 
-        for batch in _batched(chunks_global, self._preload_nchunks):
+        for batch in _batched(chunks, self._preload_nchunks):
             yield from sample_rows(
                 list(zsync.sync(self._fetch_chunks_x(batch))),
                 self._fetch_chunks_obs(batch),
@@ -172,11 +171,11 @@ class ZarrDenseDataset(IterableDataset):
 # TODO: make this part of the public zarr or zarrs-python API.
 # We can do chunk coalescing in zarrs based on integer arrays, so I think
 # there would make sense with ezclump or similar.
-class MultiBasicIndexer:
-    def __init__(self, indexers: list):
-        self.shape = [
+class MultiBasicIndexer(zarr.core.indexing.Indexer):
+    def __init__(self, indexers: list[zarr.core.indexing.Indexer]):
+        self.shape = tuple(
             sum(i.shape[k] for i in indexers) for k in range(len(indexers[0].shape))
-        ]
+        )
         self.drop_axes = indexers[0].drop_axes  # maybe?
         self.indexers = indexers
 
@@ -189,9 +188,10 @@ class MultiBasicIndexer:
                 total += gap
 
 
-def chunked(l, n):
-    for i in range(0, len(l), n):
-        yield l[i : i + n]
+class CSRDatasetElems(NamedTuple):
+    indptr: np.ndarray
+    indices: zarr.AsyncArray
+    data: zarr.AsyncArray
 
 
 class ZarrSparseDataset(IterableDataset):
@@ -226,21 +226,8 @@ class ZarrSparseDataset(IterableDataset):
         self._preload_nchunks = preload_nchunks
         self._shuffle = shuffle
         self._var_size = self._sparse_datasets[0].shape[1]
-        self._groups_cache: dict[
-            int, tuple[np.ndarray, zarr.AsyncArray, zarr.AsyncArray]
-        ] = {}
-        self._rng = np.random.default_rng()
-        # TODO: refactor into something reusable
-        self.worker_info = get_worker_info()
-        if self.worker_info is None:
-            self._rng = random.Random()  # noqa: S311
-        else:
-            # This is used for the _get_chunks function
-            # Use the same seed for all workers that the resulting splits are the same across workers
-            # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            # fmt: off
-            self._rng = random.Random(self.worker_info.seed - self.worker_info.id)  # noqa: S311
-            # fmt: on
+        self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
+        self._worker_handle = WorkerHandle()
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -276,9 +263,44 @@ class ZarrSparseDataset(IterableDataset):
             curr_pos += n_obs
         return slices
 
-    async def _get_sparse_elems(
-        self, anndata_idx: int
-    ) -> tuple[np.ndarray, zarr.AsyncArray, zarr.AsyncArray]:
+    async def _get_elems(self, idx: int) -> CSRDatasetElems:
+        """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
+
+        Args:
+            idx: The index
+
+        Returns:
+            The constituent elems of the CSR dataset.
+        """
+        indptr = await self._sparse_datasets[idx].group._async_group.getitem("indptr")
+        return CSRDatasetElems(
+            *(
+                await asyncio.gather(
+                    indptr.getitem(Ellipsis),
+                    self._sparse_datasets[idx].group._async_group.getitem("indices"),
+                    self._sparse_datasets[idx].group._async_group.getitem("data"),
+                )
+            )
+        )
+
+    async def _ensure_cache(self):
+        """Build up the cache of datasets i.e., in-memory indptr, and backed indices and data."""
+        arr_idxs = [
+            idx
+            for idx in range(len(self._sparse_datasets))
+            if idx not in self._dataset_elem_cache
+        ]
+        all_elems = await asyncio.gather(
+            *(
+                self._get_elems(idx)
+                for idx in range(len(self._sparse_datasets))
+                if idx not in self._dataset_elem_cache
+            )
+        )
+        for idx, elems in zip(arr_idxs, all_elems):
+            self._dataset_elem_cache[idx] = elems
+
+    async def _get_sparse_elems(self, anndata_idx: int) -> CSRDatasetElems:
         """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
 
         Args:
@@ -287,24 +309,9 @@ class ZarrSparseDataset(IterableDataset):
         Returns:
             The arrays representing the sparse data.
         """
-        if anndata_idx not in self._groups_cache:
-
-            async def get_arr(idx):
-                indptr = await self._sparse_datasets[idx].group._async_group.getitem(
-                    "indptr"
-                )
-                return await asyncio.gather(
-                    indptr.getitem(Ellipsis),
-                    self._sparse_datasets[idx].group._async_group.getitem("indices"),
-                    self._sparse_datasets[idx].group._async_group.getitem("data"),
-                )
-
-            arrs = await asyncio.gather(
-                *(get_arr(idx) for idx in range(len(self._sparse_datasets)))
-            )
-            for idx, arr in enumerate(arrs):
-                self._groups_cache[idx] = tuple(arr)
-        return self._groups_cache[anndata_idx]
+        if anndata_idx not in self._dataset_elem_cache:
+            self._ensure_cache()
+        return self._dataset_elem_cache[anndata_idx]
 
     async def _fetch_data(
         self,
@@ -388,29 +395,26 @@ class ZarrSparseDataset(IterableDataset):
                 ]
         return anndata_index_to_slices
 
-    def _get_chunks(self):
+    def _get_chunks(self) -> np.ndarray:
+        """Get a potentially shuffled list of chunk ids, accounting for the fact that this dataset might be inside a worker.
+
+        Returns:
+            A :class:`numpy.ndarray` of chunk ids.
+        """
         chunks = np.array(list(range(math.ceil(self._n_obs / self._chunk_size))))
         if self._shuffle:
-            self._rng.shuffle(chunks)
+            self._worker_handle.shuffle(chunks)
 
-        if self.worker_info is None:
-            return chunks
-        else:
-            num_workers, worker_id = self.worker_info.num_workers, self.worker_info.id
-            chunks_per_worker = len(chunks) // num_workers
-            start = worker_id * chunks_per_worker
-            end = (
-                (worker_id + 1) * chunks_per_worker
-                if worker_id != num_workers - 1
-                else None
-            )
-            return chunks[start:end]
+        return self._worker_handle.get_part_for_worker(chunks)
 
     def __iter__(self) -> Iterator[sp.csr_matrix]:
-        zsync.sync(
-            self._get_sparse_elems(0)
-        )  # activate cache, TODO: better way of handling this?
-        for chunks in chunked(self._get_chunks(), self._preload_nchunks):
+        """Iterate over the on-disk csr datasets.
+
+        Yields:
+            A one-row sparse matrix.
+        """
+        zsync.sync(self._ensure_cache())
+        for chunks in _batched(self._get_chunks(), self._preload_nchunks):
 
             async def get(chunks):
                 slices = [
