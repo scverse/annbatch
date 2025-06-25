@@ -66,16 +66,14 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
         x, _ = batch
         n_elems += 1
         # Check feature dimension
-        assert x.shape[0 if isinstance(x, np.ndarray) else 1] == 100
+        assert x.shape[0 if (is_dense := isinstance(x, np.ndarray)) else 1] == 100
         if not shuffle:
             batches += [x]
 
     # check that we yield all samples from the dataset
     if not shuffle:
         # np.array for sparse
-        stacked = (
-            np if (is_dense := isinstance(batches[0], np.ndarray)) else sp
-        ).vstack(batches)
+        stacked = (np if is_dense else sp).vstack(batches)
         if not is_dense:
             stacked = stacked.toarray()
             expected = adata.layers["sparse"].compute().toarray()
