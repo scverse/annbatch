@@ -65,7 +65,8 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
     for batch in loader:
         x, _ = batch
         n_elems += 1
-        # assert x.shape[0] == 100  # Check feature dimension TODO: uncomment out
+        # Check feature dimension
+        assert x.shape[0 if isinstance(x, np.ndarray) else 1] == 100
         if not shuffle:
             batches += [x]
 
