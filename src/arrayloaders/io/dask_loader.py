@@ -34,12 +34,13 @@ def read_lazy(path, obs_columns: list[str] | None = None, read_obs_lazy: bool = 
 
     adata = ad.experimental.read_lazy(g)
     # TODO: Adapt dask code below to just handle an in-memory xarray data array
-    if obs_columns is None:
-        adata.obs = ad.io.read_elem(g["obs"])
-    else:
-        adata.obs = pd.DataFrame(
-            {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
-        )
+    if not read_obs_lazy:
+        if obs_columns is None:
+            adata.obs = ad.io.read_elem(g["obs"])
+        else:
+            adata.obs = pd.DataFrame(
+                {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
+            )
 
     return adata
 
