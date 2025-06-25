@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     ],
     ids=["dask", "dense", "sparse"],
 )
-def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader, event_loop):
+def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store

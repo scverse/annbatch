@@ -7,7 +7,6 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
-import pytest_asyncio
 import scipy.sparse as sp
 import zarr
 
@@ -58,12 +57,3 @@ def mock_store(tmpdir_factory, n_shards: int = 3):
         )
 
     return tmp_path
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
-def event_loop(request):
-    """Create an instance of the default event loop for each test case."""
-    from zarr.core.sync import _get_loop
-
-    loop = _get_loop()
-    yield loop
