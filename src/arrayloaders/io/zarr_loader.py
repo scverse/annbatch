@@ -85,7 +85,9 @@ class ZarrDenseDataset(IterableDataset):
     def __init__(
         self,
         x_list: list[zarr.Array],
-        obs_list: list[pd.DataFrame],
+        obs_list: list[
+            pd.DataFrame
+        ],  # TODO: split obs off into its own dataloader so it can be reused.
         obs_column: str,
         shuffle: bool = True,
         preload_nchunks: int = 8,
