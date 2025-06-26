@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from typing import Literal
 
 
-def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
+# TODO: refactor to read full lazy and then simply pick out the needed columns into memory instead of having `read_obs_lazy` as a separate arg
+def read_lazy(path, obs_columns: list[str] | None = None, read_obs_lazy: bool = False):
     """Reads an individual shard of a Zarr store into an AnnData object.
 
     Args:
@@ -30,21 +31,16 @@ def read_lazy(path, obs_columns: list[str] = None, read_obs_lazy: bool = False):
         AnnData object loaded from the specified shard.
     """
     g = zarr.open(path, mode="r")
-    if read_obs_lazy:
-        obs = ad.experimental.read_elem_lazy(g["obs"])
-    else:
+
+    adata = ad.experimental.read_lazy(g)
+    # TODO: Adapt dask code below to just handle an in-memory xarray data array
+    if not read_obs_lazy:
         if obs_columns is None:
-            obs = ad.io.read_elem(g["obs"])
+            adata.obs = ad.io.read_elem(g["obs"])
         else:
-            obs = pd.DataFrame(
+            adata.obs = pd.DataFrame(
                 {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
             )
-
-    adata = ad.AnnData(
-        X=ad.experimental.read_elem_lazy(g["X"]),
-        obs=obs,
-        var=ad.io.read_elem(g["var"]),
-    )
 
     return adata
 

@@ -100,6 +100,8 @@ def create_store_from_h5ads(
         BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
     shuffle_buffer_size: int = 1_048_576,
+    *,
+    should_denseify: bool = True,
 ):
     """Create a Zarr store from multiple h5ad files.
 
@@ -113,6 +115,7 @@ def create_store_from_h5ads(
         compressors: Compressors to use to compress the data in the zarr store.
         shuffle_buffer_size: Number of observations to load into memory at once for shuffling.
             The higher this number, the more memory is used, but the better the shuffling.
+        should_denseify: Whether or not to write as dense on disk.
 
     Examples:
         >>> from arrayloaders.io.store_creation import create_store_from_h5ads
@@ -145,10 +148,11 @@ def create_store_from_h5ads(
         adata_chunk.X = adata_chunk.X[idxs, :]
         adata_chunk.obs = adata_chunk.obs.iloc[idxs]
         # convert to dense format before writing to disk
-        adata_chunk.X = adata_chunk.X.map_blocks(
-            lambda xx: xx.toarray().astype("f4"), dtype="f4"
-        )
-        f = zarr.open(Path(output_path) / f"chunk_{i}.zarr", mode="w")
+        if should_denseify:
+            adata_chunk.X = adata_chunk.X.map_blocks(
+                lambda xx: xx.toarray().astype("f4"), dtype="f4"
+            )
+        f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
         _write_sharded(
             f,
             adata_chunk,
