@@ -37,17 +37,32 @@ if TYPE_CHECKING:
             shuffle=shuffle,
             obs_column="label",
         ),
-        lambda path, shuffle: ZarrSparseDataset(
-            [
-                ad.io.sparse_dataset(zarr.open(p)["layers"]["sparse"])
-                for p in path.glob("*.zarr")
-            ],
-            shuffle=shuffle,
-            chunk_size=100,
-            preload_nchunks=5,
+        *(
+            (
+                lambda path,
+                shuffle,
+                chunk_size=chunk_size,
+                preload_nchunks=preload_nchunks: ZarrSparseDataset(
+                    [
+                        ad.io.sparse_dataset(zarr.open(p)["layers"]["sparse"])
+                        for p in path.glob("*.zarr")
+                    ],
+                    shuffle=shuffle,
+                    chunk_size=chunk_size,
+                    preload_nchunks=preload_nchunks,
+                )
+            )
+            for chunk_size, preload_nchunks in [[1, 10], [10, 1], [10, 5], [5, 10]]
         ),
     ],
-    ids=["dask", "dense", "sparse"],
+    ids=[
+        "dask",
+        "dense",
+        "sparse_chunksize_1",
+        "sparse_preload_1",
+        "sparse_chunksize_gt_preload",
+        "sparse_preload_gt_chunksize",
+    ],
 )
 def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
     """
@@ -82,3 +97,63 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
         np.testing.assert_allclose(stacked, expected)
     else:
         assert n_elems == adata.shape[0]
+
+
+@pytest.mark.parametrize(
+    "gen_loader",
+    [
+        lambda path: DaskDataset(
+            read_lazy_store(path, obs_columns=["label"])[:0],
+            label_column="label",
+            n_chunks=4,
+            shuffle=True,
+        ),
+        lambda path: DaskDataset(
+            read_lazy_store(path, obs_columns=["label"]),
+            label_column="label",
+            n_chunks=0,
+            shuffle=True,
+        ),
+        lambda path: ZarrDenseDataset(
+            [zarr.open(p)["X"] for p in path.glob("*.zarr")],
+            obs_list=[
+                ad.io.read_elem(zarr.open(p)["obs"]) for p in path.glob("*.zarr")
+            ],
+            shuffle=True,
+            obs_column="label",
+            preload_nchunks=0,
+        ),
+        lambda path: ZarrDenseDataset(
+            [zarr.open(p)["X"] for p in path.glob("*.zarr")],
+            obs_list=[],
+            shuffle=True,
+            obs_column="label",
+            preload_nchunks=4,
+        ),
+        *(
+            (
+                lambda path,
+                chunk_size=chunk_size,
+                preload_nchunks=preload_nchunks: ZarrSparseDataset(
+                    [
+                        ad.io.sparse_dataset(zarr.open(p)["layers"]["sparse"])
+                        for p in path.glob("*.zarr")
+                    ],
+                    shuffle=True,
+                    chunk_size=chunk_size,
+                    preload_nchunks=preload_nchunks,
+                )
+            )
+            for chunk_size, preload_nchunks in [[0, 10], [10, 0]]
+        ),
+        lambda path: ZarrSparseDataset(
+            [],
+            shuffle=True,
+            chunk_size=10,
+            preload_nchunks=10,
+        ),
+    ],
+)
+def test_zarr_store_errors_lt_1(gen_loader, mock_store):
+    with pytest.raises(ValueError, match="must be greater than 1"):
+        gen_loader(mock_store)

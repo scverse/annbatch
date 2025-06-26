@@ -62,3 +62,29 @@ class WorkerHandle:
             else None
         )
         return obj[start:end]
+
+
+def check_lt_1(vals: list[int], labels: list[str]):
+    """Raise a ValueError if any of the values are less than one.
+
+    The format of the error is "{labels[i]} must be greater than 1, got {values[i]}"
+    and is raised based on the first found less than one value.
+
+    Args:
+        vals: The values to check < 1
+        labels: The label for the value in the error if the value is less than one.
+
+    Raises:
+        ValueError: _description_
+    """
+    if any(is_lt_1 := [v < 1 for v in vals]):
+        label, value = next(
+            (label, value)
+            for label, value, check in zip(
+                labels,
+                vals,
+                is_lt_1,
+            )
+            if check
+        )
+        raise ValueError(f"{label} must be greater than 1, got {value}")

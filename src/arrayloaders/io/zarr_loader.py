@@ -15,7 +15,7 @@ from scipy import sparse as sp
 from torch.utils.data import IterableDataset
 from upath import UPath
 
-from .utils import WorkerHandle, sample_rows
+from .utils import WorkerHandle, check_lt_1, sample_rows
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -91,6 +91,10 @@ class ZarrDenseDataset(IterableDataset):
         shuffle: bool = True,
         preload_nchunks: int = 8,
     ):
+        check_lt_1(
+            [len(x_list), len(obs_list), preload_nchunks],
+            ["Number of arrays", "Number of obs labels", "Preload chunks"],
+        )
         self._arrays = x_list
         self._obs = obs_list
         self._obs_column = obs_column
@@ -218,10 +222,10 @@ class ZarrSparseDataset(IterableDataset):
             preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
             shuffle: Whether or not to shuffle the data, by default True
         """
-        if not all(s.shape[1] == sparse_datasets[0].shape[1] for s in sparse_datasets):
-            raise ValueError(
-                "TODO: Implement join indexing for sparse datasets with different axis=1 shapes"
-            )
+        check_lt_1(
+            [len(sparse_datasets), chunk_size, preload_nchunks],
+            ["Number of sparse datasets", "Chunk size", "Preload chunks"],
+        )
         self._sparse_datasets = sparse_datasets
         self._n_obs = sum(a.shape[0] for a in self._sparse_datasets)
         self._chunk_size = chunk_size
