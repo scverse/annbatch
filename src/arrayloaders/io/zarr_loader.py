@@ -171,6 +171,8 @@ class ZarrDenseDataset(IterableDataset):
 # TODO: make this part of the public zarr or zarrs-python API.
 # We can do chunk coalescing in zarrs based on integer arrays, so I think
 # there would make sense with ezclump or similar.
+# Another "solution" would be for zarrs to support integer indexing properly, if that pipeline works,
+# or make this an "experimental setting" and to use integer indexing for the zarr-python pipeline.
 class MultiBasicIndexer(zarr.core.indexing.Indexer):
     def __init__(self, indexers: list[zarr.core.indexing.Indexer]):
         self.shape = tuple(
@@ -336,7 +338,7 @@ class ZarrSparseDataset(IterableDataset):
         """
         indptr_indices = [indptr[slice(s.start, s.stop + 1)] for s in slices]
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
-        indexer_data = MultiBasicIndexer(
+        indexer = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
                     (l,), shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid
@@ -344,22 +346,12 @@ class ZarrSparseDataset(IterableDataset):
                 for l in indptr_limits
             ]
         )
-        indexer_indices = MultiBasicIndexer(
-            [
-                zarr.core.indexing.BasicIndexer(
-                    (l,),
-                    shape=indices.metadata.shape,
-                    chunk_grid=indices.metadata.chunk_grid,
-                )
-                for l in indptr_limits
-            ]
-        )
         data_np, indices_np = await asyncio.gather(
             data._get_selection(
-                indexer_data, prototype=zarr.core.buffer.default_buffer_prototype()
+                indexer, prototype=zarr.core.buffer.default_buffer_prototype()
             ),
             indices._get_selection(
-                indexer_indices, prototype=zarr.core.buffer.default_buffer_prototype()
+                indexer, prototype=zarr.core.buffer.default_buffer_prototype()
             ),
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
