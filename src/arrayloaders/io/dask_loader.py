@@ -12,7 +12,7 @@ import pandas as pd
 import zarr
 from torch.utils.data import IterableDataset, get_worker_info
 
-from .utils import sample_rows
+from .utils import check_lt_1, sample_rows
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -113,6 +113,10 @@ class DaskDataset(IterableDataset):
         dask_scheduler: Literal["synchronous", "threads"] = "threads",
         n_workers: int | None = None,
     ):
+        check_lt_1(
+            [adata.shape[0], n_chunks],
+            ["Size of anndata obs dimension", "Number of chunks"],
+        )
         self.adata = adata
         self.label_column = label_column
         self.n_chunks = n_chunks
