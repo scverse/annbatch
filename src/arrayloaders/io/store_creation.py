@@ -156,3 +156,47 @@ def create_store_from_h5ads(
             shard_size=shard_size,
             compressors=compressors,
         )
+
+
+def shuffle_and_shard_h5ads(
+    adata_paths: Iterable[PathLike[str]] | Iterable[str],
+    output_path: PathLike[str] | str,
+    chunk_size_reading: int = 2048,
+    shuffle_buffer_size: int = 2**21,
+):
+    """Shuffle, align the gene space and shard multiple h5ad files into a store of h5ad files.
+
+    Args:
+        adata_paths: Paths to the h5ad files used to create the zarr store.
+        output_path: Path to the output zarr store.
+        chunk_size_reading: Size of the chunks to read from the h5ad files.
+        shuffle_buffer_size: Number of observations to load into memory at once for shuffling.
+            The higher this number, the more memory is used, but the better the shuffling.
+            This number also corresponds to the size of the shards created.
+
+    Examples:
+    --------
+        >>> from arrayloaders.io.store_creation import shuffle_and_shard_h5ads
+        >>> datasets = [
+        ...     "path/to/first_adata.h5ad",
+        ...     "path/to/second_adata.h5ad",
+        ...     "path/to/third_adata.h5ad",
+        ... ]
+        >>> shuffle_and_shard_h5ads(datasets, "path/to/output/directory")
+    """
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size_reading)
+    adata_concat.obs_names_make_unique()
+
+    for i, chunk in enumerate(
+        tqdm(_create_chunks_for_shuffling(adata_concat, shuffle_buffer_size))
+    ):
+        adata_chunk = adata_concat[chunk, :].copy()
+        adata_chunk.X = adata_chunk.X.compute()
+        # shuffle adata in memory to break up individual chunks
+        idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
+        adata_chunk.X = adata_chunk.X[idxs, :]
+        adata_chunk.obs = adata_chunk.obs.iloc[idxs]
+        adata_chunk.write_h5ad(
+            Path(output_path) / f"shard_{i}.h5ad", compression="gzip"
+        )
