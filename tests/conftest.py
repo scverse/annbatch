@@ -7,6 +7,7 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.sparse as sp
 import zarr
 
 from arrayloaders.io.store_creation import _write_sharded
@@ -37,6 +38,14 @@ def mock_store(tmpdir_factory, n_shards: int = 3):
                 },
                 index=np.arange(n_cells_per_shard).astype(str),
             ),
+            layers={
+                "sparse": sp.random(
+                    n_cells_per_shard,
+                    feature_dim,
+                    format="csr",
+                    rng=np.random.default_rng(),
+                )
+            },
         )
 
         f = zarr.open(tmp_path / f"chunk_{shard}.zarr", mode="w", zarr_format=3)
