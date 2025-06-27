@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Protocol
+
 import numpy as np
 from torch.utils.data import get_worker_info
 
@@ -88,3 +90,13 @@ def check_lt_1(vals: list[int], labels: list[str]):
             if check
         )
         raise ValueError(f"{label} must be greater than 1, got {value}")
+
+
+class SupportsShape(Protocol):
+    @property
+    def shape(self) -> tuple[int, int] | list[int]: ...
+
+
+def check_var_shapes(objs: list[SupportsShape]):
+    if not all(objs[0].shape[1] == d.shape[1] for d in objs):
+        raise ValueError("TODO: All datasets must have same shape along the var axis.")

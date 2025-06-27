@@ -19,6 +19,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def open_sparse(path: Path):
+    return ad.AnnData(
+        layers={"sparse": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"])}
+    )
+
+
 @pytest.mark.parametrize("shuffle", [True, False], ids=["shuffled", "unshuffled"])
 @pytest.mark.parametrize(
     "gen_loader",
@@ -43,13 +49,12 @@ if TYPE_CHECKING:
                 shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks: ZarrSparseDataset(
-                    [
-                        ad.io.sparse_dataset(zarr.open(p)["layers"]["sparse"])
-                        for p in path.glob("*.zarr")
-                    ],
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
+                ).add_anndatas(
+                    [open_sparse(p) for p in path.glob("*.zarr")],
+                    ["sparse"] * len(list(path.glob("*.zarr"))),
                 )
             )
             for chunk_size, preload_nchunks in [[1, 10], [10, 1], [10, 5], [5, 10]]
@@ -135,10 +140,6 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
                 lambda path,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks: ZarrSparseDataset(
-                    [
-                        ad.io.sparse_dataset(zarr.open(p)["layers"]["sparse"])
-                        for p in path.glob("*.zarr")
-                    ],
                     shuffle=True,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
@@ -146,14 +147,27 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
             )
             for chunk_size, preload_nchunks in [[0, 10], [10, 0]]
         ),
-        lambda path: ZarrSparseDataset(
-            [],
-            shuffle=True,
-            chunk_size=10,
-            preload_nchunks=10,
-        ),
     ],
 )
 def test_zarr_store_errors_lt_1(gen_loader, mock_store):
     with pytest.raises(ValueError, match="must be greater than 1"):
         gen_loader(mock_store)
+
+
+@pytest.mark.parametrize(
+    "layer_keys_less", [True, False], ids=["anndatas_shorter", "layer_keys_shorter"]
+)
+def test_layers_keys_anndata_mismatch(mock_store, layer_keys_less):
+    with pytest.raises(ValueError, match="must match number of layer keys"):
+        ZarrSparseDataset(
+            shuffle=True,
+            chunk_size=10,
+            preload_nchunks=10,
+        ).add_anndatas(
+            [open_sparse(p) for p in mock_store.glob("*.zarr")]
+            if layer_keys_less
+            else [open_sparse(next(mock_store.glob("*.zarr")))],
+            (["sparse"] * len(list(mock_store.glob("*.zarr"))))
+            if not layer_keys_less
+            else ["sparse"],
+        )
