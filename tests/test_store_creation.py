@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import random
 from typing import TYPE_CHECKING
 
@@ -45,7 +44,9 @@ def mock_anndatas_path(tmp_path: Path, n_adatas: int = 4):
     return tmp_path
 
 
-def test_store_creation(mock_anndatas_path):
+@pytest.mark.parametrize("shuffle", [True, False])
+@pytest.mark.parametrize("densify", [True, False])
+def test_store_creation(mock_anndatas_path, shuffle: bool, densify: bool):
     var_subset = [f"gene_{i}" for i in range(100)]
 
     (mock_anndatas_path / "zarr_store").mkdir(parents=True, exist_ok=True)
@@ -59,7 +60,9 @@ def test_store_creation(mock_anndatas_path):
         var_subset,
         chunk_size=10,
         shard_size=20,
-        shuffle_buffer_size=60,
+        buffer_size=60,
+        shuffle=shuffle,
+        should_denseify=densify,
     )
 
     adatas = [

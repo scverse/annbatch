@@ -76,14 +76,15 @@ def _lazy_load_h5ads(
 
 
 def _create_chunks_for_shuffling(
-    adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576
+    adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576, shuffle: bool = True
 ):
     chunk_boundaries = np.cumsum([0] + list(adata.X.chunks[0]))
     slices = [
         slice(int(start), int(end))
         for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:])
     ]
-    random.shuffle(slices)
+    if shuffle:
+        random.shuffle(slices)
     idxs = np.concatenate([np.arange(s.start, s.stop) for s in slices])
     idxs = np.array_split(idxs, np.ceil(len(idxs) / shuffle_buffer_size))
 
@@ -99,7 +100,8 @@ def create_store_from_h5ads(
     compressors: Iterable[BytesBytesCodec] = (
         BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
-    shuffle_buffer_size: int = 1_048_576,
+    buffer_size: int = 1_048_576,
+    shuffle: bool = True,
     *,
     should_denseify: bool = True,
 ):
@@ -113,8 +115,10 @@ def create_store_from_h5ads(
         chunk_size: Size of the chunks to use for the data in the zarr store.
         shard_size: Size of the shards to use for the data in the zarr store.
         compressors: Compressors to use to compress the data in the zarr store.
-        shuffle_buffer_size: Number of observations to load into memory at once for shuffling.
+        buffer_size: Number of observations to load into memory at once for shuffling / pre-processing.
             The higher this number, the more memory is used, but the better the shuffling.
+            This corresponds to the size of the shards created.
+        shuffle: Whether to shuffle the data before writing it to the store.
         should_denseify: Whether or not to write as dense on disk.
 
     Examples:
@@ -131,22 +135,23 @@ def create_store_from_h5ads(
     print("setting ad.settings.zarr_write_format to 3")
     adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
     adata_concat.obs_names_make_unique()
-    shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
+    chunks = _create_chunks_for_shuffling(adata_concat, buffer_size, shuffle=shuffle)
 
     if var_subset is None:
         var_subset = adata_concat.var_names
 
-    for i, chunk in enumerate(tqdm(shuffle_chunks)):
+    for i, chunk in enumerate(tqdm(chunks)):
         var_mask = adata_concat.var_names.isin(var_subset)
         adata_chunk = ad.AnnData(
             X=adata_concat.X[chunk, :][:, var_mask].persist(),
             obs=adata_concat.obs.iloc[chunk],
             var=adata_concat.var.loc[var_mask],
         )
-        # shuffle adata in memory to break up individual chunks
-        idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-        adata_chunk.X = adata_chunk.X[idxs, :]
-        adata_chunk.obs = adata_chunk.obs.iloc[idxs]
+        if shuffle:
+            # shuffle adata in memory to break up individual chunks
+            idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
+            adata_chunk.X = adata_chunk.X[idxs, :]
+            adata_chunk.obs = adata_chunk.obs.iloc[idxs]
         # convert to dense format before writing to disk
         if should_denseify:
             adata_chunk.X = adata_chunk.X.map_blocks(
