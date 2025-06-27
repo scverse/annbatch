@@ -126,6 +126,7 @@ class ZarrDenseDataset(IterableDataset):
 # there would make sense with ezclump or similar.
 # Another "solution" would be for zarrs to support integer indexing properly, if that pipeline works,
 # or make this an "experimental setting" and to use integer indexing for the zarr-python pipeline.
+# See: https://github.com/zarr-developers/zarr-python/issues/3175 for why this is better than simpler alternatives.
 class MultiBasicIndexer(zarr.core.indexing.Indexer):
     def __init__(self, indexers: list[zarr.core.indexing.Indexer]):
         self.shape = tuple(
