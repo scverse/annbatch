@@ -118,8 +118,6 @@ ignore = [
     "D412",
     # Missing blank line after last section ("{name}")
     "D413",
-    # Imports unused
-    "F401",
     # camcelcase imported as lowercase
     "N813",
     # module import not at top level of file

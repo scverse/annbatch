@@ -6,70 +6,19 @@ from collections import defaultdict
 from itertools import accumulate, chain, islice, pairwise
 from typing import TYPE_CHECKING, NamedTuple
 
-import anndata as ad
 import numpy as np
-import pandas as pd
 import zarr
 import zarr.core.sync as zsync
 from scipy import sparse as sp
 from torch.utils.data import IterableDataset
-from upath import UPath
 
 from .utils import WorkerHandle, check_lt_1, sample_rows
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
-    from os import PathLike
+    from collections.abc import Iterator
 
-
-def _encode_str_to_int(obs_list: list[pd.DataFrame]):
-    """Encodes string and categorical columns in a list of DataFrames to integer codes, modifying the DataFrames in place.
-
-    Args:
-        obs_list: A list of pandas DataFrames containing the data to encode.
-
-    Returns:
-        dict: A mapping of column names to dictionaries, where each dictionary maps integer codes
-              to their corresponding unique string or category values.
-    """
-    categorical_mapping = {}
-    for col in obs_list[0].select_dtypes(include=["object", "category"]).columns:
-        uniques = set().union(*(df[col].unique() for df in obs_list))
-        for df in obs_list:
-            df[col] = pd.Categorical(
-                df[col], categories=uniques, ordered=True
-            ).codes.astype("i8")
-        categorical_mapping[col] = dict(enumerate(uniques))
-    return categorical_mapping
-
-
-def load_store(
-    path: PathLike, obs_columns: Iterable[str] = None
-) -> tuple[list[zarr.Array], list[pd.DataFrame], dict[str, dict[int, str]]]:
-    upath = UPath(path)
-    arrays, obs_dfs = [], []
-    for p in upath.iterdir():
-        if p.suffix != ".zarr":
-            continue
-        p_x = p / "X"
-        if p_x.protocol == "":
-            store = p_x.as_posix()
-        else:
-            store = zarr.storage.FsspecStore.from_upath(UPath(p_x, asynchronous=True))
-        arrays.append(zarr.open(store, mode="r"))
-
-        g = zarr.open(p, mode="r")
-        if obs_columns is None:
-            obs = ad.io.read_elem(g["obs"])
-        else:
-            obs = pd.DataFrame(
-                {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
-            )
-        obs_dfs.append(obs)
-
-    categorical_mapping = _encode_str_to_int(obs_dfs)
-
-    return arrays, obs_dfs, categorical_mapping
+    import anndata as ad
+    import pandas as pd
 
 
 def _batched(iterable, n):
