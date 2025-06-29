@@ -49,21 +49,25 @@ class DatasetManager(Generic[ArrayType]):
     def add_anndatas(
         self,
         adatas: list[ad.AnnData],
-        layer_keys: list[str | None] | None = None,
-        obs_keys: list[str] | None = None,
+        layer_keys: list[str | None] | str | None = None,
+        obs_keys: list[str] | str | None = None,
     ) -> None:
         """Append anndata datasets to this loader.
 
         Args:
             adatas: List of :class:`anndata.AnnData` objects.
-            layer_keys: Keys for getting the underlying data out of the anndata object.
+            layer_keys: Key(s) for getting the underlying data out of the anndata object.
                 None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
                 Defaults to None.
-            obs_keys: Keys for getting the underlying data out of the anndata object.
+            obs_keys: Key(s) for getting the underlying labels out of the obs of the anndata object.
                 None means no :attr:`anndata.AnnData.obs` will be retrieved.
                 Defaults to None.
         """
+        if isinstance(layer_keys, str):
+            layer_keys = [layer_keys] * len(adatas)
+        if isinstance(obs_keys, str):
+            obs_keys = [obs_keys] * len(adatas)
         elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
         check_lt_1(
             [len(adatas)]
@@ -289,18 +293,18 @@ class ZarrDenseDataset(IterableDataset):
     def add_anndatas(
         self,
         adatas: list[ad.AnnData],
-        layer_keys: list[str | None] | None = None,
-        obs_keys: list[str] | None = None,
+        layer_keys: list[str | None] | str | None = None,
+        obs_keys: list[str] | str | None = None,
     ) -> ZarrDenseDataset:
         """Append anndata datasets to this loader.
 
         Args:
             adatas: List of :class:`anndata.AnnData` objects.
-            layer_keys: Keys for getting the underlying data out of the anndata object.
+            layer_keys: Key(s) for getting the underlying data out of the anndata object.
                 None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
                 Defaults to None.
-            obs_keys: Keys for getting the underlying data out of the anndata object.
+            obs_keys: Key(s) for getting the underlying labels out of the obs of the anndata object.
                 None means no :attr:`anndata.AnnData.obs` will be retrieved.
                 Defaults to None.
 
@@ -320,7 +324,7 @@ class ZarrDenseDataset(IterableDataset):
 
         Args:
             adata: :class:`anndata.AnnData` object.
-            layer_key: Keys for getting the underlying data out of the anndata object.
+            layer_key: Key(s) for getting the underlying data out of the anndata object.
                 None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 Defaults to None.
             obs_key: Key for getting the underlying obs labels out of the anndata object.
@@ -426,18 +430,18 @@ class ZarrSparseDataset(IterableDataset):
     def add_anndatas(
         self,
         adatas: list[ad.AnnData],
-        layer_keys: list[str | None] | None = None,
-        obs_keys: list[str] | None = None,
+        layer_keys: list[str | None] | str | None = None,
+        obs_keys: list[str] | str | None = None,
     ) -> ZarrSparseDataset:
         """Append anndata datasets to this loader.
 
         Args:
             adatas: List of :class:`anndata.AnnData` objects.
-            layer_keys: Keys for getting the underlying data out of the anndata object.
+            layer_keys: Key(s) for getting the underlying data out of the anndata object.
                 None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
                 Defaults to None.
-            obs_keys: Keys for getting the underlying data out of the anndata object.
+            obs_keys: Key(s) for getting the underlying labels out of the obs of the anndata object.
                 None means no :attr:`anndata.AnnData.obs` will be retrieved.
                 Defaults to None.
 
@@ -457,7 +461,7 @@ class ZarrSparseDataset(IterableDataset):
 
         Args:
             adata: :class:`anndata.AnnData` object.
-            layer_key: Keys for getting the underlying data out of the anndata object.
+            layer_key: Key(s) for getting the underlying data out of the anndata object.
                 None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 Defaults to None.
             obs_key: Key for getting the underlying obs labels out of the anndata object.

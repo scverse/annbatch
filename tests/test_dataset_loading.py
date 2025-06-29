@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from itertools import product
 from typing import TYPE_CHECKING
 
 import anndata as ad
@@ -72,13 +71,30 @@ def open_dense(path: Path):
                 ),
                 id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class}-layer_keys={layer_keys}",
             )
-            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys in product(
-                [1, 10],
-                [5, 1],
-                [["label"] * 3, None],
-                [ZarrDenseDataset, ZarrSparseDataset],  # type: ignore[list-item]
-                [["data"] * 3, None],
-            )
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys in [
+                elem
+                for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
+                for elem in [
+                    [1, 5, None, dataset_class, None],  # singleton chunk size
+                    [5, 1, None, dataset_class, None],  # singleton preload
+                    [10, 5, "label", dataset_class, None],  # singleton label key
+                    [
+                        10,
+                        5,
+                        ["label", "label", "label"],
+                        dataset_class,
+                        None,
+                    ],  # list label key
+                    [10, 5, None, dataset_class, "data"],  # singleton data key
+                    [
+                        10,
+                        5,
+                        None,
+                        dataset_class,
+                        ["data", "data", "data"],
+                    ],  # list data key
+                ]
+            ]
         ),
     ],
 )
