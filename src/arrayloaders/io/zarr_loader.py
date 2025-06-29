@@ -242,19 +242,19 @@ class DatasetManager(Generic[ArrayType]):
         for chunk_indices in _batched(
             self._get_chunks(chunk_size, worker_handle, shuffle), preload_nchunks
         ):
-
-            async def get(chunk_indices: np.ndarray) -> list[sp.csr_matrix]:
-                slices = [
-                    slice(
-                        index * chunk_size,
-                        min(self.n_obs, (index + 1) * chunk_size),
-                    )
-                    for index in chunk_indices
-                ]
-                tasks = []
-                dataset_index_to_slices = self._slices_to_slices_with_array_index(
-                    slices
+            slices = [
+                slice(
+                    index * chunk_size,
+                    min(self.n_obs, (index + 1) * chunk_size),
                 )
+                for index in chunk_indices
+            ]
+            dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
+
+            async def get(
+                dataset_index_to_slices: defaultdict[int, list[slice]],
+            ) -> list[sp.csr_matrix]:
+                tasks = []
                 for dataset_idx in dataset_index_to_slices:
                     tasks.append(
                         fetch_data(
@@ -264,10 +264,19 @@ class DatasetManager(Generic[ArrayType]):
                     )
                 return await asyncio.gather(*tasks)
 
-            chunks = zsync.sync(get(chunk_indices))
+            chunks = zsync.sync(get(dataset_index_to_slices))
+            labels = None
+            if self.labels is not None:
+                labels = []
+                for dataset_idx, slices in dataset_index_to_slices.items():
+                    labels += [
+                        self.labels[dataset_idx][
+                            np.concatenate([np.arange(s.start, s.stop) for s in slices])
+                        ]
+                    ]
             yield from sample_rows(
                 chunks,
-                self.labels,
+                labels,
                 shuffle,
             )
 

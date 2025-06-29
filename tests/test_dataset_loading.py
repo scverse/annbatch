@@ -111,6 +111,7 @@ def test_store_load_data(mock_store: Path, *, shuffle: bool, gen_loader):
     loader = gen_loader(mock_store, shuffle)
     n_elems = 0
     batches = []
+    labels = []
     for batch in loader:
         x, label = batch
         n_elems += 1
@@ -118,8 +119,8 @@ def test_store_load_data(mock_store: Path, *, shuffle: bool, gen_loader):
         assert x.shape[0 if (is_dense := isinstance(x, np.ndarray)) else 1] == 100
         if not shuffle:
             batches += [x]
-        if label is not None:
-            assert isinstance(label, np.int64)
+            if label is not None:
+                labels += [label]
 
     # check that we yield all samples from the dataset
     if not shuffle:
@@ -127,10 +128,13 @@ def test_store_load_data(mock_store: Path, *, shuffle: bool, gen_loader):
         stacked = (np if is_dense else sp).vstack(batches)
         if not is_dense:
             stacked = stacked.toarray()
-            expected = adata.layers["sparse"].compute().toarray()
+            expected_data = adata.layers["sparse"].compute().toarray()
         else:
-            expected = adata.X.compute()
-        np.testing.assert_allclose(stacked, expected)
+            expected_data = adata.X.compute()
+        np.testing.assert_allclose(stacked, expected_data)
+        if len(labels) > 0:
+            expected_labels = adata.obs["label"]
+            np.testing.assert_allclose(np.array(labels), expected_labels)
     else:
         assert n_elems == adata.shape[0]
 
