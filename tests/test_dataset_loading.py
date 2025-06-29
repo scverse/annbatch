@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import product
 from typing import TYPE_CHECKING
 
 import anndata as ad
@@ -21,7 +22,17 @@ if TYPE_CHECKING:
 
 def open_sparse(path: Path):
     return ad.AnnData(
-        layers={"sparse": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"])}
+        X=ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
+        obs=ad.io.read_elem(zarr.open(path)["obs"]),
+        layers={"data": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"])},
+    )
+
+
+def open_dense(path: Path):
+    return ad.AnnData(
+        X=zarr.open(path)["X"],
+        obs=ad.io.read_elem(zarr.open(path)["obs"]),
+        layers={"data": zarr.open(path)["X"]},
     )
 
 
@@ -35,41 +46,43 @@ def open_sparse(path: Path):
             n_chunks=4,
             shuffle=shuffle,
         ),
-        lambda path, shuffle: ZarrDenseDataset(
-            [zarr.open(p)["X"] for p in path.glob("*.zarr")],
-            obs_list=[
-                ad.io.read_elem(zarr.open(p)["obs"]) for p in path.glob("*.zarr")
-            ],
-            shuffle=shuffle,
-            obs_column="label",
-        ),
         *(
-            (
+            pytest.param(
                 lambda path,
                 shuffle,
                 chunk_size=chunk_size,
-                preload_nchunks=preload_nchunks: ZarrSparseDataset(
+                preload_nchunks=preload_nchunks,
+                dataset_class=dataset_class,
+                obs_keys=obs_keys,
+                layer_keys=layer_keys: dataset_class(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
                 ).add_anndatas(
-                    [open_sparse(p) for p in path.glob("*.zarr")],
-                    ["sparse"] * len(list(path.glob("*.zarr"))),
-                )
+                    [
+                        (
+                            open_sparse
+                            if issubclass(dataset_class, ZarrSparseDataset)
+                            else open_dense
+                        )(p)
+                        for p in path.glob("*.zarr")
+                    ],
+                    layer_keys,
+                    obs_keys,
+                ),
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class}-layer_keys={layer_keys}",
             )
-            for chunk_size, preload_nchunks in [[1, 10], [10, 1], [10, 5], [5, 10]]
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys in product(
+                [1, 10],
+                [5, 1],
+                [["label"] * 3, None],
+                [ZarrDenseDataset, ZarrSparseDataset],  # type: ignore[list-item]
+                [["data"] * 3, None],
+            )
         ),
     ],
-    ids=[
-        "dask",
-        "dense",
-        "sparse_chunksize_1",
-        "sparse_preload_1",
-        "sparse_chunksize_gt_preload",
-        "sparse_preload_gt_chunksize",
-    ],
 )
-def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
+def test_store_load_data(mock_store: Path, *, shuffle: bool, gen_loader):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -83,12 +96,14 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
     n_elems = 0
     batches = []
     for batch in loader:
-        x, _ = batch
+        x, label = batch
         n_elems += 1
         # Check feature dimension
         assert x.shape[0 if (is_dense := isinstance(x, np.ndarray)) else 1] == 100
         if not shuffle:
             batches += [x]
+        if label is not None:
+            assert isinstance(label, np.int64)
 
     # check that we yield all samples from the dataset
     if not shuffle:
@@ -120,20 +135,16 @@ def test_zarr_store(mock_store: Path, *, shuffle: bool, gen_loader):
             shuffle=True,
         ),
         lambda path: ZarrDenseDataset(
-            [zarr.open(p)["X"] for p in path.glob("*.zarr")],
-            obs_list=[
-                ad.io.read_elem(zarr.open(p)["obs"]) for p in path.glob("*.zarr")
-            ],
             shuffle=True,
-            obs_column="label",
             preload_nchunks=0,
         ),
         lambda path: ZarrDenseDataset(
-            [zarr.open(p)["X"] for p in path.glob("*.zarr")],
-            obs_list=[],
             shuffle=True,
-            obs_column="label",
             preload_nchunks=4,
+        ).add_anndatas(
+            [open_dense(p) for p in path.glob("*.zarr")],
+            None,
+            obs_keys=[],
         ),
         *(
             (

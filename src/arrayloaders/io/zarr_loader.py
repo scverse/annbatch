@@ -16,10 +16,7 @@ from torch.utils.data import IterableDataset
 from .utils import WorkerHandle, check_lt_1, check_var_shapes, sample_rows
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Iterator
-    from typing import Callable
-
-    import pandas as pd
+    from collections.abc import Awaitable, Callable, Iterator
 
 
 def _batched(iterable, n):
@@ -35,6 +32,7 @@ ArrayType = TypeVar("ArrayType", ad.abc.CSRDataset, zarr.Array)
 
 class DatasetManager(Generic[ArrayType]):
     train_datasets: list[ArrayType] = []
+    labels: list[np.ndarray] | None = None
 
     @property
     def array_type(self) -> type[ArrayType]:
@@ -49,7 +47,10 @@ class DatasetManager(Generic[ArrayType]):
         return self.train_datasets[0].shape[1]
 
     def add_anndatas(
-        self, adatas: list[ad.AnnData], layer_keys: list[str | None] | None = None
+        self,
+        adatas: list[ad.AnnData],
+        layer_keys: list[str | None] | None = None,
+        obs_keys: list[str] | None = None,
     ) -> None:
         """Append anndata datasets to this loader.
 
@@ -59,32 +60,83 @@ class DatasetManager(Generic[ArrayType]):
                 None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
                 Defaults to None.
+            obs_keys: Keys for getting the underlying data out of the anndata object.
+                None means no :attr:`anndata.AnnData.obs` will be retrieved.
+                Defaults to None.
         """
+        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
         check_lt_1(
-            [len(adatas)] + ([len(layer_keys)] if layer_keys is not None else []),
+            [len(adatas)]
+            + sum(
+                (([len(k)] if k is not None else []) for k in elem_to_keys.values()), []
+            ),
             ["Number of anndatas"]
-            + (["Number of layer keys"] if layer_keys is not None else []),
+            + sum(
+                (
+                    [f"Number of {label} keys"] if keys is not None else []
+                    for keys, label in elem_to_keys.items()
+                ),
+                [],
+            ),
         )
-        if layer_keys is not None:
-            if len(adatas) != len(layer_keys):
+        for label, key_list in elem_to_keys.items():
+            if key_list is not None:
+                if len(adatas) != len(key_list):
+                    raise ValueError(
+                        f"Number of anndatas {len(adatas)} must match number of {label} keys {len(key_list)}"
+                    )
+        match obs_keys is None, self.labels is None, len(self.train_datasets) > 0:
+            case True, False, _:
                 raise ValueError(
-                    f"Number of anndatas {len(adatas)} must match number of layer keys {len(layer_keys)}"
+                    "Cannot add datasets without labels when datasets with labels have already been added."
                 )
-        else:
-            layer_keys = [None] * len(adatas)
-        for adata, layer_key in zip(adatas, layer_keys):
-            self.add_anndata(adata, layer_key)
+            case False, True, True:
+                raise ValueError(
+                    "Cannot add datasets with labels when datasets without labels have already been added."
+                )
+            case False, False, False:
+                raise ValueError(
+                    "Datasets have been added with labels but no training data.  Pleas open an issue."
+                )
+            case (
+                False,
+                True,
+                False,
+            ):  # datasets being added for the first time with labels is the only time `self.labels` should be changed to []
+                self.labels = []
+        for idx, adata in enumerate(adatas):
+            kwargs = {
+                f"{label}_key": keys[idx] if isinstance(keys, list) else None
+                for label, keys in elem_to_keys.items()
+            }
+            self.add_anndata(adata, **kwargs)
 
-    def add_anndata(self, adata: ad.AnnData, layer_key: str | None = None) -> None:
+    def add_anndata(
+        self,
+        adata: ad.AnnData,
+        layer_key: str | None = None,
+        obs_key: str | None = None,
+    ) -> None:
         """Append an anndata dataset to this loader.
 
         Args:
             adata: :class:`anndata.AnnData` object.
-            layer_key: Keys for getting the underlying data out of the anndata object.
+            layer_key: Key for getting the underlying data out of the anndata object.
                 None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
+                Defaults to None.
+            obs_key: Key for getting the underlying obs labels out of the anndata object.
                 Defaults to None.
         """
         check_lt_1([adata.shape[0]], ["Anndata obs axis size"])
+        if len(self.train_datasets) > 0:
+            if self.labels is None and obs_key is not None:
+                raise ValueError(
+                    f"Cannot add a dataset with obs label {obs_key} when training datasets have already been added without labels"
+                )
+            if self.labels is not None and obs_key is None:
+                raise ValueError(
+                    "Cannot add a dataset with no obs label when training datasets have already been added without labels"
+                )
         dataset = adata.X if layer_key is None else adata.layers[layer_key]
         if len(self.train_datasets) > 0 and not isinstance(dataset, self.array_type):
             raise ValueError(
@@ -94,6 +146,12 @@ class DatasetManager(Generic[ArrayType]):
         check_var_shapes(datasets)
         self._var_size = datasets[0].shape[1]  # TODO: joins
         self.train_datasets = datasets
+        if self.labels is not None:  # labels exist
+            self.labels += [adata.obs[obs_key]]
+        elif (
+            obs_key is not None
+        ):  # labels dont exist yet, but are being added for the first time
+            self.labels = [adata.obs[obs_key]]
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -205,7 +263,7 @@ class DatasetManager(Generic[ArrayType]):
             chunks = zsync.sync(get(chunk_indices))
             yield from sample_rows(
                 chunks,
-                None,
+                self.labels,
                 shuffle,
             )
 
@@ -213,94 +271,95 @@ class DatasetManager(Generic[ArrayType]):
 class ZarrDenseDataset(IterableDataset):
     def __init__(
         self,
-        x_list: list[zarr.Array],
-        obs_list: list[
-            pd.DataFrame
-        ],  # TODO: split obs off into its own dataloader so it can be reused.
-        obs_column: str,
+        *,
+        chunk_size: int = 512,
         shuffle: bool = True,
         preload_nchunks: int = 8,
     ):
         check_lt_1(
-            [len(x_list), len(obs_list), preload_nchunks],
-            ["Number of arrays", "Number of obs labels", "Preload chunks"],
+            [chunk_size, preload_nchunks],
+            ["Chunk size", "Preload chunks"],
         )
-        check_var_shapes(x_list)
-        self._arrays = x_list
-        self._obs = obs_list
-        self._obs_column = obs_column
         self._shuffle = shuffle
         self._preload_nchunks = preload_nchunks
         self._worker_handle = WorkerHandle()
+        self._chunk_size = chunk_size
+        self._anndata_manager: DatasetManager[zarr.Array] = DatasetManager()
 
-        self.n_obs_list: list[int] = []  # number of observations for each array
-        self.chunks_lengths: list[int] = []  # chunk length for each array
-        arrays_chunks: list[list[int]] = []  # list of chunk indices for each array
-        arrays_nchunks: list[int] = []  # number of chunks for each array
-        for array in x_list:
-            self.n_obs_list.append(array.shape[0])
-            self.chunks_lengths.append(array.chunks[0])
-            array_nchunks = array.nchunks
-            arrays_nchunks.append(array_nchunks)
-            arrays_chunks.append(np.arange(array_nchunks))
+    def add_anndatas(
+        self,
+        adatas: list[ad.AnnData],
+        layer_keys: list[str | None] | None = None,
+        obs_keys: list[str] | None = None,
+    ) -> ZarrDenseDataset:
+        """Append anndata datasets to this loader.
 
-        self._n_obs = sum(self.n_obs_list)
-        # assumes the same for all arrays
-        array0 = x_list[0]
-        self.n_vars = array0.shape[1]
-        self.dtype = array0.dtype
-        self.order = array0.order
+        Args:
+            adatas: List of :class:`anndata.AnnData` objects.
+            layer_keys: Keys for getting the underlying data out of the anndata object.
+                None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
+                If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
+                Defaults to None.
+            obs_keys: Keys for getting the underlying data out of the anndata object.
+                None means no :attr:`anndata.AnnData.obs` will be retrieved.
+                Defaults to None.
 
-        self.chunks = np.hstack(arrays_chunks)
-        self.array_idxs = np.repeat(np.arange(len(self._arrays)), arrays_nchunks)
-        # pre-compute chunk slices
-        # slices are needed because we want to iterate over (logical) chunks, not (physical) shards
-        # but in zarr array.blocks[i] returns whole shards unlike dask
-        self.chunks_slices: list[slice] = []
-        for i, chunk_idx in enumerate(self.chunks):
-            self.chunks_slices.append(self._chunk_slice(chunk_idx, self.array_idxs[i]))
+        Returns:
+            The iterator with the anndatas added.
+        """
+        self._anndata_manager.add_anndatas(adatas, layer_keys, obs_keys)
+        return self
 
-    def _chunk_slice(self, chunk_idx: int, array_idx: int):
-        chunk_length = self.chunks_lengths[array_idx]
-        array_n_obs = self.n_obs_list[array_idx]
-        start = chunk_length * chunk_idx
-        stop = min(chunk_length * (chunk_idx + 1), array_n_obs)
-        return slice(start, stop)
+    def add_anndata(
+        self,
+        adata: ad.AnnData,
+        layer_key: str | None = None,
+        obs_key: str | None = None,
+    ) -> ZarrDenseDataset:
+        """Append an anndata dataset to this loader.
 
-    async def _fetch_chunks_x(self, chunk_idxs: list[int]):
-        tasks = []
-        for i in chunk_idxs:
-            array_idx = self.array_idxs[i]
-            array = self._arrays[array_idx]
-            tasks.append(array._async_array.getitem(self.chunks_slices[i]))
-        return await asyncio.gather(*tasks)
+        Args:
+            adata: :class:`anndata.AnnData` object.
+            layer_key: Keys for getting the underlying data out of the anndata object.
+                None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
+                Defaults to None.
+            obs_key: Key for getting the underlying obs labels out of the anndata object.
+                Defaults to None.
 
-    def _fetch_chunks_obs(self, chunk_idxs: list[int]):
-        obs = []
-        for i in chunk_idxs:
-            array_idx = self.array_idxs[i]
-            obs.append(
-                self._obs[array_idx][self._obs_column]
-                .iloc[self.chunks_slices[i]]
-                .to_numpy()
-            )
-        return obs
+        Returns:
+            The iterator with the anndata added.
+        """
+        self._anndata_manager.add_anndata(adata, layer_key, obs_key)
+        return self
+
+    async def _fetch_data(self, slices: list[slice], dataset_idx: int):
+        dataset = self._anndata_manager.train_datasets[dataset_idx]
+        indexer = MultiBasicIndexer(
+            [
+                zarr.core.indexing.BasicIndexer(
+                    (s, Ellipsis),
+                    shape=dataset.metadata.shape,
+                    chunk_grid=dataset.metadata.chunk_grid,
+                )
+                for s in slices
+            ]
+        )
+        res = await dataset._async_array._get_selection(
+            indexer, prototype=zarr.core.buffer.default_buffer_prototype()
+        )
+        return res
 
     def __iter__(self):
-        chunks = np.arange(len(self.chunks))
-        if self._shuffle:
-            self._worker_handle.shuffle(chunks)
-        chunks = self._worker_handle.get_part_for_worker(chunks)
-
-        for batch in _batched(chunks, self._preload_nchunks):
-            yield from sample_rows(
-                list(zsync.sync(self._fetch_chunks_x(batch))),
-                self._fetch_chunks_obs(batch),
-                self._shuffle,
-            )
+        yield from self._anndata_manager.iter(
+            self._chunk_size,
+            self._worker_handle,
+            self._preload_nchunks,
+            self._shuffle,
+            self._fetch_data,
+        )
 
     def __len__(self):
-        return self._n_obs
+        return self._anndata_manager.n_obs
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
@@ -311,9 +370,7 @@ class ZarrDenseDataset(IterableDataset):
 # See: https://github.com/zarr-developers/zarr-python/issues/3175 for why this is better than simpler alternatives.
 class MultiBasicIndexer(zarr.core.indexing.Indexer):
     def __init__(self, indexers: list[zarr.core.indexing.Indexer]):
-        self.shape = tuple(
-            sum(i.shape[k] for i in indexers) for k in range(len(indexers[0].shape))
-        )
+        self.shape = (sum(i.shape[0] for i in indexers), *indexers[0].shape[1:])
         self.drop_axes = indexers[0].drop_axes  # maybe?
         self.indexers = indexers
 
@@ -321,8 +378,11 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
         total = 0
         for i in self.indexers:
             for c in i:
-                gap = c[2][0].stop - c[2][0].start
-                yield type(c)(c[0], c[1], (slice(total, total + gap)), c[3])
+                out_selection = c[2]
+                gap = out_selection[0].stop - out_selection[0].start
+                yield type(c)(
+                    c[0], c[1], (slice(total, total + gap), *out_selection[1:]), c[3]
+                )
                 total += gap
 
 
@@ -364,7 +424,10 @@ class ZarrSparseDataset(IterableDataset):
         self._worker_handle = WorkerHandle()
 
     def add_anndatas(
-        self, adatas: list[ad.AnnData], layer_keys: list[str | None] | None = None
+        self,
+        adatas: list[ad.AnnData],
+        layer_keys: list[str | None] | None = None,
+        obs_keys: list[str] | None = None,
     ) -> ZarrSparseDataset:
         """Append anndata datasets to this loader.
 
@@ -374,15 +437,21 @@ class ZarrSparseDataset(IterableDataset):
                 None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
                 Defaults to None.
+            obs_keys: Keys for getting the underlying data out of the anndata object.
+                None means no :attr:`anndata.AnnData.obs` will be retrieved.
+                Defaults to None.
 
         Returns:
             The iterator with the anndatas added.
         """
-        self._anndata_manager.add_anndatas(adatas, layer_keys)
+        self._anndata_manager.add_anndatas(adatas, layer_keys, obs_keys)
         return self
 
     def add_anndata(
-        self, adata: ad.AnnData, layer_key: str | None = None
+        self,
+        adata: ad.AnnData,
+        layer_key: str | None = None,
+        obs_key: str | None = None,
     ) -> ZarrSparseDataset:
         """Append an anndata dataset to this loader.
 
@@ -391,11 +460,13 @@ class ZarrSparseDataset(IterableDataset):
             layer_key: Keys for getting the underlying data out of the anndata object.
                 None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
                 Defaults to None.
+            obs_key: Key for getting the underlying obs labels out of the anndata object.
+                Defaults to None.
 
         Returns:
             The iterator with the anndata added.
         """
-        self._anndata_manager.add_anndata(adata, layer_key)
+        self._anndata_manager.add_anndata(adata, layer_key, obs_key)
         return self
 
     async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
@@ -438,7 +509,7 @@ class ZarrSparseDataset(IterableDataset):
                 if idx not in self._dataset_elem_cache
             )
         )
-        for idx, elems in zip(arr_idxs, all_elems):
+        for idx, elems in zip(arr_idxs, all_elems, strict=True):
             self._dataset_elem_cache[idx] = elems
 
     async def _get_sparse_elems(self, dataset_idx: int) -> CSRDatasetElems:

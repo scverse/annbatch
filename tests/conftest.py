@@ -24,7 +24,6 @@ def mock_store(tmpdir_factory, n_shards: int = 3):
     feature_dim = 100
     n_cells_per_shard = 200
     tmp_path = Path(tmpdir_factory.mktemp("stores"))
-    print(type(tmp_path))
     for shard in range(n_shards):
         adata = ad.AnnData(
             X=da.random.random(
