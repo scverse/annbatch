@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
 
 
+OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
+InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
+
+
 def _batched(iterable, n):
     if n < 1:
         raise ValueError("n must be >= 1")
@@ -27,15 +31,33 @@ def _batched(iterable, n):
         yield batch
 
 
-ArrayType = TypeVar("ArrayType", ad.abc.CSRDataset, zarr.Array)
+async def index_datasets(
+    dataset_index_to_slices: defaultdict[int, list[slice]],
+    fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
+) -> list[InMemoryArray]:
+    """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
+
+    Args:
+        dataset_index_to_slices: A lookup of the list-placement index of a dataset to the request slices.
+        fetch_data: The function to do the fetching for a given slice-dataset index pair.
+    """
+    tasks = []
+    for dataset_idx in dataset_index_to_slices:
+        tasks.append(
+            fetch_data(
+                dataset_index_to_slices[dataset_idx],
+                dataset_idx,
+            )
+        )
+    return await asyncio.gather(*tasks)
 
 
-class DatasetManager(Generic[ArrayType]):
-    train_datasets: list[ArrayType] = []
+class DatasetManager(Generic[OnDiskArray]):
+    train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
 
     @property
-    def array_type(self) -> type[ArrayType]:
+    def array_type(self) -> type[OnDiskArray]:
         return type(self.train_datasets[0])
 
     @property
@@ -228,7 +250,7 @@ class DatasetManager(Generic[ArrayType]):
         worker_handle,
         preload_nchunks: int,
         shuffle: bool,
-        fetch_data: Callable[[list[slice], int], Awaitable[ArrayType]],
+        fetch_data: Callable[[list[slice], int], Awaitable[OnDiskArray]],
     ) -> Iterator[sp.csr_matrix]:
         """Iterate over the on-disk csr datasets.
 
@@ -251,20 +273,7 @@ class DatasetManager(Generic[ArrayType]):
             ]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
 
-            async def get(
-                dataset_index_to_slices: defaultdict[int, list[slice]],
-            ) -> list[sp.csr_matrix]:
-                tasks = []
-                for dataset_idx in dataset_index_to_slices:
-                    tasks.append(
-                        fetch_data(
-                            dataset_index_to_slices[dataset_idx],
-                            dataset_idx,
-                        )
-                    )
-                return await asyncio.gather(*tasks)
-
-            chunks = zsync.sync(get(dataset_index_to_slices))
+            chunks = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
             labels = None
             if self.labels is not None:
                 labels = []
