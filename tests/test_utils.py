@@ -25,7 +25,7 @@ def test_sample_rows_basic():
         (np.array([12, 13]), 5),
         (np.array([14, 15]), 6),
     ]
-    for (x, y), (ex, ey) in zip(result, expected):
+    for (x, y), (ex, ey) in zip(result, expected, strict=False):
         np.testing.assert_array_equal(x, ex)
         assert y == ey
 

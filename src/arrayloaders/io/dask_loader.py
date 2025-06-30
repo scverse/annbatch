@@ -139,10 +139,12 @@ class DaskDataset(IterableDataset):
         chunk_boundaries = np.cumsum([0] + list(self.adata.X.chunks[0]))
         slices = [
             slice(int(start), int(end))
-            for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:])
+            for start, end in zip(
+                chunk_boundaries[:-1], chunk_boundaries[1:], strict=False
+            )
         ]
         blocks_idxs = np.arange(len(self.adata.X.chunks[0]))
-        chunks = list(zip(blocks_idxs, slices))
+        chunks = list(zip(blocks_idxs, slices, strict=False))
 
         if self.shuffle:
             self.rng_split.shuffle(chunks)
@@ -162,7 +164,7 @@ class DaskDataset(IterableDataset):
 
     def __iter__(self):
         for chunks in _combine_chunks(self._get_chunks(), self.n_chunks):
-            block_idxs, slices = zip(*chunks)
+            block_idxs, slices = zip(*chunks, strict=False)
             x_list = dask.compute(
                 [self.adata.X.blocks[i] for i in block_idxs],
                 scheduler=self.dask_scheduler,

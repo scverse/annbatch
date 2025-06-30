@@ -81,7 +81,7 @@ def _create_chunks_for_shuffling(
     chunk_boundaries = np.cumsum([0] + list(adata.X.chunks[0]))
     slices = [
         slice(int(start), int(end))
-        for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:])
+        for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:], strict=False)
     ]
     random.shuffle(slices)
     idxs = np.concatenate([np.arange(s.start, s.stop) for s in slices])
