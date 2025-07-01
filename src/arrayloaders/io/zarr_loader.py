@@ -79,7 +79,7 @@ Args:
 """
 
 
-class DatasetManager(Generic[OnDiskArray, InMemoryArray]):
+class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _on_add: Callable | None = None
@@ -305,8 +305,8 @@ class DatasetManager(Generic[OnDiskArray, InMemoryArray]):
             )
 
 
-DatasetManager.add_anndata.__doc__ = add_anndata_docstring
-DatasetManager.add_anndatas.__doc__ = add_anndatas_docstring
+AnnDataManager.add_anndata.__doc__ = add_anndata_docstring
+AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
 
 __init_docstring__ = """A loader for on-disk {array_type} data.
 
@@ -345,14 +345,14 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-class AbstractSCDataset(
+class AbstractIterableDataset(
     Generic[OnDiskArray, InMemoryArray], metaclass=ABCMeta
 ):  # TODO: better name ugh
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
     _chunk_size: int
-    _dataset_manager: DatasetManager[OnDiskArray, InMemoryArray]
+    _dataset_manager: AnnDataManager[OnDiskArray, InMemoryArray]
 
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
@@ -403,11 +403,11 @@ class AbstractSCDataset(
         )
 
 
-AbstractSCDataset.add_anndata.__doc__ = add_anndata_docstring
-AbstractSCDataset.add_anndatas.__doc__ = add_anndatas_docstring
+AbstractIterableDataset.add_anndata.__doc__ = add_anndata_docstring
+AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
 
 
-class ZarrDenseDataset(AbstractSCDataset, IterableDataset):
+class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
     def __init__(
         self,
         *,
@@ -423,7 +423,7 @@ class ZarrDenseDataset(AbstractSCDataset, IterableDataset):
         self._preload_nchunks = preload_nchunks
         self._worker_handle = WorkerHandle()
         self._chunk_size = chunk_size
-        self._dataset_manager: DatasetManager[zarr.Array, np.ndarray] = DatasetManager()
+        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager()
 
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
@@ -455,7 +455,7 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class ZarrSparseDataset(AbstractSCDataset, IterableDataset):
+class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
     def __init__(
         self,
         *,
@@ -467,8 +467,8 @@ class ZarrSparseDataset(AbstractSCDataset, IterableDataset):
             [chunk_size, preload_nchunks],
             ["Chunk size", "Preload chunks"],
         )
-        self._dataset_manager: DatasetManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            DatasetManager(on_add=lambda: zsync.sync(self._ensure_cache()))
+        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+            AnnDataManager(on_add=lambda: zsync.sync(self._ensure_cache()))
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
