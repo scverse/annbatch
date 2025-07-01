@@ -2,74 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import math
+from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from itertools import accumulate, chain, islice, pairwise
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Generic, NamedTuple, TypeVar, cast
 
 import anndata as ad
 import numpy as np
-import pandas as pd
 import zarr
 import zarr.core.sync as zsync
 from scipy import sparse as sp
 from torch.utils.data import IterableDataset
-from upath import UPath
 
-from .utils import WorkerHandle, check_lt_1, sample_rows
+from .utils import WorkerHandle, check_lt_1, check_var_shapes, sample_rows
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
-    from os import PathLike
+    from collections.abc import Awaitable, Callable, Iterator
+    from typing import Self
 
-
-def _encode_str_to_int(obs_list: list[pd.DataFrame]):
-    """Encodes string and categorical columns in a list of DataFrames to integer codes, modifying the DataFrames in place.
-
-    Args:
-        obs_list: A list of pandas DataFrames containing the data to encode.
-
-    Returns:
-        dict: A mapping of column names to dictionaries, where each dictionary maps integer codes
-              to their corresponding unique string or category values.
-    """
-    categorical_mapping = {}
-    for col in obs_list[0].select_dtypes(include=["object", "category"]).columns:
-        uniques = set().union(*(df[col].unique() for df in obs_list))
-        for df in obs_list:
-            df[col] = pd.Categorical(
-                df[col], categories=uniques, ordered=True
-            ).codes.astype("i8")
-        categorical_mapping[col] = dict(enumerate(uniques))
-    return categorical_mapping
-
-
-def load_store(
-    path: PathLike, obs_columns: Iterable[str] = None
-) -> tuple[list[zarr.Array], list[pd.DataFrame], dict[str, dict[int, str]]]:
-    upath = UPath(path)
-    arrays, obs_dfs = [], []
-    for p in upath.iterdir():
-        if p.suffix != ".zarr":
-            continue
-        p_x = p / "X"
-        if p_x.protocol == "":
-            store = p_x.as_posix()
-        else:
-            store = zarr.storage.FsspecStore.from_upath(UPath(p_x, asynchronous=True))
-        arrays.append(zarr.open(store, mode="r"))
-
-        g = zarr.open(p, mode="r")
-        if obs_columns is None:
-            obs = ad.io.read_elem(g["obs"])
-        else:
-            obs = pd.DataFrame(
-                {col: ad.io.read_elem(g[f"obs/{col}"]) for col in obs_columns}
-            )
-        obs_dfs.append(obs)
-
-    categorical_mapping = _encode_str_to_int(obs_dfs)
-
-    return arrays, obs_dfs, categorical_mapping
+OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
+accepted_on_disk_types = OnDiskArray.__constraints__
+InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
 
 
 def _batched(iterable, n):
@@ -80,160 +33,166 @@ def _batched(iterable, n):
         yield batch
 
 
-class ZarrDenseDataset(IterableDataset):
-    def __init__(
-        self,
-        x_list: list[zarr.Array],
-        obs_list: list[
-            pd.DataFrame
-        ],  # TODO: split obs off into its own dataloader so it can be reused.
-        obs_column: str,
-        shuffle: bool = True,
-        preload_nchunks: int = 8,
-    ):
-        check_lt_1(
-            [len(x_list), len(obs_list), preload_nchunks],
-            ["Number of arrays", "Number of obs labels", "Preload chunks"],
-        )
-        self._arrays = x_list
-        self._obs = obs_list
-        self._obs_column = obs_column
-        self._shuffle = shuffle
-        self._preload_nchunks = preload_nchunks
-        self._worker_handle = WorkerHandle()
+async def index_datasets(
+    dataset_index_to_slices: defaultdict[int, list[slice]],
+    fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
+) -> list[InMemoryArray]:
+    """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
 
-        self.n_obs_list: list[int] = []  # number of observations for each array
-        self.chunks_lengths: list[int] = []  # chunk length for each array
-        arrays_chunks: list[list[int]] = []  # list of chunk indices for each array
-        arrays_nchunks: list[int] = []  # number of chunks for each array
-        for array in x_list:
-            self.n_obs_list.append(array.shape[0])
-            self.chunks_lengths.append(array.chunks[0])
-            array_nchunks = array.nchunks
-            arrays_nchunks.append(array_nchunks)
-            arrays_chunks.append(np.arange(array_nchunks))
-
-        self._n_obs = sum(self.n_obs_list)
-        # assumes the same for all arrays
-        array0 = x_list[0]
-        self.n_vars = array0.shape[1]
-        self.dtype = array0.dtype
-        self.order = array0.order
-
-        self.chunks = np.hstack(arrays_chunks)
-        self.array_idxs = np.repeat(np.arange(len(self._arrays)), arrays_nchunks)
-        # pre-compute chunk slices
-        # slices are needed because we want to iterate over (logical) chunks, not (physical) shards
-        # but in zarr array.blocks[i] returns whole shards unlike dask
-        self.chunks_slices: list[slice] = []
-        for i, chunk_idx in enumerate(self.chunks):
-            self.chunks_slices.append(self._chunk_slice(chunk_idx, self.array_idxs[i]))
-
-    def _chunk_slice(self, chunk_idx: int, array_idx: int):
-        chunk_length = self.chunks_lengths[array_idx]
-        array_n_obs = self.n_obs_list[array_idx]
-        start = chunk_length * chunk_idx
-        stop = min(chunk_length * (chunk_idx + 1), array_n_obs)
-        return slice(start, stop)
-
-    async def _fetch_chunks_x(self, chunk_idxs: list[int]):
-        tasks = []
-        for i in chunk_idxs:
-            array_idx = self.array_idxs[i]
-            array = self._arrays[array_idx]
-            tasks.append(array._async_array.getitem(self.chunks_slices[i]))
-        return await asyncio.gather(*tasks)
-
-    def _fetch_chunks_obs(self, chunk_idxs: list[int]):
-        obs = []
-        for i in chunk_idxs:
-            array_idx = self.array_idxs[i]
-            obs.append(
-                self._obs[array_idx][self._obs_column]
-                .iloc[self.chunks_slices[i]]
-                .to_numpy()
+    Args:
+        dataset_index_to_slices: A lookup of the list-placement index of a dataset to the request slices.
+        fetch_data: The function to do the fetching for a given slice-dataset index pair.
+    """
+    tasks = []
+    for dataset_idx in dataset_index_to_slices:
+        tasks.append(
+            fetch_data(
+                dataset_index_to_slices[dataset_idx],
+                dataset_idx,
             )
-        return obs
-
-    def __iter__(self):
-        chunks = np.arange(len(self.chunks))
-        if self._shuffle:
-            self._worker_handle.shuffle(chunks)
-        chunks = self._worker_handle.get_part_for_worker(chunks)
-
-        for batch in _batched(chunks, self._preload_nchunks):
-            yield from sample_rows(
-                list(zsync.sync(self._fetch_chunks_x(batch))),
-                self._fetch_chunks_obs(batch),
-                self._shuffle,
-            )
-
-    def __len__(self):
-        return self._n_obs
-
-
-# TODO: make this part of the public zarr or zarrs-python API.
-# We can do chunk coalescing in zarrs based on integer arrays, so I think
-# there would make sense with ezclump or similar.
-# Another "solution" would be for zarrs to support integer indexing properly, if that pipeline works,
-# or make this an "experimental setting" and to use integer indexing for the zarr-python pipeline.
-class MultiBasicIndexer(zarr.core.indexing.Indexer):
-    def __init__(self, indexers: list[zarr.core.indexing.Indexer]):
-        self.shape = tuple(
-            sum(i.shape[k] for i in indexers) for k in range(len(indexers[0].shape))
         )
-        self.drop_axes = indexers[0].drop_axes  # maybe?
-        self.indexers = indexers
-
-    def __iter__(self):
-        total = 0
-        for i in self.indexers:
-            for c in i:
-                gap = c[2][0].stop - c[2][0].start
-                yield type(c)(c[0], c[1], (slice(total, total + gap)), c[3])
-                total += gap
+    return await asyncio.gather(*tasks)
 
 
-class CSRDatasetElems(NamedTuple):
-    indptr: np.ndarray
-    indices: zarr.AsyncArray
-    data: zarr.AsyncArray
+add_anndatas_docstring = """Append anndata datasets to this loader.
+
+Args:
+    adatas: List of :class:`anndata.AnnData` objects.
+    layer_keys: Key(s) for getting the underlying data out of the anndata object.
+        None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
+        If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
+        Defaults to None.
+    obs_keys: Key(s) for getting the underlying labels out of the obs of the anndata object.
+        None means no :attr:`anndata.AnnData.obs` will be retrieved.
+        Defaults to None.
+"""
+
+add_anndata_docstring = """Append an anndata dataset to this loader.
+
+Args:
+    adata: :class:`anndata.AnnData` object.
+    layer_key: Key for getting the underlying data out of the anndata object.
+        None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
+        Defaults to None.
+    obs_key: Key for getting the underlying obs labels out of the anndata object.
+        Defaults to None.
+"""
 
 
-class ZarrSparseDataset(IterableDataset):
-    def __init__(
+class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
+    train_datasets: list[OnDiskArray] = []
+    labels: list[np.ndarray] | None = None
+    _on_add: Callable | None = None
+
+    def __init__(self, *, on_add: Callable | None = None):
+        self._on_add = on_add
+
+    @property
+    def dataset_type(self) -> type[OnDiskArray]:
+        return type(self.train_datasets[0])
+
+    @property
+    def n_obs(self) -> int:
+        return sum(ds.shape[0] for ds in self.train_datasets)
+
+    @property
+    def n_var(self) -> int:
+        return self.train_datasets[0].shape[1]
+
+    def add_anndatas(
         self,
-        sparse_datasets: list[ad.abc.CSRDataset],
-        *,
-        chunk_size: int = 512,
-        preload_nchunks: int = 32,
-        shuffle: bool = True,
-    ):
-        """A loader for on-disk sparse data.
-
-        This loader batches together slice requests to the underlying sparse stores to acheive higher performance.
-        This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
-        At the moment, the loader is agnostic to the on-disk chunking/sharding, but initial tests show excellent performance for
-        sharded data/indices where the shards are extremely small (only ~30,000 elements).
-
-        Args:
-            sparse_datasets: Disk-backed sparse data.  For now, must all be of the same var (i.e., axis 1) size.
-            chunk_size: The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
-            preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
-            shuffle: Whether or not to shuffle the data, by default True
-        """
+        adatas: list[ad.AnnData],
+        layer_keys: list[str | None] | str | None = None,
+        obs_keys: list[str] | str | None = None,
+    ) -> None:
+        if isinstance(layer_keys, str):
+            layer_keys = [layer_keys] * len(adatas)
+        if isinstance(obs_keys, str):
+            obs_keys = [obs_keys] * len(adatas)
+        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
         check_lt_1(
-            [len(sparse_datasets), chunk_size, preload_nchunks],
-            ["Number of sparse datasets", "Chunk size", "Preload chunks"],
+            [len(adatas)]
+            + sum(
+                (([len(k)] if k is not None else []) for k in elem_to_keys.values()), []
+            ),
+            ["Number of anndatas"]
+            + sum(
+                (
+                    [f"Number of {label} keys"] if keys is not None else []
+                    for keys, label in elem_to_keys.items()
+                ),
+                [],
+            ),
         )
-        self._sparse_datasets = sparse_datasets
-        self._n_obs = sum(a.shape[0] for a in self._sparse_datasets)
-        self._chunk_size = chunk_size
-        self._preload_nchunks = preload_nchunks
-        self._shuffle = shuffle
-        self._var_size = self._sparse_datasets[0].shape[1]
-        self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
-        self._worker_handle = WorkerHandle()
+        for label, key_list in elem_to_keys.items():
+            if key_list is not None:
+                if len(adatas) != len(key_list):
+                    raise ValueError(
+                        f"Number of anndatas {len(adatas)} must match number of {label} keys {len(key_list)}"
+                    )
+        match obs_keys is None, self.labels is None, len(self.train_datasets) > 0:
+            case True, False, _:
+                raise ValueError(
+                    "Cannot add datasets without labels when datasets with labels have already been added."
+                )
+            case False, True, True:
+                raise ValueError(
+                    "Cannot add datasets with labels when datasets without labels have already been added."
+                )
+            case False, False, False:
+                raise ValueError(
+                    "Datasets have been added with labels but no training data.  Pleas open an issue."
+                )
+            case (
+                False,
+                True,
+                False,
+            ):  # datasets being added for the first time with labels is the only time `self.labels` should be changed to []
+                self.labels = []
+        for idx, adata in enumerate(adatas):
+            kwargs = {
+                f"{label}_key": keys[idx] if isinstance(keys, list) else None
+                for label, keys in elem_to_keys.items()
+            }
+            self.add_anndata(adata, **kwargs)
+
+    def add_anndata(
+        self,
+        adata: ad.AnnData,
+        layer_key: str | None = None,
+        obs_key: str | None = None,
+    ) -> None:
+        check_lt_1([adata.shape[0]], ["Anndata obs axis size"])
+        if len(self.train_datasets) > 0:
+            if self.labels is None and obs_key is not None:
+                raise ValueError(
+                    f"Cannot add a dataset with obs label {obs_key} when training datasets have already been added without labels"
+                )
+            if self.labels is not None and obs_key is None:
+                raise ValueError(
+                    "Cannot add a dataset with no obs label when training datasets have already been added without labels"
+                )
+        dataset = adata.X if layer_key is None else adata.layers[layer_key]
+        if not isinstance(dataset, accepted_types := accepted_on_disk_types):
+            raise TypeError(
+                f"Cannot add a dataset of type {type(dataset)}, only {accepted_types} are allowed"
+            )
+        if len(self.train_datasets) > 0 and not isinstance(dataset, self.dataset_type):
+            raise TypeError(
+                f"Cannot add a dataset whose data of type {type(dataset)} was not an instance of expected type {self.dataset_type}"
+            )
+        datasets = self.train_datasets + [dataset]
+        check_var_shapes(datasets)
+        self._var_size = datasets[0].shape[1]  # TODO: joins
+        self.train_datasets = datasets
+        if self.labels is not None:  # labels exist
+            self.labels += [adata.obs[obs_key]]
+        elif (
+            obs_key is not None
+        ):  # labels dont exist yet, but are being added for the first time
+            self.labels = [adata.obs[obs_key]]
+        if self._on_add is not None:
+            self._on_add()
 
     def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -255,7 +214,7 @@ class ZarrSparseDataset(IterableDataset):
         max_idx = index.stop
         curr_pos = 0
         slices = []
-        for anndata_idx, array in enumerate(self._sparse_datasets):
+        for idx, array in enumerate(self.train_datasets):
             array_start = curr_pos
             n_obs = array.shape[0]
             array_end = curr_pos + n_obs
@@ -265,11 +224,260 @@ class ZarrSparseDataset(IterableDataset):
             if start < stop:
                 relative_start = start - array_start
                 relative_stop = stop - array_start
-                slices.append((slice(relative_start, relative_stop), anndata_idx))
+                slices.append((slice(relative_start, relative_stop), idx))
             curr_pos += n_obs
         return slices
 
-    async def _get_elems(self, idx: int) -> CSRDatasetElems:
+    def _slices_to_slices_with_array_index(
+        self, slices: list[slice]
+    ) -> defaultdict[int, list[slice]]:
+        """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
+
+        Args:
+            slices: Slices to relative to the on-disk datasets.
+
+        Returns:
+            A lookup between the dataset and its indexing slices.
+        """
+        dataset_index_to_slices: defaultdict[int, list[slice]] = defaultdict(list)
+        for slice in slices:
+            for relative_obs_indices in self._get_relative_obs_indices(slice):
+                dataset_index_to_slices[relative_obs_indices[1]] += [
+                    relative_obs_indices[0]
+                ]
+        return dataset_index_to_slices
+
+    def _get_chunks(self, chunk_size: int, worker_handle, shuffle: bool) -> np.ndarray:
+        """Get a potentially shuffled list of chunk ids, accounting for the fact that this dataset might be inside a worker.
+
+        Returns:
+            A :class:`numpy.ndarray` of chunk ids.
+        """
+        chunks = np.array(list(range(math.ceil(self.n_obs / chunk_size))))
+        if shuffle:
+            worker_handle.shuffle(chunks)
+
+        return worker_handle.get_part_for_worker(chunks)
+
+    def iter(
+        self,
+        chunk_size: int,
+        worker_handle,
+        preload_nchunks: int,
+        shuffle: bool,
+        fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
+    ) -> Iterator[tuple[InMemoryArray, None | np.ndarray]]:
+        """Iterate over the on-disk csr datasets.
+
+        Yields:
+            A one-row sparse matrix.
+        """
+        check_lt_1(
+            [len(self.train_datasets), self.n_obs],
+            ["Number of datasets", "Number of observations"],
+        )
+        for chunk_indices in _batched(
+            self._get_chunks(chunk_size, worker_handle, shuffle), preload_nchunks
+        ):
+            slices = [
+                slice(
+                    index * chunk_size,
+                    min(self.n_obs, (index + 1) * chunk_size),
+                )
+                for index in chunk_indices
+            ]
+            dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
+
+            chunks = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
+            labels = None
+            if self.labels is not None:
+                labels = []
+                for dataset_idx, slices in dataset_index_to_slices.items():
+                    labels += [
+                        self.labels[dataset_idx][
+                            np.concatenate([np.arange(s.start, s.stop) for s in slices])
+                        ]
+                    ]
+            yield from sample_rows(
+                chunks,
+                labels,
+                shuffle,
+            )
+
+
+AnnDataManager.add_anndata.__doc__ = add_anndata_docstring
+AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
+
+__init_docstring__ = """A loader for on-disk {array_type} data.
+
+This loader batches together slice requests to the underlying {array_type} stores to acheive higher performance.
+This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
+The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size.
+
+Args:
+    chunk_size: The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
+    preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
+    shuffle: Whether or not to shuffle the data, by default True
+"""
+
+
+# TODO: make this part of the public zarr or zarrs-python API.
+# We can do chunk coalescing in zarrs based on integer arrays, so I think
+# there would make sense with ezclump or similar.
+# Another "solution" would be for zarrs to support integer indexing properly, if that pipeline works,
+# or make this an "experimental setting" and to use integer indexing for the zarr-python pipeline.
+# See: https://github.com/zarr-developers/zarr-python/issues/3175 for why this is better than simpler alternatives.
+class MultiBasicIndexer(zarr.core.indexing.Indexer):
+    def __init__(self, indexers: list[zarr.core.indexing.Indexer]):
+        self.shape = (sum(i.shape[0] for i in indexers), *indexers[0].shape[1:])
+        self.drop_axes = indexers[0].drop_axes  # maybe?
+        self.indexers = indexers
+
+    def __iter__(self):
+        total = 0
+        for i in self.indexers:
+            for c in i:
+                out_selection = c[2]
+                gap = out_selection[0].stop - out_selection[0].start
+                yield type(c)(
+                    c[0], c[1], (slice(total, total + gap), *out_selection[1:]), c[3]
+                )
+                total += gap
+
+
+class AbstractIterableDataset(
+    Generic[OnDiskArray, InMemoryArray], metaclass=ABCMeta
+):  # TODO: better name ugh
+    _shuffle: bool
+    _preload_nchunks: int
+    _worker_handle: WorkerHandle
+    _chunk_size: int
+    _dataset_manager: AnnDataManager[OnDiskArray, InMemoryArray]
+
+    @abstractmethod
+    async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
+        """Fetch the data for given slices and the arrays representing a dataset on-disk.
+
+        Args:
+            slices: The indexing slices to fetch.
+            dataset_idx: The index of the dataset to fetch from.
+
+        Returns:
+            The in-memory array data.
+        """
+        ...
+
+    def add_anndatas(
+        self,
+        adatas: list[ad.AnnData],
+        layer_keys: list[str | None] | str | None = None,
+        obs_keys: list[str] | str | None = None,
+    ) -> Self:
+        self._dataset_manager.add_anndatas(adatas, layer_keys, obs_keys)
+        return self
+
+    def add_anndata(
+        self,
+        adata: ad.AnnData,
+        layer_key: str | None = None,
+        obs_key: str | None = None,
+    ) -> Self:
+        self._dataset_manager.add_anndata(adata, layer_key, obs_key)
+        return self
+
+    def __len__(self) -> int:
+        return self._dataset_manager.n_obs
+
+    def __iter__(self) -> Iterator[tuple[InMemoryArray, None | np.ndarray]]:
+        """Iterate over the on-disk datasets.
+
+        Yields:
+            A one-row in-memory array optionally with its label.
+        """
+        yield from self._dataset_manager.iter(
+            self._chunk_size,
+            self._worker_handle,
+            self._preload_nchunks,
+            self._shuffle,
+            self._fetch_data,
+        )
+
+
+AbstractIterableDataset.add_anndata.__doc__ = add_anndata_docstring
+AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
+
+
+class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 512,
+        shuffle: bool = True,
+        preload_nchunks: int = 8,
+    ):
+        check_lt_1(
+            [chunk_size, preload_nchunks],
+            ["Chunk size", "Preload chunks"],
+        )
+        self._shuffle = shuffle
+        self._preload_nchunks = preload_nchunks
+        self._worker_handle = WorkerHandle()
+        self._chunk_size = chunk_size
+        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager()
+
+    async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
+        dataset = self._dataset_manager.train_datasets[dataset_idx]
+        indexer = MultiBasicIndexer(
+            [
+                zarr.core.indexing.BasicIndexer(
+                    (s, Ellipsis),
+                    shape=dataset.metadata.shape,
+                    chunk_grid=dataset.metadata.chunk_grid,
+                )
+                for s in slices
+            ]
+        )
+        res = cast(
+            "np.ndarray",
+            await dataset._async_array._get_selection(
+                indexer, prototype=zarr.core.buffer.default_buffer_prototype()
+            ),
+        )
+        return res
+
+
+ZarrDenseDataset.__init__.__doc__ = __init_docstring__.format(array_type="dense")
+
+
+class CSRDatasetElems(NamedTuple):
+    indptr: np.ndarray
+    indices: zarr.AsyncArray
+    data: zarr.AsyncArray
+
+
+class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 512,
+        preload_nchunks: int = 32,
+        shuffle: bool = True,
+    ):
+        check_lt_1(
+            [chunk_size, preload_nchunks],
+            ["Chunk size", "Preload chunks"],
+        )
+        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+            AnnDataManager(on_add=lambda: zsync.sync(self._ensure_cache()))
+        )
+        self._chunk_size = chunk_size
+        self._preload_nchunks = preload_nchunks
+        self._shuffle = shuffle
+        self._worker_handle = WorkerHandle()
+
+        self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
+
+    async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
 
         Args:
@@ -278,13 +486,19 @@ class ZarrSparseDataset(IterableDataset):
         Returns:
             The constituent elems of the CSR dataset.
         """
-        indptr = await self._sparse_datasets[idx].group._async_group.getitem("indptr")
+        indptr = await self._dataset_manager.train_datasets[
+            idx
+        ].group._async_group.getitem("indptr")
         return CSRDatasetElems(
             *(
                 await asyncio.gather(
                     indptr.getitem(Ellipsis),
-                    self._sparse_datasets[idx].group._async_group.getitem("indices"),
-                    self._sparse_datasets[idx].group._async_group.getitem("data"),
+                    self._dataset_manager.train_datasets[
+                        idx
+                    ].group._async_group.getitem("indices"),
+                    self._dataset_manager.train_datasets[
+                        idx
+                    ].group._async_group.getitem("data"),
                 )
             )
         )
@@ -293,53 +507,40 @@ class ZarrSparseDataset(IterableDataset):
         """Build up the cache of datasets i.e., in-memory indptr, and backed indices and data."""
         arr_idxs = [
             idx
-            for idx in range(len(self._sparse_datasets))
+            for idx in range(len(self._dataset_manager.train_datasets))
             if idx not in self._dataset_elem_cache
         ]
         all_elems = await asyncio.gather(
             *(
-                self._get_elems(idx)
-                for idx in range(len(self._sparse_datasets))
+                self._create_sparse_elems(idx)
+                for idx in range(len(self._dataset_manager.train_datasets))
                 if idx not in self._dataset_elem_cache
             )
         )
-        for idx, elems in zip(arr_idxs, all_elems):
+        for idx, elems in zip(arr_idxs, all_elems, strict=True):
             self._dataset_elem_cache[idx] = elems
 
-    async def _get_sparse_elems(self, anndata_idx: int) -> CSRDatasetElems:
+    async def _get_sparse_elems(self, dataset_idx: int) -> CSRDatasetElems:
         """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
 
         Args:
-            anndata_idx: The index of the dataset whose arrays are sought.
+            dataset_idx: The index of the dataset whose arrays are sought.
 
         Returns:
             The arrays representing the sparse data.
         """
-        if anndata_idx not in self._dataset_elem_cache:
+        if dataset_idx not in self._dataset_elem_cache:
             self._ensure_cache()
-        return self._dataset_elem_cache[anndata_idx]
+        return self._dataset_elem_cache[dataset_idx]
 
     async def _fetch_data(
         self,
         slices: list[slice],
-        indptr: np.ndarray,
-        indices: zarr.AsyncArray,
-        data: zarr.AsyncArray,
+        dataset_idx: int,
     ) -> sp.csr_matrix:
-        """Fetch the data for given slices and the arrays representing a sparse dataset on-disk.
-
-        See https://github.com/scverse/anndata/blob/361325fc621887bf4f381e9412b150fcff599ff7/src/anndata/_core/sparse_dataset.py#L272-L295
-        for the inspiration of this function.
-
-        Args:
-            slices: The indexing slices to fetch.
-            indptr: The indptr of a csr matrix.
-            indices: The indices of a csr matrix.
-            data: The data of a csr matrix.
-
-        Returns:
-            The in-memory csr data.
-        """
+        # See https://github.com/scverse/anndata/blob/361325fc621887bf4f381e9412b150fcff599ff7/src/anndata/_core/sparse_dataset.py#L272-L295
+        # for the inspiration of this function.
+        indptr, indices, data = await self._get_sparse_elems(dataset_idx)
         indptr_indices = [indptr[slice(s.start, s.stop + 1)] for s in slices]
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
         indexer = MultiBasicIndexer(
@@ -364,7 +565,7 @@ class ZarrSparseDataset(IterableDataset):
         if len(slices) < 2:  # there is only one slice so no need to concatenate
             return sp.csr_matrix(
                 (data_np, indices_np, start_indptr),
-                shape=(start_indptr.shape[0] - 1, self._var_size),
+                shape=(start_indptr.shape[0] - 1, self._dataset_manager.n_var),
             )
         end_indptr = np.concatenate(
             [s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)]
@@ -372,76 +573,8 @@ class ZarrSparseDataset(IterableDataset):
         indptr_np = np.concatenate([start_indptr, end_indptr])
         return sp.csr_matrix(
             (data_np, indices_np, indptr_np),
-            shape=(indptr_np.shape[0] - 1, self._var_size),
+            shape=(indptr_np.shape[0] - 1, self._dataset_manager.n_var),
         )
 
-    def _slices_to_slices_with_array_index(
-        self, slices: list[slice]
-    ) -> defaultdict[int, list[slice]]:
-        """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
 
-        Args:
-            slices: Slices to relative to the on-disk datasets.
-
-        Returns:
-            A lookup between the dataset and its indexing slices.
-        """
-        anndata_index_to_slices: defaultdict[int, list[slice]] = defaultdict(list)
-        for slice in slices:
-            for relative_obs_indices in self._get_relative_obs_indices(slice):
-                anndata_index_to_slices[relative_obs_indices[1]] += [
-                    relative_obs_indices[0]
-                ]
-        return anndata_index_to_slices
-
-    def _get_chunks(self) -> np.ndarray:
-        """Get a potentially shuffled list of chunk ids, accounting for the fact that this dataset might be inside a worker.
-
-        Returns:
-            A :class:`numpy.ndarray` of chunk ids.
-        """
-        chunks = np.array(list(range(math.ceil(self._n_obs / self._chunk_size))))
-        if self._shuffle:
-            self._worker_handle.shuffle(chunks)
-
-        return self._worker_handle.get_part_for_worker(chunks)
-
-    def __iter__(self) -> Iterator[sp.csr_matrix]:
-        """Iterate over the on-disk csr datasets.
-
-        Yields:
-            A one-row sparse matrix.
-        """
-        zsync.sync(self._ensure_cache())
-        for chunk_indices in _batched(self._get_chunks(), self._preload_nchunks):
-
-            async def get(chunk_indices: np.ndarray) -> list[sp.csr_matrix]:
-                slices = [
-                    slice(
-                        index * self._chunk_size,
-                        min(self._n_obs, (index + 1) * self._chunk_size),
-                    )
-                    for index in chunk_indices
-                ]
-                tasks = []
-                anndata_index_to_slices = self._slices_to_slices_with_array_index(
-                    slices
-                )
-                for anndata_idx in anndata_index_to_slices:
-                    tasks.append(
-                        self._fetch_data(
-                            anndata_index_to_slices[anndata_idx],
-                            *(await self._get_sparse_elems(anndata_idx)),
-                        )
-                    )
-                return await asyncio.gather(*tasks)
-
-            chunks = zsync.sync(get(chunk_indices))
-            yield from sample_rows(
-                chunks,
-                None,
-                self._shuffle,
-            )
-
-    def __len__(self):
-        return self._n_obs
+ZarrSparseDataset.__init__.__doc__ = __init_docstring__.format(array_type="sparse")
