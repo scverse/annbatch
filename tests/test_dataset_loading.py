@@ -202,3 +202,86 @@ def test_layers_keys_anndata_mismatch(mock_store, layer_keys_less):
             if not layer_keys_less
             else ["sparse"],
         )
+
+
+@pytest.mark.parametrize(
+    ["dataset_class", "init_anndata_args", "add_anndata_args", "error"],
+    [
+        pytest.param(
+            ZarrSparseDataset,
+            lambda path: {
+                "adatas": [open_sparse(p) for p in path.glob("*.zarr")],
+                "obs_keys": "label",
+            },
+            lambda path: {
+                "adata": open_sparse(next(path.glob("*.zarr"))),
+                "obs_key": None,
+            },
+            ValueError,
+            id="add_unlabeled_to_labeled",
+        ),
+        pytest.param(
+            ZarrSparseDataset,
+            lambda path: {
+                "adatas": [open_sparse(p) for p in path.glob("*.zarr")],
+                "obs_keys": None,
+            },
+            lambda path: {
+                "adata": open_sparse(next(path.glob("*.zarr"))),
+                "obs_key": "label",
+            },
+            ValueError,
+            id="add_labeled_to_unlabeled",
+        ),
+        pytest.param(
+            ZarrSparseDataset,
+            lambda path: {
+                "adatas": [open_sparse(p) for p in path.glob("*.zarr")],
+                "obs_keys": "label",
+            },
+            lambda path: {
+                "adata": open_dense(next(path.glob("*.zarr"))),
+                "obs_key": "label",
+            },
+            TypeError,
+            id="add_dense_to_sparse",
+        ),
+        pytest.param(
+            ZarrDenseDataset,
+            lambda path: {
+                "adatas": [open_dense(p) for p in path.glob("*.zarr")],
+                "obs_keys": "label",
+            },
+            lambda path: {
+                "adata": open_sparse(next(path.glob("*.zarr"))),
+                "obs_key": "label",
+            },
+            TypeError,
+            id="add_sparse_to_dense",
+        ),
+    ],
+)
+def test_add_data_bad_obs(
+    mock_store, dataset_class, init_anndata_args, add_anndata_args, error
+):
+    ds = dataset_class(
+        shuffle=True,
+        chunk_size=10,
+        preload_nchunks=10,
+    ).add_anndatas(
+        **init_anndata_args(mock_store),
+    )
+    with pytest.raises(error, match="Cannot add a dataset"):
+        ds.add_anndata(**add_anndata_args(mock_store))
+
+
+def test_bad_adata_X_type(mock_store):
+    adata = open_dense(next(mock_store.glob("*.zarr")))
+    adata.X = adata.X[...]
+    ds = ZarrDenseDataset(
+        shuffle=True,
+        chunk_size=10,
+        preload_nchunks=10,
+    )
+    with pytest.raises(TypeError, match="Cannot add a dataset"):
+        ds.add_anndata(adata)

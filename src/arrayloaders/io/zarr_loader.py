@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
     from typing import Self
 
-
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
+accepted_on_disk_types = OnDiskArray.__constraints__
 InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
 
 
@@ -79,7 +79,7 @@ Args:
 """
 
 
-class DatasetManager(Generic[OnDiskArray]):
+class DatasetManager(Generic[OnDiskArray, InMemoryArray]):
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _on_add: Callable | None = None
@@ -173,9 +173,13 @@ class DatasetManager(Generic[OnDiskArray]):
                     "Cannot add a dataset with no obs label when training datasets have already been added without labels"
                 )
         dataset = adata.X if layer_key is None else adata.layers[layer_key]
+        if not isinstance(dataset, accepted_types := accepted_on_disk_types):
+            raise TypeError(
+                f"Cannot add a dataset of type {type(dataset)}, only {accepted_types} are allowed"
+            )
         if len(self.train_datasets) > 0 and not isinstance(dataset, self.dataset_type):
-            raise ValueError(
-                f"Anndata dataset was not an instance of expected type {self.dataset_type}"
+            raise TypeError(
+                f"Cannot add a dataset whose data of type {type(dataset)} was not an instance of expected type {self.dataset_type}"
             )
         datasets = self.train_datasets + [dataset]
         check_var_shapes(datasets)
@@ -348,7 +352,7 @@ class AbstractSCDataset(
     _preload_nchunks: int
     _worker_handle: WorkerHandle
     _chunk_size: int
-    _dataset_manager: DatasetManager[OnDiskArray]
+    _dataset_manager: DatasetManager[OnDiskArray, InMemoryArray]
 
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
@@ -419,7 +423,7 @@ class ZarrDenseDataset(AbstractSCDataset, IterableDataset):
         self._preload_nchunks = preload_nchunks
         self._worker_handle = WorkerHandle()
         self._chunk_size = chunk_size
-        self._dataset_manager: DatasetManager[zarr.Array] = DatasetManager()
+        self._dataset_manager: DatasetManager[zarr.Array, np.ndarray] = DatasetManager()
 
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
@@ -463,8 +467,8 @@ class ZarrSparseDataset(AbstractSCDataset, IterableDataset):
             [chunk_size, preload_nchunks],
             ["Chunk size", "Preload chunks"],
         )
-        self._dataset_manager: DatasetManager[ad.abc.CSRDataset] = DatasetManager(
-            on_add=lambda: zsync.sync(self._ensure_cache())
+        self._dataset_manager: DatasetManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+            DatasetManager(on_add=lambda: zsync.sync(self._ensure_cache()))
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
