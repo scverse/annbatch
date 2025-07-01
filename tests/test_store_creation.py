@@ -46,7 +46,11 @@ def mock_anndatas_path(tmp_path: Path, n_adatas: int = 4):
 
 @pytest.mark.parametrize("shuffle", [True, False])
 @pytest.mark.parametrize("densify", [True, False])
-def test_store_creation(mock_anndatas_path, shuffle: bool, densify: bool):
+def test_store_creation(
+    mock_anndatas_path,
+    shuffle: bool,
+    densify: bool,
+):
     var_subset = [f"gene_{i}" for i in range(100)]
 
     (mock_anndatas_path / "zarr_store").mkdir(parents=True, exist_ok=True)

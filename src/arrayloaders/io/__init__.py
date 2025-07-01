@@ -34,5 +34,5 @@ from .dask_loader import (  # TODO: clean up exported functions - do we need bot
     read_lazy_store,
 )
 from .datamodules import ClassificationDataModule
-from .store_creation import create_store_from_h5ads, shuffle_and_shard_h5ads
+from .store_creation import create_store_from_h5ads
 from .zarr_loader import ZarrDenseDataset, ZarrSparseDataset

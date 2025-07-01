@@ -14,7 +14,7 @@ from zarr.codecs import BloscCodec, BloscShuffle
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from os import PathLike
-    from typing import Any
+    from typing import Any, Literal
 
     from zarr.abc.codec import BytesBytesCodec
 
@@ -104,6 +104,7 @@ def create_store_from_h5ads(
     shuffle: bool = True,
     *,
     should_denseify: bool = True,
+    output_format: Literal["h5ad", "zarr"] = "zarr",
 ):
     """Create a Zarr store from multiple h5ad files.
 
@@ -120,6 +121,7 @@ def create_store_from_h5ads(
             This corresponds to the size of the shards created.
         shuffle: Whether to shuffle the data before writing it to the store.
         should_denseify: Whether or not to write as dense on disk.
+        output_format: Format of the output store. Can be either "zarr" or "h5ad".
 
     Examples:
         >>> from arrayloaders.io.store_creation import create_store_from_h5ads
@@ -157,55 +159,21 @@ def create_store_from_h5ads(
             adata_chunk.X = adata_chunk.X.map_blocks(
                 lambda xx: xx.toarray().astype("f4"), dtype="f4"
             )
-        f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
-        _write_sharded(
-            f,
-            adata_chunk,
-            chunk_size=chunk_size,
-            shard_size=shard_size,
-            compressors=compressors,
-        )
 
-
-def shuffle_and_shard_h5ads(
-    adata_paths: Iterable[PathLike[str]] | Iterable[str],
-    output_path: PathLike[str] | str,
-    chunk_size_reading: int = 2048,
-    shuffle_buffer_size: int = 2**21,
-):
-    """Shuffle, align the gene space and shard multiple h5ad files into a store of h5ad files.
-
-    Args:
-        adata_paths: Paths to the h5ad files used to create the zarr store.
-        output_path: Path to the output zarr store.
-        chunk_size_reading: Size of the chunks to read from the h5ad files.
-        shuffle_buffer_size: Number of observations to load into memory at once for shuffling.
-            The higher this number, the more memory is used, but the better the shuffling.
-            This number also corresponds to the size of the shards created.
-
-    Examples:
-    --------
-        >>> from arrayloaders.io.store_creation import shuffle_and_shard_h5ads
-        >>> datasets = [
-        ...     "path/to/first_adata.h5ad",
-        ...     "path/to/second_adata.h5ad",
-        ...     "path/to/third_adata.h5ad",
-        ... ]
-        >>> shuffle_and_shard_h5ads(datasets, "path/to/output/directory")
-    """
-    Path(output_path).mkdir(parents=True, exist_ok=True)
-    adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size_reading)
-    adata_concat.obs_names_make_unique()
-
-    for i, chunk in enumerate(
-        tqdm(_create_chunks_for_shuffling(adata_concat, shuffle_buffer_size))
-    ):
-        adata_chunk = adata_concat[chunk, :].copy()
-        adata_chunk.X = adata_chunk.X.compute()
-        # shuffle adata in memory to break up individual chunks
-        idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-        adata_chunk.X = adata_chunk.X[idxs, :]
-        adata_chunk.obs = adata_chunk.obs.iloc[idxs]
-        adata_chunk.write_h5ad(
-            Path(output_path) / f"shard_{i}.h5ad", compression="gzip"
-        )
+        if output_format == "zarr":
+            f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
+            _write_sharded(
+                f,
+                adata_chunk,
+                chunk_size=chunk_size,
+                shard_size=shard_size,
+                compressors=compressors,
+            )
+        elif output_format == "h5ad":
+            adata_chunk.write_h5ad(
+                Path(output_path) / f"chunk_{i}.h5ad", compression="gzip"
+            )
+        else:
+            raise ValueError(
+                f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported."
+            )
