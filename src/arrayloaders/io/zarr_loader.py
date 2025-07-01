@@ -287,7 +287,6 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                 for index in chunk_indices
             ]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
-
             chunks = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
             labels = None
             if self.labels is not None:
@@ -468,7 +467,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
             ["Chunk size", "Preload chunks"],
         )
         self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            AnnDataManager(on_add=lambda: zsync.sync(self._ensure_cache()))
+            AnnDataManager()
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
@@ -530,7 +529,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
             The arrays representing the sparse data.
         """
         if dataset_idx not in self._dataset_elem_cache:
-            self._ensure_cache()
+            await self._ensure_cache()
         return self._dataset_elem_cache[dataset_idx]
 
     async def _fetch_data(

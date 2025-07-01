@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Protocol
 
 import numpy as np
@@ -32,15 +33,20 @@ def sample_rows(
 
 
 class WorkerHandle:
-    def __init__(self):
-        self._worker_info = get_worker_info()  # TODO: typing
+
+    @cached_property
+    def _worker_info(self):
+        return get_worker_info()  
+
+    @cached_property
+    def _rng(self):
         if self._worker_info is None:
-            self._rng = np.random.default_rng()
+            return np.random.default_rng()
         else:
             # This is used for the _get_chunks function
             # Use the same seed for all workers that the resulting splits are the same across workers
             # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            self._rng = np.random.default_rng(
+            return np.random.default_rng(
                 self._worker_info.seed - self._worker_info.id
             )
 
