@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from typing import Self
 
 
-def split_given_size(a, size):
+def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
     return np.split(a, np.arange(size, len(a), size))
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
