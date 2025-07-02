@@ -36,14 +36,18 @@ def open_dense(path: Path):
 
 
 @pytest.mark.parametrize("shuffle", [True, False], ids=["shuffled", "unshuffled"])
+@pytest.mark.parametrize("use_dataloader", [True, False], ids=["dataloader", "dataset"])
 @pytest.mark.parametrize(
     "gen_loader",
     [
-        lambda path, shuffle: DaskDataset(
-            read_lazy_store(path, obs_columns=["label"]),
-            label_column="label",
-            n_chunks=4,
-            shuffle=shuffle,
+        pytest.param(
+            lambda path, shuffle: DaskDataset(
+                read_lazy_store(path, obs_columns=["label"]),
+                label_column="label",
+                n_chunks=4,
+                shuffle=shuffle,
+            ),
+            id="dask",
         ),
         *(
             pytest.param(
@@ -70,7 +74,7 @@ def open_dense(path: Path):
                     layer_keys,
                     obs_keys,
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class}-layer_keys={layer_keys}",
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}",  # type: ignore[attr-defined]
             )
             for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys in [
                 elem
@@ -99,7 +103,9 @@ def open_dense(path: Path):
         ),
     ],
 )
-def test_store_load_data(mock_store: Path, *, shuffle: bool, gen_loader):
+def test_store_load_dataset(
+    mock_store: Path, *, shuffle: bool, gen_loader, use_dataloader: bool
+):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -110,10 +116,10 @@ def test_store_load_data(mock_store: Path, *, shuffle: bool, gen_loader):
     adata = read_lazy_store(mock_store, obs_columns=["label"])
 
     loader = gen_loader(mock_store, shuffle)
+    is_dense = isinstance(loader, ZarrDenseDataset | DaskDataset)
     n_elems = 0
     batches = []
     labels = []
-    is_dense = isinstance(loader, ZarrDenseDataset | DaskDataset)
     expected_data = (
         adata.X.compute() if is_dense else adata.layers["sparse"].compute().toarray()
     )

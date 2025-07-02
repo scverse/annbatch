@@ -263,7 +263,9 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
 
-    def _get_chunks(self, chunk_size: int, worker_handle, shuffle: bool) -> np.ndarray:
+    def _get_chunks(
+        self, chunk_size: int, worker_handle: WorkerHandle, shuffle: bool
+    ) -> np.ndarray:
         """Get a potentially shuffled list of chunk ids, accounting for the fact that this dataset might be inside a worker.
 
         Returns:
