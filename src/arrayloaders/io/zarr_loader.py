@@ -463,6 +463,41 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
     _chunk_size: int
     _dataset_manager: AnnDataManager[OnDiskArray, InMemoryArray]
 
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 512,
+        preload_nchunks: int = 32,
+        shuffle: bool = True,
+        return_index: bool = False,
+        batch_size: int = 1,
+    ):
+        check_lt_1(
+            [
+                chunk_size,
+                preload_nchunks,
+            ],
+            ["Chunk size", "Preload chunks"],
+        )
+        if batch_size > (chunk_size * preload_nchunks):
+            raise NotImplementedError(
+                "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
+            )
+        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+            AnnDataManager(
+                # on_add=lambda: zsync.sync(self._ensure_cache()),
+                return_index=return_index,
+                batch_size=batch_size,
+            )
+        )
+        self._chunk_size = chunk_size
+        self._preload_nchunks = preload_nchunks
+        self._shuffle = shuffle
+        self._worker_handle = WorkerHandle()
+
+    async def _ensure_cache(self):
+        pass
+
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
         """Fetch the data for given slices and the arrays representing a dataset on-disk.
@@ -522,32 +557,6 @@ AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
 
 
 class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 512,
-        shuffle: bool = True,
-        preload_nchunks: int = 8,
-        return_index: bool = False,
-        batch_size: int = 1,
-    ):
-        check_lt_1(
-            [chunk_size, preload_nchunks],
-            ["Chunk size", "Preload chunks"],
-        )
-        if batch_size > (chunk_size * preload_nchunks):
-            raise NotImplementedError(
-                "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
-            )
-        self._shuffle = shuffle
-        self._preload_nchunks = preload_nchunks
-        self._worker_handle = WorkerHandle()
-        self._chunk_size = chunk_size
-        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager(
-            return_index=return_index,
-            batch_size=batch_size,
-        )
-
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
         indexer = MultiBasicIndexer(
@@ -579,39 +588,7 @@ class CSRDatasetElems(NamedTuple):
 
 
 class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 512,
-        preload_nchunks: int = 32,
-        shuffle: bool = True,
-        return_index: bool = False,
-        batch_size: int = 1,
-    ):
-        check_lt_1(
-            [
-                chunk_size,
-                preload_nchunks,
-            ],
-            ["Chunk size", "Preload chunks"],
-        )
-        if batch_size > (chunk_size * preload_nchunks):
-            raise NotImplementedError(
-                "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
-            )
-        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            AnnDataManager(
-                on_add=lambda: zsync.sync(self._ensure_cache()),
-                return_index=return_index,
-                batch_size=batch_size,
-            )
-        )
-        self._chunk_size = chunk_size
-        self._preload_nchunks = preload_nchunks
-        self._shuffle = shuffle
-        self._worker_handle = WorkerHandle()
-
-        self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
+    _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 
     async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
