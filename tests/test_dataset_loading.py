@@ -145,37 +145,38 @@ def test_store_load_dataset(
     n_elems = 0
     batches = []
     labels = []
+    indices = []
     expected_data = (
         adata.X.compute() if is_dense else adata.layers["sparse"].compute().toarray()
     )
     for batch in loader:
         if isinstance(loader, DaskDataset):
             x, label = batch
-            indices = None
+            index = None
         else:
-            x, label, indices = batch
+            x, label, index = batch
         n_elems += 1 if (is_dask := isinstance(loader, DaskDataset)) else x.shape[0]
         # Check feature dimension
         assert x.shape[0 if is_dask else 1] == 100
-        if not shuffle:
-            batches += [x]
-            if label is not None:
-                labels += [label]
-        if indices is not None:
-            assert (
-                (x if is_dense else x.toarray()) == expected_data[indices, ...]
-            ).all(), n_elems
+        batches += [x]
+        if label is not None:
+            labels += [label]
+        if index is not None:
+            indices += [index]
     # check that we yield all samples from the dataset
+    # np.array for sparse
+    stacked = (np if is_dense else sp).vstack(batches)
+    if not is_dense:
+        stacked = stacked.toarray()
     if not shuffle:
-        # np.array for sparse
-        stacked = (np if is_dense else sp).vstack(batches)
-        if not is_dense:
-            stacked = stacked.toarray()
         np.testing.assert_allclose(stacked, expected_data)
         if len(labels) > 0:
             expected_labels = adata.obs["label"]
             np.testing.assert_allclose(np.array(labels).ravel(), expected_labels)
     else:
+        if len(indices) > 0:
+            indices = np.concatenate(indices).ravel()
+            np.testing.assert_allclose(stacked, expected_data[indices])
         assert n_elems == adata.shape[0]
 
 
