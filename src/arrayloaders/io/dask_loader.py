@@ -172,7 +172,7 @@ class DaskDataset(IterableDataset):
             obs_list = [
                 self.adata.obs[self.label_column].iloc[s].to_numpy() for s in slices
             ]
-            yield from sample_rows(x_list, obs_list, self.shuffle)
+            yield from sample_rows(x_list, obs_list, shuffle=self.shuffle)
 
     def __len__(self):
         return len(self.adata)

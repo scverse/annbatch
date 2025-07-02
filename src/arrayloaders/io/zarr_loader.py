@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 from abc import ABCMeta, abstractmethod
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from itertools import accumulate, chain, islice, pairwise
 from typing import TYPE_CHECKING, Generic, NamedTuple, TypeVar, cast
 
@@ -34,7 +34,7 @@ def _batched(iterable, n):
 
 
 async def index_datasets(
-    dataset_index_to_slices: defaultdict[int, list[slice]],
+    dataset_index_to_slices: OrderedDict[int, list[slice]],
     fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
 ) -> list[InMemoryArray]:
     """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
@@ -44,7 +44,7 @@ async def index_datasets(
         fetch_data: The function to do the fetching for a given slice-dataset index pair.
     """
     tasks = []
-    for dataset_idx in dataset_index_to_slices:
+    for dataset_idx in dataset_index_to_slices.keys():
         tasks.append(
             fetch_data(
                 dataset_index_to_slices[dataset_idx],
@@ -54,7 +54,8 @@ async def index_datasets(
     return await asyncio.gather(*tasks)
 
 
-add_anndatas_docstring = """Append anndata datasets to this loader.
+add_anndatas_docstring = """\
+    Append anndata datasets to this loader.
 
 Args:
     adatas: List of :class:`anndata.AnnData` objects.
@@ -82,10 +83,12 @@ Args:
 class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
+    _return_index: bool = False
     _on_add: Callable | None = None
 
-    def __init__(self, *, on_add: Callable | None = None):
+    def __init__(self, *, on_add: Callable | None = None, return_index: bool = False):
         self._on_add = on_add
+        self._return_index = return_index
 
     @property
     def dataset_type(self) -> type[OnDiskArray]:
@@ -194,7 +197,9 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         if self._on_add is not None:
             self._on_add()
 
-    def _get_relative_obs_indices(self, index: slice) -> list[tuple[slice, int]]:
+    def _get_relative_obs_indices(
+        self, index: slice, *, use_original_space: bool = False
+    ) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
 
         For a given slice indexer of axis 0, return a new slice relative to the on-disk
@@ -206,6 +211,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
 
         Args:
             index: The queried slice.
+            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
 
         Returns:
             A slice relative to the dataset it represents as well as the index of said dataset in `sparse_datasets`.
@@ -222,30 +228,40 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             start = max(min_idx, array_start)
             stop = min(max_idx, array_end)
             if start < stop:
-                relative_start = start - array_start
-                relative_stop = stop - array_start
-                slices.append((slice(relative_start, relative_stop), idx))
+                if use_original_space:
+                    slices.append((slice(start, stop), idx))
+                else:
+                    relative_start = start - array_start
+                    relative_stop = stop - array_start
+                    slices.append((slice(relative_start, relative_stop), idx))
             curr_pos += n_obs
         return slices
 
     def _slices_to_slices_with_array_index(
-        self, slices: list[slice]
-    ) -> defaultdict[int, list[slice]]:
+        self, slices: list[slice], *, use_original_space: bool = False
+    ) -> OrderedDict[int, list[slice]]:
         """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
 
         Args:
             slices: Slices to relative to the on-disk datasets.
+            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
 
         Returns:
-            A lookup between the dataset and its indexing slices.
+            A lookup between the dataset and its indexing slices, ordered by keys.
         """
         dataset_index_to_slices: defaultdict[int, list[slice]] = defaultdict(list)
         for slice in slices:
-            for relative_obs_indices in self._get_relative_obs_indices(slice):
+            for relative_obs_indices in self._get_relative_obs_indices(
+                slice, use_original_space=use_original_space
+            ):
                 dataset_index_to_slices[relative_obs_indices[1]] += [
                     relative_obs_indices[0]
                 ]
-        return dataset_index_to_slices
+        keys = sorted(dataset_index_to_slices.keys())
+        dataset_index_to_slices_sorted = OrderedDict()
+        for k in keys:
+            dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
+        return dataset_index_to_slices_sorted
 
     def _get_chunks(self, chunk_size: int, worker_handle, shuffle: bool) -> np.ndarray:
         """Get a potentially shuffled list of chunk ids, accounting for the fact that this dataset might be inside a worker.
@@ -292,17 +308,36 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             labels = None
             if self.labels is not None:
                 labels = []
-                for dataset_idx, slices in dataset_index_to_slices.items():
+                for dataset_idx in dataset_index_to_slices.keys():
                     labels += [
                         self.labels[dataset_idx][
-                            np.concatenate([np.arange(s.start, s.stop) for s in slices])
+                            np.concatenate(
+                                [
+                                    np.arange(s.start, s.stop)
+                                    for s in dataset_index_to_slices[dataset_idx]
+                                ]
+                            )
                         ]
                     ]
-            yield from sample_rows(
-                chunks,
-                labels,
-                shuffle,
-            )
+            indices = None
+            if self._return_index:
+                dataset_index_to_slices = self._slices_to_slices_with_array_index(
+                    slices, use_original_space=True
+                )
+                dataset_indices = dataset_index_to_slices.keys()
+                indices = [
+                    np.concatenate(
+                        [
+                            np.arange(
+                                s.start,
+                                s.stop,
+                            )
+                            for s in dataset_index_to_slices[index]
+                        ]
+                    )
+                    for index in dataset_indices
+                ]
+            yield from sample_rows(chunks, labels, indices, shuffle=shuffle)
 
 
 AnnDataManager.add_anndata.__doc__ = add_anndata_docstring
@@ -318,6 +353,7 @@ Args:
     chunk_size: The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
     preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
     shuffle: Whether or not to shuffle the data, by default True
+    return_index: Whether or not to return the index on each iteration, by default False
 """
 
 
@@ -345,9 +381,7 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-class AbstractIterableDataset(
-    Generic[OnDiskArray, InMemoryArray], metaclass=ABCMeta
-):  # TODO: better name ugh
+class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABCMeta):
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
@@ -414,6 +448,7 @@ class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
         chunk_size: int = 512,
         shuffle: bool = True,
         preload_nchunks: int = 8,
+        return_index: bool = False,
     ):
         check_lt_1(
             [chunk_size, preload_nchunks],
@@ -423,7 +458,9 @@ class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
         self._preload_nchunks = preload_nchunks
         self._worker_handle = WorkerHandle()
         self._chunk_size = chunk_size
-        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager()
+        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager(
+            return_index=return_index
+        )
 
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
@@ -462,13 +499,17 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         chunk_size: int = 512,
         preload_nchunks: int = 32,
         shuffle: bool = True,
+        return_index: bool = False,
     ):
         check_lt_1(
             [chunk_size, preload_nchunks],
             ["Chunk size", "Preload chunks"],
         )
         self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            AnnDataManager(on_add=lambda: zsync.sync(self._ensure_cache()))
+            AnnDataManager(
+                on_add=lambda: zsync.sync(self._ensure_cache()),
+                return_index=return_index,
+            )
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
@@ -530,7 +571,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
             The arrays representing the sparse data.
         """
         if dataset_idx not in self._dataset_elem_cache:
-            self._ensure_cache()
+            await self._ensure_cache()
         return self._dataset_elem_cache[dataset_idx]
 
     async def _fetch_data(

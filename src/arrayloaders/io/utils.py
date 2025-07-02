@@ -7,13 +7,18 @@ from torch.utils.data import get_worker_info
 
 
 def sample_rows(
-    x_list: list[np.ndarray], obs_list: list[np.ndarray] | None, shuffle: bool = True
+    x_list: list[np.ndarray],
+    obs_list: list[np.ndarray] | None,
+    indices: list[np.ndarray] | None = None,
+    *,
+    shuffle: bool = True,
 ):
     """Samples rows from multiple arrays and their corresponding observation arrays.
 
     Args:
         x_list: A list of numpy arrays containing the data to sample from.
         obs_list: A list of numpy arrays containing the corresponding observations.
+        indices: the list of indexes for each element in x_list/
         shuffle: Whether to shuffle the rows before sampling. Defaults to True.
 
     Yields:
@@ -28,7 +33,14 @@ def sample_rows(
     arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
     row_idxs = idxs - cum[arr_idxs]
     for ai, ri in zip(arr_idxs, row_idxs, strict=False):
-        yield x_list[ai][ri], obs_list[ai][ri] if obs_list is not None else None
+        res = [
+            x_list[ai][ri],
+            obs_list[ai][ri] if obs_list is not None else None,
+        ]
+        if indices is not None:
+            yield (*res, indices[ai][ri])
+        else:
+            yield tuple(res)
 
 
 class WorkerHandle:
