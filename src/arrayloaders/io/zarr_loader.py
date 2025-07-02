@@ -510,7 +510,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         )
         self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
             AnnDataManager(
-                on_add=lambda: zsync.sync(self._ensure_cache()),
+                on_add=self._cache_update_callback,
                 return_index=return_index,
             )
         )
@@ -520,6 +520,10 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         self._worker_handle = WorkerHandle()
 
         self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
+
+    def _cache_update_callback(self):
+        """Callback for when datasets are added to ensure the cache is updated."""
+        return zsync.sync(self._ensure_cache())
 
     async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
