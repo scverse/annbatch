@@ -62,7 +62,7 @@ def open_dense(path: Path):
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
                     return_index=True,
-                    batch_size=batch_size
+                    batch_size=batch_size,
                 ).add_anndatas(
                     [
                         (
@@ -89,7 +89,8 @@ def open_dense(path: Path):
                         5,
                         ["label", "label", "label"],
                         dataset_class,
-                        None, 1
+                        None,
+                        1,
                     ],  # list label key
                     [10, 5, None, dataset_class, "data", 1],  # singleton data key
                     [
@@ -97,7 +98,8 @@ def open_dense(path: Path):
                         5,
                         None,
                         dataset_class,
-                        ["data", "data", "data"], 1
+                        ["data", "data", "data"],
+                        1,
                     ],  # list data key
                     [
                         10,
@@ -105,7 +107,7 @@ def open_dense(path: Path):
                         None,
                         dataset_class,
                         None,
-                        5
+                        5,
                     ],  # batch size divides total in memory size evenly
                     [
                         10,
@@ -113,7 +115,7 @@ def open_dense(path: Path):
                         None,
                         dataset_class,
                         None,
-                        50
+                        50,
                     ],  # batch size equal to in-memory size loading
                     [
                         10,
@@ -121,16 +123,14 @@ def open_dense(path: Path):
                         None,
                         dataset_class,
                         None,
-                        15
+                        15,
                     ],  # batch size does not divide in memory size evenly
                 ]
             ]
         ),
     ],
 )
-def test_store_load_dataset(
-    mock_store: Path, *, shuffle: bool, gen_loader
-):
+def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
