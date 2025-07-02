@@ -366,7 +366,6 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                         res += [in_memory_indices[s]]
                     yield res
                 if i == (len(splits) - 1): # end of iteration, leftover data needs be kept
-                    print(i, s, in_memory_data.shape)
                     if (s.shape[0] % self._batch_size) != 0:
                         in_memory_data = in_memory_data[s]
                         if in_memory_labels is not None:
