@@ -55,7 +55,7 @@ async def index_datasets(
 
 
 add_anndatas_docstring = """\
-    Append anndata datasets to this loader.
+Append anndata datasets to this loader.
 
 Args:
     adatas: List of :class:`anndata.AnnData` objects.
@@ -68,7 +68,8 @@ Args:
         Defaults to None.
 """
 
-add_anndata_docstring = """Append an anndata dataset to this loader.
+add_anndata_docstring = """\
+Append an anndata dataset to this loader.
 
 Args:
     adata: :class:`anndata.AnnData` object.
