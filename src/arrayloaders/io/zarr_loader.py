@@ -14,11 +14,16 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from torch.utils.data import IterableDataset
 
-from .utils import WorkerHandle, check_lt_1, check_var_shapes, sample_rows
+from .utils import WorkerHandle, check_lt_1, check_var_shapes
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
     from typing import Self
+
+
+def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
+    return np.split(a, np.arange(size, len(a), size))
+
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
 accepted_on_disk_types = OnDiskArray.__constraints__
@@ -86,10 +91,18 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
     _on_add: Callable | None = None
+    _batch_size: int = 1
 
-    def __init__(self, *, on_add: Callable | None = None, return_index: bool = False):
+    def __init__(
+        self,
+        *,
+        on_add: Callable | None = None,
+        return_index: bool = False,
+        batch_size: int = 1,
+    ):
         self._on_add = on_add
         self._return_index = return_index
+        self._batch_size = batch_size
 
     @property
     def dataset_type(self) -> type[OnDiskArray]:
@@ -281,11 +294,14 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     def iter(
         self,
         chunk_size: int,
-        worker_handle,
+        worker_handle: WorkerHandle,
         preload_nchunks: int,
         shuffle: bool,
         fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
-    ) -> Iterator[tuple[InMemoryArray, None | np.ndarray]]:
+    ) -> Iterator[
+        tuple[InMemoryArray, None | np.ndarray]
+        | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
+    ]:
         """Iterate over the on-disk csr datasets.
 
         Yields:
@@ -295,6 +311,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
+        # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
+        # we must keep track of the leftover data.
+        in_memory_data = None
+        in_memory_labels = None
+        in_memory_indices = None
         for chunk_indices in _batched(
             self._get_chunks(chunk_size, worker_handle, shuffle), preload_nchunks
         ):
@@ -306,9 +327,12 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                 for index in chunk_indices
             ]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
-
-            chunks = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
-            labels = None
+            # Fetch the data over slices
+            chunks: list[InMemoryArray] = zsync.sync(
+                index_datasets(dataset_index_to_slices, fetch_data)
+            )
+            # Accumulate labels
+            labels: None | list[np.ndarray] = None
             if self.labels is not None:
                 labels = []
                 for dataset_idx in dataset_index_to_slices.keys():
@@ -322,7 +346,8 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                             )
                         ]
                     ]
-            indices = None
+            # Accumulate indices if necessary
+            indices: None | list[np.ndarray] = None
             if self._return_index:
                 dataset_index_to_slices = self._slices_to_slices_with_array_index(
                     slices, use_original_space=True
@@ -340,7 +365,62 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                     )
                     for index in dataset_indices
                 ]
-            yield from sample_rows(chunks, labels, indices, shuffle=shuffle)
+            # Do batch returns, handling leftover data as necessary
+            mod = sp if isinstance(chunks[0], sp.csr_matrix) else np
+            in_memory_data = (
+                mod.vstack(chunks)
+                if in_memory_data is None
+                else mod.vstack([in_memory_data, *chunks])
+            )
+            if self.labels is not None:
+                in_memory_labels = (
+                    np.concatenate(labels)
+                    if in_memory_labels is None
+                    else np.concatenate([in_memory_labels, *labels])
+                )
+            if self._return_index:
+                in_memory_indices = (
+                    np.concatenate(indices)
+                    if in_memory_indices is None
+                    else np.concatenate([in_memory_indices, *indices])
+                )
+            # Create random indices into in_memory_data and then index into it
+            # If there is "leftover" at the end (see the modulo op),
+            # save it for the next iteration.
+            batch_indices = np.arange(in_memory_data.shape[0])
+            if shuffle:
+                np.random.default_rng().shuffle(batch_indices)
+            splits = split_given_size(batch_indices, self._batch_size)
+            for i, s in enumerate(splits):
+                if s.shape[0] == self._batch_size:
+                    res = [
+                        in_memory_data[s],
+                        in_memory_labels[s] if self.labels is not None else None,
+                    ]
+                    if self._return_index:
+                        res += [in_memory_indices[s]]
+                    yield tuple(res)
+                if i == (
+                    len(splits) - 1
+                ):  # end of iteration, leftover data needs be kept
+                    if (s.shape[0] % self._batch_size) != 0:
+                        in_memory_data = in_memory_data[s]
+                        if in_memory_labels is not None:
+                            in_memory_labels = in_memory_labels[s]
+                        if in_memory_indices is not None:
+                            in_memory_indices = in_memory_indices[s]
+                    else:
+                        in_memory_data = None
+                        in_memory_labels = None
+                        in_memory_indices = None
+        if in_memory_data is not None:  # handle any leftover data
+            res = [
+                in_memory_data,
+                in_memory_labels if self.labels is not None else None,
+            ]
+            if self._return_index:
+                res += [in_memory_indices[s]]
+            yield tuple(res)
 
 
 AnnDataManager.add_anndata.__doc__ = add_anndata_docstring
@@ -391,6 +471,41 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
     _chunk_size: int
     _dataset_manager: AnnDataManager[OnDiskArray, InMemoryArray]
 
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 512,
+        preload_nchunks: int = 32,
+        shuffle: bool = True,
+        return_index: bool = False,
+        batch_size: int = 1,
+    ):
+        check_lt_1(
+            [
+                chunk_size,
+                preload_nchunks,
+            ],
+            ["Chunk size", "Preload chunks"],
+        )
+        if batch_size > (chunk_size * preload_nchunks):
+            raise NotImplementedError(
+                "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
+            )
+        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+            AnnDataManager(
+                on_add=self._cache_update_callback,
+                return_index=return_index,
+                batch_size=batch_size,
+            )
+        )
+        self._chunk_size = chunk_size
+        self._preload_nchunks = preload_nchunks
+        self._shuffle = shuffle
+        self._worker_handle = WorkerHandle()
+
+    async def _cache_update_callback(self):
+        pass
+
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
         """Fetch the data for given slices and the arrays representing a dataset on-disk.
@@ -425,7 +540,12 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
     def __len__(self) -> int:
         return self._dataset_manager.n_obs
 
-    def __iter__(self) -> Iterator[tuple[InMemoryArray, None | np.ndarray]]:
+    def __iter__(
+        self,
+    ) -> Iterator[
+        tuple[InMemoryArray, None | np.ndarray]
+        | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
+    ]:
         """Iterate over the on-disk datasets.
 
         Yields:
@@ -445,26 +565,6 @@ AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
 
 
 class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 512,
-        shuffle: bool = True,
-        preload_nchunks: int = 8,
-        return_index: bool = False,
-    ):
-        check_lt_1(
-            [chunk_size, preload_nchunks],
-            ["Chunk size", "Preload chunks"],
-        )
-        self._shuffle = shuffle
-        self._preload_nchunks = preload_nchunks
-        self._worker_handle = WorkerHandle()
-        self._chunk_size = chunk_size
-        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager(
-            return_index=return_index
-        )
-
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
         indexer = MultiBasicIndexer(
@@ -496,30 +596,7 @@ class CSRDatasetElems(NamedTuple):
 
 
 class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 512,
-        preload_nchunks: int = 32,
-        shuffle: bool = True,
-        return_index: bool = False,
-    ):
-        check_lt_1(
-            [chunk_size, preload_nchunks],
-            ["Chunk size", "Preload chunks"],
-        )
-        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            AnnDataManager(
-                on_add=self._cache_update_callback,
-                return_index=return_index,
-            )
-        )
-        self._chunk_size = chunk_size
-        self._preload_nchunks = preload_nchunks
-        self._shuffle = shuffle
-        self._worker_handle = WorkerHandle()
-
-        self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
+    _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 
     def _cache_update_callback(self):
         """Callback for when datasets are added to ensure the cache is updated."""

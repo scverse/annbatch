@@ -56,11 +56,13 @@ def open_dense(path: Path):
                 preload_nchunks=preload_nchunks,
                 dataset_class=dataset_class,
                 obs_keys=obs_keys,
-                layer_keys=layer_keys: dataset_class(
+                layer_keys=layer_keys,
+                batch_size=batch_size: dataset_class(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
                     return_index=True,
+                    batch_size=batch_size,
                 ).add_anndatas(
                     [
                         (
@@ -73,30 +75,56 @@ def open_dense(path: Path):
                     layer_keys,
                     obs_keys,
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}",  # type: ignore[attr-defined]
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}",  # type: ignore[attr-defined]
             )
-            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys in [
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size in [
                 elem
                 for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
                 for elem in [
-                    [1, 5, None, dataset_class, None],  # singleton chunk size
-                    [5, 1, None, dataset_class, None],  # singleton preload
-                    [10, 5, "label", dataset_class, None],  # singleton label key
+                    [1, 5, None, dataset_class, None, 1],  # singleton chunk size
+                    [5, 1, None, dataset_class, None, 1],  # singleton preload
+                    [10, 5, "label", dataset_class, None, 1],  # singleton label key
                     [
                         10,
                         5,
                         ["label", "label", "label"],
                         dataset_class,
                         None,
+                        1,
                     ],  # list label key
-                    [10, 5, None, dataset_class, "data"],  # singleton data key
+                    [10, 5, None, dataset_class, "data", 1],  # singleton data key
                     [
                         10,
                         5,
                         None,
                         dataset_class,
                         ["data", "data", "data"],
+                        1,
                     ],  # list data key
+                    [
+                        10,
+                        5,
+                        None,
+                        dataset_class,
+                        None,
+                        5,
+                    ],  # batch size divides total in memory size evenly
+                    [
+                        10,
+                        5,
+                        None,
+                        dataset_class,
+                        None,
+                        50,
+                    ],  # batch size equal to in-memory size loading
+                    [
+                        10,
+                        5,
+                        None,
+                        dataset_class,
+                        None,
+                        15,
+                    ],  # batch size does not divide in memory size evenly
                 ]
             ]
         ),
@@ -117,37 +145,38 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader):
     n_elems = 0
     batches = []
     labels = []
+    indices = []
     expected_data = (
         adata.X.compute() if is_dense else adata.layers["sparse"].compute().toarray()
     )
     for batch in loader:
         if isinstance(loader, DaskDataset):
             x, label = batch
-            indices = None
+            index = None
         else:
-            x, label, indices = batch
-        n_elems += 1
+            x, label, index = batch
+        n_elems += 1 if (is_dask := isinstance(loader, DaskDataset)) else x.shape[0]
         # Check feature dimension
-        assert x.shape[0 if is_dense else 1] == 100
-        if not shuffle:
-            batches += [x]
-            if label is not None:
-                labels += [label]
-        if indices is not None:
-            assert (
-                (x if is_dense else x.toarray()) == expected_data[indices, ...]
-            ).all()
+        assert x.shape[0 if is_dask else 1] == 100
+        batches += [x]
+        if label is not None:
+            labels += [label]
+        if index is not None:
+            indices += [index]
     # check that we yield all samples from the dataset
+    # np.array for sparse
+    stacked = (np if is_dense else sp).vstack(batches)
+    if not is_dense:
+        stacked = stacked.toarray()
     if not shuffle:
-        # np.array for sparse
-        stacked = (np if is_dense else sp).vstack(batches)
-        if not is_dense:
-            stacked = stacked.toarray()
         np.testing.assert_allclose(stacked, expected_data)
         if len(labels) > 0:
             expected_labels = adata.obs["label"]
-            np.testing.assert_allclose(np.array(labels), expected_labels)
+            np.testing.assert_allclose(np.array(labels).ravel(), expected_labels)
     else:
+        if len(indices) > 0:
+            indices = np.concatenate(indices).ravel()
+            np.testing.assert_allclose(stacked, expected_data[indices])
         assert n_elems == adata.shape[0]
 
 
