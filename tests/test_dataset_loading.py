@@ -390,7 +390,7 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
     for batch in dataloader:
         x, idxs = batch
         x_list.append(x)
-        idx_list.append(idxs)
+        idx_list.append(idxs.ravel())
 
     x = np.vstack(x_list)
     idxs = np.concatenate(idx_list)
