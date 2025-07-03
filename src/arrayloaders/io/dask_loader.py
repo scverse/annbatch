@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pathlib
-import random
 import warnings
 from typing import TYPE_CHECKING
 
@@ -10,9 +9,9 @@ import dask
 import numpy as np
 import pandas as pd
 import zarr
-from torch.utils.data import IterableDataset, get_worker_info
+from torch.utils.data import IterableDataset
 
-from .utils import check_lt_1, sample_rows
+from .utils import WorkerHandle, check_lt_1, sample_rows
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -124,16 +123,7 @@ class DaskDataset(IterableDataset):
         self.dask_scheduler = dask_scheduler
         self.n_workers = n_workers
 
-        self.worker_info = get_worker_info()
-        if self.worker_info is None:
-            self.rng_split = random.Random()  # noqa: S311
-        else:
-            # This is used for the _get_chunks function
-            # Use the same seed for all workers that the resulting splits are the same across workers
-            # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            # fmt: off
-            self.rng_split = random.Random(self.worker_info.seed - self.worker_info.id)  # noqa: S311
-            # fmt: on
+        self.worker_handle = WorkerHandle()
 
     def _get_chunks(self):
         chunk_boundaries = np.cumsum([0] + list(self.adata.X.chunks[0]))
@@ -147,20 +137,9 @@ class DaskDataset(IterableDataset):
         chunks = list(zip(blocks_idxs, slices, strict=False))
 
         if self.shuffle:
-            self.rng_split.shuffle(chunks)
+            self.worker_handle.shuffle(chunks)
 
-        if self.worker_info is None:
-            return chunks
-        else:
-            num_workers, worker_id = self.worker_info.num_workers, self.worker_info.id
-            chunks_per_worker = len(chunks) // num_workers
-            start = worker_id * chunks_per_worker
-            end = (
-                (worker_id + 1) * chunks_per_worker
-                if worker_id != num_workers - 1
-                else None
-            )
-            return chunks[start:end]
+        return self.worker_handle.get_part_for_worker(chunks)
 
     def __iter__(self):
         for chunks in _combine_chunks(self._get_chunks(), self.n_chunks):
@@ -172,7 +151,7 @@ class DaskDataset(IterableDataset):
             obs_list = [
                 self.adata.obs[self.label_column].iloc[s].to_numpy() for s in slices
             ]
-            yield from sample_rows(x_list, obs_list, self.shuffle)
+            yield from sample_rows(x_list, obs_list, shuffle=self.shuffle)
 
     def __len__(self):
         return len(self.adata)
