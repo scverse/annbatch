@@ -443,7 +443,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
             )
         self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
             AnnDataManager(
-                on_add=self._cache_update_callback,
+                # on_add=self._cache_update_callback,
                 return_index=return_index,
                 batch_size=batch_size,
             )
