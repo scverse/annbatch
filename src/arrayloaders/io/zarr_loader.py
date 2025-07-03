@@ -443,7 +443,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
             )
         self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
             AnnDataManager(
-                # on_add=lambda: zsync.sync(self._ensure_cache()),
+                on_add=self._cache_update_callback,
                 return_index=return_index,
                 batch_size=batch_size,
             )
@@ -453,7 +453,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         self._shuffle = shuffle
         self._worker_handle = WorkerHandle()
 
-    async def _ensure_cache(self):
+    async def _cache_update_callback(self):
         pass
 
     @abstractmethod
