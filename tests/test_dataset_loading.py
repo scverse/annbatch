@@ -73,8 +73,7 @@ def open_dense(path: Path):
                     layer_keys,
                     obs_keys,
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}",
-                # type: ignore[attr-defined]
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}",  # type: ignore[attr-defined]
             )
             for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys in [
                 elem
