@@ -14,11 +14,16 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from torch.utils.data import IterableDataset
 
-from .utils import WorkerHandle, check_lt_1, check_var_shapes, sample_rows
+from .utils import WorkerHandle, check_lt_1, check_var_shapes
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
     from typing import Self
+
+
+def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
+    return np.split(a, np.arange(size, len(a), size))
+
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
 accepted_on_disk_types = OnDiskArray.__constraints__
@@ -54,30 +59,20 @@ async def index_datasets(
     return await asyncio.gather(*tasks)
 
 
-add_anndatas_docstring = """\
-Append anndata datasets to this loader.
+add_dataset_docstring = """\
+Append datasets to this loader.
 
 Args:
-    adatas: List of :class:`anndata.AnnData` objects.
-    layer_keys: Key(s) for getting the underlying data out of the anndata object.
-        None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
-        If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
-        Defaults to None.
-    obs_keys: Key(s) for getting the underlying labels out of the obs of the anndata object.
-        None means no :attr:`anndata.AnnData.obs` will be retrieved.
-        Defaults to None.
+    datasets: List of :class:`anndata.abc.CSRDataset` or :class:`zarr.Array` objects, generally from :attr:`anndata.AnnData.X`.
+    obs: List of `numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
 """
 
-add_anndata_docstring = """\
-Append an anndata dataset to this loader.
+add_dataset_docstring = """\
+Append a dataset to this loader.
 
 Args:
-    adata: :class:`anndata.AnnData` object.
-    layer_key: Key for getting the underlying data out of the anndata object.
-        None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
-        Defaults to None.
-    obs_key: Key for getting the underlying obs labels out of the anndata object.
-        Defaults to None.
+    dataset: :class:`anndata.abc.CSRDataset` or :class:`zarr.Array` object, generally from :attr:`anndata.AnnData.X`.
+    obs: `numpy.ndarray` labels for the dataset, generally from :attr:`anndata.AnnData.obs`.
 """
 
 
@@ -86,10 +81,18 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
     _on_add: Callable | None = None
+    _batch_size: int = 1
 
-    def __init__(self, *, on_add: Callable | None = None, return_index: bool = False):
+    def __init__(
+        self,
+        *,
+        on_add: Callable | None = None,
+        return_index: bool = False,
+        batch_size: int = 1,
+    ):
         self._on_add = on_add
         self._return_index = return_index
+        self._batch_size = batch_size
 
     @property
     def dataset_type(self) -> type[OnDiskArray]:
@@ -109,56 +112,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> None:
-        if isinstance(layer_keys, str):
-            layer_keys = [layer_keys] * len(adatas)
-        if isinstance(obs_keys, str):
-            obs_keys = [obs_keys] * len(adatas)
-        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
-        check_lt_1(
-            [len(adatas)]
-            + sum(
-                (([len(k)] if k is not None else []) for k in elem_to_keys.values()), []
-            ),
-            ["Number of anndatas"]
-            + sum(
-                (
-                    [f"Number of {label} keys"] if keys is not None else []
-                    for keys, label in elem_to_keys.items()
-                ),
-                [],
-            ),
-        )
-        for label, key_list in elem_to_keys.items():
-            if key_list is not None:
-                if len(adatas) != len(key_list):
-                    raise ValueError(
-                        f"Number of anndatas {len(adatas)} must match number of {label} keys {len(key_list)}"
-                    )
-        match obs_keys is None, self.labels is None, len(self.train_datasets) > 0:
-            case True, False, _:
-                raise ValueError(
-                    "Cannot add datasets without labels when datasets with labels have already been added."
-                )
-            case False, True, True:
-                raise ValueError(
-                    "Cannot add datasets with labels when datasets without labels have already been added."
-                )
-            case False, False, False:
-                raise ValueError(
-                    "Datasets have been added with labels but no training data.  Pleas open an issue."
-                )
-            case (
-                False,
-                True,
-                False,
-            ):  # datasets being added for the first time with labels is the only time `self.labels` should be changed to []
-                self.labels = []
-        for idx, adata in enumerate(adatas):
-            kwargs = {
-                f"{label}_key": keys[idx] if isinstance(keys, list) else None
-                for label, keys in elem_to_keys.items()
-            }
-            self.add_anndata(adata, **kwargs)
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
 
     def add_anndata(
         self,
@@ -166,17 +120,26 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> None:
-        check_lt_1([adata.shape[0]], ["Anndata obs axis size"])
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+
+    def add_datasets(
+        self, datasets: list[OnDiskArray], obs: list[np.ndarray] | None = None
+    ) -> None:
+        if obs is None:
+            obs = [None] * len(datasets)
+        for ds, o in zip(datasets, obs, strict=True):
+            self.add_dataset(ds, o)
+
+    def add_dataset(self, dataset: OnDiskArray, obs: np.ndarray | None = None) -> None:
         if len(self.train_datasets) > 0:
-            if self.labels is None and obs_key is not None:
+            if self.labels is None and obs is not None:
                 raise ValueError(
-                    f"Cannot add a dataset with obs label {obs_key} when training datasets have already been added without labels"
+                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without labels"
                 )
-            if self.labels is not None and obs_key is None:
+            if self.labels is not None and obs is None:
                 raise ValueError(
                     "Cannot add a dataset with no obs label when training datasets have already been added without labels"
                 )
-        dataset = adata.X if layer_key is None else adata.layers[layer_key]
         if not isinstance(dataset, accepted_types := accepted_on_disk_types):
             raise TypeError(
                 f"Cannot add a dataset of type {type(dataset)}, only {accepted_types} are allowed"
@@ -190,11 +153,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         self._var_size = datasets[0].shape[1]  # TODO: joins
         self.train_datasets = datasets
         if self.labels is not None:  # labels exist
-            self.labels += [adata.obs[obs_key]]
+            self.labels += [obs]
         elif (
-            obs_key is not None
+            obs is not None
         ):  # labels dont exist yet, but are being added for the first time
-            self.labels = [adata.obs[obs_key]]
+            self.labels = [obs]
         if self._on_add is not None:
             self._on_add()
 
@@ -281,11 +244,14 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     def iter(
         self,
         chunk_size: int,
-        worker_handle,
+        worker_handle: WorkerHandle,
         preload_nchunks: int,
         shuffle: bool,
         fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
-    ) -> Iterator[tuple[InMemoryArray, None | np.ndarray]]:
+    ) -> Iterator[
+        tuple[InMemoryArray, None | np.ndarray]
+        | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
+    ]:
         """Iterate over the on-disk csr datasets.
 
         Yields:
@@ -295,6 +261,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
+        # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
+        # we must keep track of the leftover data.
+        in_memory_data = None
+        in_memory_labels = None
+        in_memory_indices = None
         for chunk_indices in _batched(
             self._get_chunks(chunk_size, worker_handle, shuffle), preload_nchunks
         ):
@@ -306,9 +277,12 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                 for index in chunk_indices
             ]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
-
-            chunks = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
-            labels = None
+            # Fetch the data over slices
+            chunks: list[InMemoryArray] = zsync.sync(
+                index_datasets(dataset_index_to_slices, fetch_data)
+            )
+            # Accumulate labels
+            labels: None | list[np.ndarray] = None
             if self.labels is not None:
                 labels = []
                 for dataset_idx in dataset_index_to_slices.keys():
@@ -322,7 +296,8 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                             )
                         ]
                     ]
-            indices = None
+            # Accumulate indices if necessary
+            indices: None | list[np.ndarray] = None
             if self._return_index:
                 dataset_index_to_slices = self._slices_to_slices_with_array_index(
                     slices, use_original_space=True
@@ -340,11 +315,66 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                     )
                     for index in dataset_indices
                 ]
-            yield from sample_rows(chunks, labels, indices, shuffle=shuffle)
+            # Do batch returns, handling leftover data as necessary
+            mod = sp if isinstance(chunks[0], sp.csr_matrix) else np
+            in_memory_data = (
+                mod.vstack(chunks)
+                if in_memory_data is None
+                else mod.vstack([in_memory_data, *chunks])
+            )
+            if self.labels is not None:
+                in_memory_labels = (
+                    np.concatenate(labels)
+                    if in_memory_labels is None
+                    else np.concatenate([in_memory_labels, *labels])
+                )
+            if self._return_index:
+                in_memory_indices = (
+                    np.concatenate(indices)
+                    if in_memory_indices is None
+                    else np.concatenate([in_memory_indices, *indices])
+                )
+            # Create random indices into in_memory_data and then index into it
+            # If there is "leftover" at the end (see the modulo op),
+            # save it for the next iteration.
+            batch_indices = np.arange(in_memory_data.shape[0])
+            if shuffle:
+                np.random.default_rng().shuffle(batch_indices)
+            splits = split_given_size(batch_indices, self._batch_size)
+            for i, s in enumerate(splits):
+                if s.shape[0] == self._batch_size:
+                    res = [
+                        in_memory_data[s],
+                        in_memory_labels[s] if self.labels is not None else None,
+                    ]
+                    if self._return_index:
+                        res += [in_memory_indices[s]]
+                    yield tuple(res)
+                if i == (
+                    len(splits) - 1
+                ):  # end of iteration, leftover data needs be kept
+                    if (s.shape[0] % self._batch_size) != 0:
+                        in_memory_data = in_memory_data[s]
+                        if in_memory_labels is not None:
+                            in_memory_labels = in_memory_labels[s]
+                        if in_memory_indices is not None:
+                            in_memory_indices = in_memory_indices[s]
+                    else:
+                        in_memory_data = None
+                        in_memory_labels = None
+                        in_memory_indices = None
+        if in_memory_data is not None:  # handle any leftover data
+            res = [
+                in_memory_data,
+                in_memory_labels if self.labels is not None else None,
+            ]
+            if self._return_index:
+                res += [in_memory_indices[s]]
+            yield tuple(res)
 
 
-AnnDataManager.add_anndata.__doc__ = add_anndata_docstring
-AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
+AnnDataManager.add_datasets.__doc__ = add_dataset_docstring
+AnnDataManager.add_dataset.__doc__ = add_dataset_docstring
 
 __init_docstring__ = """A loader for on-disk {array_type} data.
 
@@ -391,6 +421,41 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
     _chunk_size: int
     _dataset_manager: AnnDataManager[OnDiskArray, InMemoryArray]
 
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 512,
+        preload_nchunks: int = 32,
+        shuffle: bool = True,
+        return_index: bool = False,
+        batch_size: int = 1,
+    ):
+        check_lt_1(
+            [
+                chunk_size,
+                preload_nchunks,
+            ],
+            ["Chunk size", "Preload chunks"],
+        )
+        if batch_size > (chunk_size * preload_nchunks):
+            raise NotImplementedError(
+                "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
+            )
+        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+            AnnDataManager(
+                # on_add=lambda: zsync.sync(self._ensure_cache()),
+                return_index=return_index,
+                batch_size=batch_size,
+            )
+        )
+        self._chunk_size = chunk_size
+        self._preload_nchunks = preload_nchunks
+        self._shuffle = shuffle
+        self._worker_handle = WorkerHandle()
+
+    async def _ensure_cache(self):
+        pass
+
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
         """Fetch the data for given slices and the arrays representing a dataset on-disk.
@@ -410,8 +475,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> Self:
-        self._dataset_manager.add_anndatas(adatas, layer_keys, obs_keys)
-        return self
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
 
     def add_anndata(
         self,
@@ -419,13 +483,27 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> Self:
-        self._dataset_manager.add_anndata(adata, layer_key, obs_key)
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+
+    def add_datasets(
+        self, datasets: list[OnDiskArray], obs: list[np.ndarray] | None = None
+    ) -> Self:
+        self._dataset_manager.add_datasets(datasets, obs)
+        return self
+
+    def add_dataset(self, dataset: OnDiskArray, obs: np.ndarray | None = None) -> Self:
+        self._dataset_manager.add_dataset(dataset, obs)
         return self
 
     def __len__(self) -> int:
         return self._dataset_manager.n_obs
 
-    def __iter__(self) -> Iterator[tuple[InMemoryArray, None | np.ndarray]]:
+    def __iter__(
+        self,
+    ) -> Iterator[
+        tuple[InMemoryArray, None | np.ndarray]
+        | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
+    ]:
         """Iterate over the on-disk datasets.
 
         Yields:
@@ -440,31 +518,11 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         )
 
 
-AbstractIterableDataset.add_anndata.__doc__ = add_anndata_docstring
-AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
+AbstractIterableDataset.add_dataset.__doc__ = add_dataset_docstring
+AbstractIterableDataset.add_datasets.__doc__ = add_dataset_docstring
 
 
 class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 512,
-        shuffle: bool = True,
-        preload_nchunks: int = 8,
-        return_index: bool = False,
-    ):
-        check_lt_1(
-            [chunk_size, preload_nchunks],
-            ["Chunk size", "Preload chunks"],
-        )
-        self._shuffle = shuffle
-        self._preload_nchunks = preload_nchunks
-        self._worker_handle = WorkerHandle()
-        self._chunk_size = chunk_size
-        self._dataset_manager: AnnDataManager[zarr.Array, np.ndarray] = AnnDataManager(
-            return_index=return_index
-        )
-
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
         indexer = MultiBasicIndexer(
@@ -496,30 +554,7 @@ class CSRDatasetElems(NamedTuple):
 
 
 class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
-    def __init__(
-        self,
-        *,
-        chunk_size: int = 512,
-        preload_nchunks: int = 32,
-        shuffle: bool = True,
-        return_index: bool = False,
-    ):
-        check_lt_1(
-            [chunk_size, preload_nchunks],
-            ["Chunk size", "Preload chunks"],
-        )
-        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            AnnDataManager(
-                on_add=self._cache_update_callback,
-                return_index=return_index,
-            )
-        )
-        self._chunk_size = chunk_size
-        self._preload_nchunks = preload_nchunks
-        self._shuffle = shuffle
-        self._worker_handle = WorkerHandle()
-
-        self._dataset_elem_cache: dict[int, CSRDatasetElems] = {}
+    _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 
     def _cache_update_callback(self):
         """Callback for when datasets are added to ensure the cache is updated."""
