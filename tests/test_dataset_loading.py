@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform
 from typing import TYPE_CHECKING
 
 import anndata as ad
@@ -343,6 +344,10 @@ def _custom_collate_fn(elems):
 
 
 @pytest.mark.parametrize("loader", [DaskDataset, ZarrDenseDataset, ZarrSparseDataset])
+@pytest.mark.skipif(
+    platform.system() == "Linux",
+    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
+)
 def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
     """
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
