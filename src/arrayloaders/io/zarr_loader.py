@@ -311,6 +311,8 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
+        # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
+        # we must keep track of the leftover data.
         in_memory_data = None
         in_memory_labels = None
         in_memory_indices = None
@@ -325,10 +327,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                 for index in chunk_indices
             ]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
-
+            # Fetch the data over slices
             chunks: list[InMemoryArray] = zsync.sync(
                 index_datasets(dataset_index_to_slices, fetch_data)
             )
+            # Accumulate labels
             labels: None | list[np.ndarray] = None
             if self.labels is not None:
                 labels = []
@@ -343,6 +346,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                             )
                         ]
                     ]
+            # Accumulate indices if necessary
             indices: None | list[np.ndarray] = None
             if self._return_index:
                 dataset_index_to_slices = self._slices_to_slices_with_array_index(
@@ -361,6 +365,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                     )
                     for index in dataset_indices
                 ]
+            # Do batch returns, handling leftover data as necessary
             mod = sp if isinstance(chunks[0], sp.csr_matrix) else np
             in_memory_data = (
                 mod.vstack(chunks)
@@ -379,6 +384,9 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                     if in_memory_indices is None
                     else np.concatenate([in_memory_indices, *indices])
                 )
+            # Create random indices into in_memory_data and then index into it
+            # If there is "leftover" at the end (see the modulo op),
+            # save it for the next iteration.
             batch_indices = np.arange(in_memory_data.shape[0])
             if shuffle:
                 np.random.default_rng().shuffle(batch_indices)
