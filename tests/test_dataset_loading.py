@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypedDict
+import platform
 
 import anndata as ad
 import numpy as np
@@ -238,6 +239,10 @@ def _custom_collate_fn(elems):
 
 
 @pytest.mark.parametrize("loader", [DaskDataset, ZarrDenseDataset, ZarrSparseDataset])
+@pytest.mark.skipif(
+    platform.system() == "Linux",
+    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
+)
 def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
     """
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
@@ -287,7 +292,7 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
     for batch in dataloader:
         x, idxs = batch
         x_list.append(x)
-        idx_list.append(idxs)
+        idx_list.append(idxs.ravel())
 
     x = np.vstack(x_list)
     idxs = np.concatenate(idx_list)
