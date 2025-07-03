@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict
 import platform
+from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
 import numpy as np
