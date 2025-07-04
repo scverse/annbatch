@@ -29,7 +29,7 @@ def mock_anndatas_path(tmp_path: Path, n_adatas: int = 4):
     n_features = [random.randint(50, 100) for _ in range(n_adatas)]
     n_cells = [random.randint(50, 100) for _ in range(n_adatas)]
 
-    for i, (m, n) in enumerate(zip(n_cells, n_features, strict=False)):
+    for i, (m, n) in enumerate(zip(n_cells, n_features, strict=True)):
         adata = ad.AnnData(
             X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
             obs=pd.DataFrame(

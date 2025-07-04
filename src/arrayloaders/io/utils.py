@@ -33,7 +33,7 @@ def sample_rows(
         np.random.default_rng().shuffle(idxs)
     arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
     row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs, strict=False):
+    for ai, ri in zip(arr_idxs, row_idxs, strict=True):
         res = [
             x_list[ai][ri],
             obs_list[ai][ri] if obs_list is not None else None,
@@ -95,7 +95,7 @@ def check_lt_1(vals: list[int], labels: list[str]):
                 labels,
                 vals,
                 is_lt_1,
-                strict=False,
+                strict=True,
             )
             if check
         )

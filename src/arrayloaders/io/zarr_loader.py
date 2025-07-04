@@ -59,30 +59,20 @@ async def index_datasets(
     return await asyncio.gather(*tasks)
 
 
-add_anndatas_docstring = """\
-Append anndata datasets to this loader.
+add_dataset_docstring = """\
+Append datasets to this loader.
 
 Args:
-    adatas: List of :class:`anndata.AnnData` objects.
-    layer_keys: Key(s) for getting the underlying data out of the anndata object.
-        None within the list of keys means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
-        If not provided, all :class:`~anndata.AnnData` objects will have their data taken from :attr:`~anndata.AnnData.X`.
-        Defaults to None.
-    obs_keys: Key(s) for getting the underlying labels out of the obs of the anndata object.
-        None means no :attr:`anndata.AnnData.obs` will be retrieved.
-        Defaults to None.
+    datasets: List of :class:`anndata.abc.CSRDataset` or :class:`zarr.Array` objects, generally from :attr:`anndata.AnnData.X`.
+    obs: List of `numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
 """
 
-add_anndata_docstring = """\
-Append an anndata dataset to this loader.
+add_dataset_docstring = """\
+Append a dataset to this loader.
 
 Args:
-    adata: :class:`anndata.AnnData` object.
-    layer_key: Key for getting the underlying data out of the anndata object.
-        None means using :attr:`~anndata.AnnData.X` while a string value gets from :attr:`~anndata.AnnData.layers`.
-        Defaults to None.
-    obs_key: Key for getting the underlying obs labels out of the anndata object.
-        Defaults to None.
+    dataset: :class:`anndata.abc.CSRDataset` or :class:`zarr.Array` object, generally from :attr:`anndata.AnnData.X`.
+    obs: `numpy.ndarray` labels for the dataset, generally from :attr:`anndata.AnnData.obs`.
 """
 
 
@@ -122,56 +112,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> None:
-        if isinstance(layer_keys, str):
-            layer_keys = [layer_keys] * len(adatas)
-        if isinstance(obs_keys, str):
-            obs_keys = [obs_keys] * len(adatas)
-        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
-        check_lt_1(
-            [len(adatas)]
-            + sum(
-                (([len(k)] if k is not None else []) for k in elem_to_keys.values()), []
-            ),
-            ["Number of anndatas"]
-            + sum(
-                (
-                    [f"Number of {label} keys"] if keys is not None else []
-                    for keys, label in elem_to_keys.items()
-                ),
-                [],
-            ),
-        )
-        for label, key_list in elem_to_keys.items():
-            if key_list is not None:
-                if len(adatas) != len(key_list):
-                    raise ValueError(
-                        f"Number of anndatas {len(adatas)} must match number of {label} keys {len(key_list)}"
-                    )
-        match obs_keys is None, self.labels is None, len(self.train_datasets) > 0:
-            case True, False, _:
-                raise ValueError(
-                    "Cannot add datasets without labels when datasets with labels have already been added."
-                )
-            case False, True, True:
-                raise ValueError(
-                    "Cannot add datasets with labels when datasets without labels have already been added."
-                )
-            case False, False, False:
-                raise ValueError(
-                    "Datasets have been added with labels but no training data.  Pleas open an issue."
-                )
-            case (
-                False,
-                True,
-                False,
-            ):  # datasets being added for the first time with labels is the only time `self.labels` should be changed to []
-                self.labels = []
-        for idx, adata in enumerate(adatas):
-            kwargs = {
-                f"{label}_key": keys[idx] if isinstance(keys, list) else None
-                for label, keys in elem_to_keys.items()
-            }
-            self.add_anndata(adata, **kwargs)
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
 
     def add_anndata(
         self,
@@ -179,17 +120,26 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> None:
-        check_lt_1([adata.shape[0]], ["Anndata obs axis size"])
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+
+    def add_datasets(
+        self, datasets: list[OnDiskArray], obs: list[np.ndarray] | None = None
+    ) -> None:
+        if obs is None:
+            obs = [None] * len(datasets)
+        for ds, o in zip(datasets, obs, strict=True):
+            self.add_dataset(ds, o)
+
+    def add_dataset(self, dataset: OnDiskArray, obs: np.ndarray | None = None) -> None:
         if len(self.train_datasets) > 0:
-            if self.labels is None and obs_key is not None:
+            if self.labels is None and obs is not None:
                 raise ValueError(
-                    f"Cannot add a dataset with obs label {obs_key} when training datasets have already been added without labels"
+                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without labels"
                 )
-            if self.labels is not None and obs_key is None:
+            if self.labels is not None and obs is None:
                 raise ValueError(
                     "Cannot add a dataset with no obs label when training datasets have already been added without labels"
                 )
-        dataset = adata.X if layer_key is None else adata.layers[layer_key]
         if not isinstance(dataset, accepted_types := accepted_on_disk_types):
             raise TypeError(
                 f"Cannot add a dataset of type {type(dataset)}, only {accepted_types} are allowed"
@@ -203,11 +153,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         self._var_size = datasets[0].shape[1]  # TODO: joins
         self.train_datasets = datasets
         if self.labels is not None:  # labels exist
-            self.labels += [adata.obs[obs_key]]
+            self.labels += [obs]
         elif (
-            obs_key is not None
+            obs is not None
         ):  # labels dont exist yet, but are being added for the first time
-            self.labels = [adata.obs[obs_key]]
+            self.labels = [obs]
         if self._on_add is not None:
             self._on_add()
 
@@ -423,8 +373,8 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             yield tuple(res)
 
 
-AnnDataManager.add_anndata.__doc__ = add_anndata_docstring
-AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
+AnnDataManager.add_datasets.__doc__ = add_dataset_docstring
+AnnDataManager.add_dataset.__doc__ = add_dataset_docstring
 
 __init_docstring__ = """A loader for on-disk {array_type} data.
 
@@ -493,7 +443,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
             )
         self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
             AnnDataManager(
-                on_add=self._cache_update_callback,
+                # TODO: https://github.com/scverse/anndata/issues/2021
+                # on_add=self._cache_update_callback,
                 return_index=return_index,
                 batch_size=batch_size,
             )
@@ -525,8 +476,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> Self:
-        self._dataset_manager.add_anndatas(adatas, layer_keys, obs_keys)
-        return self
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
 
     def add_anndata(
         self,
@@ -534,7 +484,16 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> Self:
-        self._dataset_manager.add_anndata(adata, layer_key, obs_key)
+        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+
+    def add_datasets(
+        self, datasets: list[OnDiskArray], obs: list[np.ndarray] | None = None
+    ) -> Self:
+        self._dataset_manager.add_datasets(datasets, obs)
+        return self
+
+    def add_dataset(self, dataset: OnDiskArray, obs: np.ndarray | None = None) -> Self:
+        self._dataset_manager.add_dataset(dataset, obs)
         return self
 
     def __len__(self) -> int:
@@ -560,8 +519,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         )
 
 
-AbstractIterableDataset.add_anndata.__doc__ = add_anndata_docstring
-AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
+AbstractIterableDataset.add_dataset.__doc__ = add_dataset_docstring
+AbstractIterableDataset.add_datasets.__doc__ = add_dataset_docstring
 
 
 class ZarrDenseDataset(AbstractIterableDataset, IterableDataset):
