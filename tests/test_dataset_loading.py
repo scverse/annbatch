@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform
 from typing import TYPE_CHECKING
 
 import anndata as ad
@@ -326,3 +327,77 @@ def test_bad_adata_X_type(mock_store):
     )
     with pytest.raises(TypeError, match="Cannot add a dataset"):
         ds.add_anndata(adata)
+
+
+def _custom_collate_fn(elems):
+    if isinstance(elems[0][0], sp.csr_matrix):
+        x = sp.vstack([v[0] for v in elems]).toarray()
+    else:
+        x = np.vstack([v[0] for v in elems])
+
+    if len(elems[0]) == 2:
+        y = np.array([v[1] for v in elems])
+    else:
+        y = np.array([v[2] for v in elems])
+
+    return x, y
+
+
+@pytest.mark.parametrize("loader", [DaskDataset, ZarrDenseDataset, ZarrSparseDataset])
+@pytest.mark.skipif(
+    platform.system() == "Linux",
+    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
+)
+def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
+    """
+    Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
+    the dataset gets yielded once.
+    """
+    from torch.utils.data import DataLoader
+
+    if issubclass(loader, ZarrSparseDataset):
+        ds = ZarrSparseDataset(
+            chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True
+        )
+        ds.add_anndatas([open_sparse(p) for p in mock_store.glob("*.zarr")])
+        x_ref = (
+            read_lazy_store(mock_store, obs_columns=["label"])
+            .layers["sparse"]
+            .compute()
+            .toarray()
+        )
+    elif issubclass(loader, ZarrDenseDataset):
+        ds = ZarrDenseDataset(
+            chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True
+        )
+        ds.add_anndatas([open_dense(p) for p in mock_store.glob("*.zarr")])
+        x_ref = read_lazy_store(mock_store, obs_columns=["label"]).X.compute()
+    elif issubclass(loader, DaskDataset):
+        adata = read_lazy_store(mock_store, obs_columns=["label"])
+        adata.obs["order"] = np.arange(adata.shape[0])
+        ds = DaskDataset(
+            adata,
+            label_column="order",
+            n_chunks=4,
+            shuffle=True,
+        )
+        x_ref = adata.X.compute()
+    else:
+        raise ValueError("Unknown loader type")
+
+    dataloader = DataLoader(
+        ds,
+        batch_size=32,
+        num_workers=4,
+        collate_fn=_custom_collate_fn,
+    )
+    x_list, idx_list = [], []
+    for batch in dataloader:
+        x, idxs = batch
+        x_list.append(x)
+        idx_list.append(idxs.ravel())
+
+    x = np.vstack(x_list)
+    idxs = np.concatenate(idx_list)
+
+    assert np.array_equal(x[np.argsort(idxs)], x_ref)
