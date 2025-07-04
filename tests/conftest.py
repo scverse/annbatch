@@ -18,6 +18,11 @@ def anndata_settings():
     ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
 
 
+@pytest.fixture(params=[False, True], ids=["zarr-python", "zarrs"])
+def use_zarrs(request):
+    return request.param
+
+
 @pytest.fixture(scope="session")
 def mock_store(tmpdir_factory, n_shards: int = 3):
     """Create a mock Zarr store for testing."""
@@ -54,5 +59,4 @@ def mock_store(tmpdir_factory, n_shards: int = 3):
             chunk_size=10,
             shard_size=20,
         )
-
-    return tmp_path
+    yield tmp_path

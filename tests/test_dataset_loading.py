@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 import zarr
+import zarrs  # noqa: F401
 
 from arrayloaders.io import (
     DaskDataset,
@@ -20,20 +21,38 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def open_sparse(path: Path):
-    return ad.AnnData(
-        X=ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
-        obs=ad.io.read_elem(zarr.open(path)["obs"]),
-        layers={"data": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"])},
-    )
+def open_sparse(path: Path, *, use_zarrs=False):
+    old_pipeline = zarr.config.get("codec_pipeline.path")
+
+    with zarr.config.set(
+        {
+            "codec_pipeline.path": "zarrs.ZarrsCodecPipeline"
+            if use_zarrs
+            else old_pipeline
+        }
+    ):
+        return ad.AnnData(
+            X=ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
+            obs=ad.io.read_elem(zarr.open(path)["obs"]),
+            layers={"data": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"])},
+        )
 
 
-def open_dense(path: Path):
-    return ad.AnnData(
-        X=zarr.open(path)["X"],
-        obs=ad.io.read_elem(zarr.open(path)["obs"]),
-        layers={"data": zarr.open(path)["X"]},
-    )
+def open_dense(path: Path, *, use_zarrs=False):
+    old_pipeline = zarr.config.get("codec_pipeline.path")
+
+    with zarr.config.set(
+        {
+            "codec_pipeline.path": "zarrs.ZarrsCodecPipeline"
+            if use_zarrs
+            else old_pipeline
+        }
+    ):
+        return ad.AnnData(
+            X=zarr.open(path)["X"],
+            obs=ad.io.read_elem(zarr.open(path)["obs"]),
+            layers={"data": zarr.open(path)["X"]},
+        )
 
 
 @pytest.mark.parametrize("shuffle", [True, False], ids=["shuffled", "unshuffled"])
@@ -41,7 +60,7 @@ def open_dense(path: Path):
     "gen_loader",
     [
         pytest.param(
-            lambda path, shuffle: DaskDataset(
+            lambda path, shuffle, use_zarrs: DaskDataset(
                 read_lazy_store(path, obs_columns=["label"]),
                 label_column="label",
                 n_chunks=4,
@@ -53,6 +72,7 @@ def open_dense(path: Path):
             pytest.param(
                 lambda path,
                 shuffle,
+                use_zarrs,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
                 dataset_class=dataset_class,
@@ -70,7 +90,7 @@ def open_dense(path: Path):
                             open_sparse
                             if issubclass(dataset_class, ZarrSparseDataset)
                             else open_dense
-                        )(p)
+                        )(p, use_zarrs=use_zarrs)
                         for p in path.glob("*.zarr")
                     ],
                     layer_keys,
@@ -131,7 +151,7 @@ def open_dense(path: Path):
         ),
     ],
 )
-def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader):
+def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader, use_zarrs):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -141,7 +161,7 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader):
     """
     adata = read_lazy_store(mock_store, obs_columns=["label"])
 
-    loader = gen_loader(mock_store, shuffle)
+    loader = gen_loader(mock_store, shuffle, use_zarrs)
     is_dense = isinstance(loader, ZarrDenseDataset | DaskDataset)
     n_elems = 0
     batches = []
@@ -348,7 +368,7 @@ def _custom_collate_fn(elems):
     platform.system() == "Linux",
     reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
 )
-def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
+def test_torch_multiprocess_dataloading_zarr(mock_store, loader, use_zarrs):
     """
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
@@ -359,7 +379,9 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
         ds = ZarrSparseDataset(
             chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True
         )
-        ds.add_anndatas([open_sparse(p) for p in mock_store.glob("*.zarr")])
+        ds.add_anndatas(
+            [open_sparse(p, use_zarrs=use_zarrs) for p in mock_store.glob("*.zarr")]
+        )
         x_ref = (
             read_lazy_store(mock_store, obs_columns=["label"])
             .layers["sparse"]
@@ -370,7 +392,9 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader):
         ds = ZarrDenseDataset(
             chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True
         )
-        ds.add_anndatas([open_dense(p) for p in mock_store.glob("*.zarr")])
+        ds.add_anndatas(
+            [open_dense(p, use_zarrs=use_zarrs) for p in mock_store.glob("*.zarr")]
+        )
         x_ref = read_lazy_store(mock_store, obs_columns=["label"]).X.compute()
     elif issubclass(loader, DaskDataset):
         adata = read_lazy_store(mock_store, obs_columns=["label"])
