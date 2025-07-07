@@ -86,10 +86,8 @@ def test_store_creation(
 
 
 @pytest.mark.parametrize("densify", [True, False])
-def test_store_extension(
-    mock_anndatas_path,
-    densify: bool,
-):
+@pytest.mark.parametrize("cache_h5ads", [True, False])
+def test_store_extension(mock_anndatas_path, densify: bool, cache_h5ads: bool):
     store_path = mock_anndatas_path / "zarr_store"
     # create new store
     create_store_from_h5ads(
@@ -113,6 +111,7 @@ def test_store_extension(
             if str(f).endswith(".h5ad")
         ],
         store_path,
+        cache_h5ads=cache_h5ads,
         chunk_size=10,
         shard_size=20,
     )

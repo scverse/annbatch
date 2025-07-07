@@ -78,6 +78,20 @@ def _lazy_load_h5ads(
     return ad.concat(adatas, join="outer")
 
 
+def _load_h5ads(paths: Iterable[PathLike[str]] | Iterable[str]):
+    adatas = []
+    for path in paths:
+        with h5py.File(path) as f:
+            adata = ad.AnnData(
+                X=ad.io.read_elem(f["X"]),
+                obs=ad.io.read_elem(f["obs"]),
+                var=ad.io.read_elem(f["var"]),
+            )
+            adatas.append(adata)
+
+    return ad.concat(adatas, join="outer")
+
+
 def _create_chunks_for_shuffling(
     adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576, shuffle: bool = True
 ):
@@ -199,6 +213,7 @@ def add_h5ads_to_store(
     zarr_compressor: Iterable[BytesBytesCodec] = (
         BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
+    cache_h5ads: bool = True,
 ):
     """Add h5ad files to an existing Zarr store.
 
@@ -208,6 +223,7 @@ def add_h5ads_to_store(
         chunk_size: Size of the chunks to use for the data in the zarr store.
         shard_size: Size of the shards to use for the data in the zarr store.
         zarr_compressor: Compressors to use to compress the data in the zarr store.
+        cache_h5ads: Whether to cache the h5ad files into memory before writing them to the store.
 
     Examples:
         >>> from arrayloaders.io.store_creation import add_h5ads_to_store
@@ -229,14 +245,20 @@ def add_h5ads_to_store(
             "Detected array encoding type. Will convert to dense format before writing."
         )
 
-    adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
+    if cache_h5ads:
+        adata_concat = _load_h5ads(adata_paths)
+        chunks = np.array_split(
+            np.random.default_rng().permutation(len(adata_concat)), len(shards)
+        )
+    else:
+        adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
+        chunks = _create_chunks_for_shuffling(
+            adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True
+        )
     var_mask = adata_concat.var_names.isin(adata_concat.var_names)
     adata_concat.obs_names_make_unique()
-    chunks = _create_chunks_for_shuffling(
-        adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True
-    )
 
-    for shard, chunk in tqdm(zip(shards, chunks, strict=False)):
+    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards)):
         if encoding == "array":
             f = zarr.open_group(shard)
             adata_shard = ad.AnnData(
@@ -252,13 +274,13 @@ def add_h5ads_to_store(
             [
                 adata_shard,
                 ad.AnnData(
-                    X=adata_concat.X[chunk, :][:, var_mask].compute(),
+                    X=adata_concat.X[chunk, :][:, var_mask],
                     obs=adata_concat.obs.iloc[chunk],
                     var=adata_concat.var.loc[var_mask],
                 ),
             ]
         )
-        idxs_shuffled = np.random.default_rng().permutation(np.arange(len(adata)))
+        idxs_shuffled = np.random.default_rng().permutation(len(adata))
         adata.X = adata.X[idxs_shuffled, :]
         adata.obs = adata.obs.iloc[idxs_shuffled]
 
