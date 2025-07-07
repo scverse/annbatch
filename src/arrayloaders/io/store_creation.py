@@ -97,9 +97,10 @@ def create_store_from_h5ads(
     var_subset: Iterable[str] | None = None,
     chunk_size: int = 4096,
     shard_size: int = 65536,
-    compressors: Iterable[BytesBytesCodec] = (
+    zarr_compressor: Iterable[BytesBytesCodec] = (
         BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
+    h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
     buffer_size: int = 1_048_576,
     shuffle: bool = True,
     *,
@@ -115,7 +116,8 @@ def create_store_from_h5ads(
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
         chunk_size: Size of the chunks to use for the data in the zarr store.
         shard_size: Size of the shards to use for the data in the zarr store.
-        compressors: Compressors to use to compress the data in the zarr store.
+        zarr_compressor: Compressors to use to compress the data in the zarr store.
+        h5ad_compressor: Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
         buffer_size: Number of observations to load into memory at once for shuffling / pre-processing.
             The higher this number, the more memory is used, but the better the shuffling.
             This corresponds to the size of the shards created.
@@ -167,11 +169,11 @@ def create_store_from_h5ads(
                 adata_chunk,
                 chunk_size=chunk_size,
                 shard_size=shard_size,
-                compressors=compressors,
+                compressors=zarr_compressor,
             )
         elif output_format == "h5ad":
             adata_chunk.write_h5ad(
-                Path(output_path) / f"chunk_{i}.h5ad", compression="gzip"
+                Path(output_path) / f"chunk_{i}.h5ad", compression=h5ad_compressor
             )
         else:
             raise ValueError(
