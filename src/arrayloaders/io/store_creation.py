@@ -14,7 +14,7 @@ from zarr.codecs import BloscCodec, BloscShuffle
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from os import PathLike
-    from typing import Any
+    from typing import Any, Literal
 
     from zarr.abc.codec import BytesBytesCodec
 
@@ -76,14 +76,15 @@ def _lazy_load_h5ads(
 
 
 def _create_chunks_for_shuffling(
-    adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576
+    adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576, shuffle: bool = True
 ):
     chunk_boundaries = np.cumsum([0] + list(adata.X.chunks[0]))
     slices = [
         slice(int(start), int(end))
         for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:], strict=True)
     ]
-    random.shuffle(slices)
+    if shuffle:
+        random.shuffle(slices)
     idxs = np.concatenate([np.arange(s.start, s.stop) for s in slices])
     idxs = np.array_split(idxs, np.ceil(len(idxs) / shuffle_buffer_size))
 
@@ -96,12 +97,15 @@ def create_store_from_h5ads(
     var_subset: Iterable[str] | None = None,
     chunk_size: int = 4096,
     shard_size: int = 65536,
-    compressors: Iterable[BytesBytesCodec] = (
+    zarr_compressor: Iterable[BytesBytesCodec] = (
         BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
-    shuffle_buffer_size: int = 1_048_576,
+    h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
+    buffer_size: int = 1_048_576,
+    shuffle: bool = True,
     *,
     should_denseify: bool = True,
+    output_format: Literal["h5ad", "zarr"] = "zarr",
 ):
     """Create a Zarr store from multiple h5ad files.
 
@@ -112,10 +116,14 @@ def create_store_from_h5ads(
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
         chunk_size: Size of the chunks to use for the data in the zarr store.
         shard_size: Size of the shards to use for the data in the zarr store.
-        compressors: Compressors to use to compress the data in the zarr store.
-        shuffle_buffer_size: Number of observations to load into memory at once for shuffling.
+        zarr_compressor: Compressors to use to compress the data in the zarr store.
+        h5ad_compressor: Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
+        buffer_size: Number of observations to load into memory at once for shuffling / pre-processing.
             The higher this number, the more memory is used, but the better the shuffling.
+            This corresponds to the size of the shards created.
+        shuffle: Whether to shuffle the data before writing it to the store.
         should_denseify: Whether or not to write as dense on disk.
+        output_format: Format of the output store. Can be either "zarr" or "h5ad".
 
     Examples:
         >>> from arrayloaders.io.store_creation import create_store_from_h5ads
@@ -131,32 +139,43 @@ def create_store_from_h5ads(
     print("setting ad.settings.zarr_write_format to 3")
     adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
     adata_concat.obs_names_make_unique()
-    shuffle_chunks = _create_chunks_for_shuffling(adata_concat, shuffle_buffer_size)
+    chunks = _create_chunks_for_shuffling(adata_concat, buffer_size, shuffle=shuffle)
 
     if var_subset is None:
         var_subset = adata_concat.var_names
 
-    for i, chunk in enumerate(tqdm(shuffle_chunks)):
+    for i, chunk in enumerate(tqdm(chunks)):
         var_mask = adata_concat.var_names.isin(var_subset)
         adata_chunk = ad.AnnData(
             X=adata_concat.X[chunk, :][:, var_mask].persist(),
             obs=adata_concat.obs.iloc[chunk],
             var=adata_concat.var.loc[var_mask],
         )
-        # shuffle adata in memory to break up individual chunks
-        idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-        adata_chunk.X = adata_chunk.X[idxs, :]
-        adata_chunk.obs = adata_chunk.obs.iloc[idxs]
+        if shuffle:
+            # shuffle adata in memory to break up individual chunks
+            idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
+            adata_chunk.X = adata_chunk.X[idxs, :]
+            adata_chunk.obs = adata_chunk.obs.iloc[idxs]
         # convert to dense format before writing to disk
         if should_denseify:
             adata_chunk.X = adata_chunk.X.map_blocks(
                 lambda xx: xx.toarray().astype("f4"), dtype="f4"
             )
-        f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
-        _write_sharded(
-            f,
-            adata_chunk,
-            chunk_size=chunk_size,
-            shard_size=shard_size,
-            compressors=compressors,
-        )
+
+        if output_format == "zarr":
+            f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
+            _write_sharded(
+                f,
+                adata_chunk,
+                chunk_size=chunk_size,
+                shard_size=shard_size,
+                compressors=zarr_compressor,
+            )
+        elif output_format == "h5ad":
+            adata_chunk.write_h5ad(
+                Path(output_path) / f"chunk_{i}.h5ad", compression=h5ad_compressor
+            )
+        else:
+            raise ValueError(
+                f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported."
+            )

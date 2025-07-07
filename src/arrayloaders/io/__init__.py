@@ -22,6 +22,7 @@ Array store creation.
    :toctree: .
 
    create_store_from_h5ads
+   shuffle_and_shard_h5ads
 
 """
 
