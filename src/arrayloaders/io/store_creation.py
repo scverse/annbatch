@@ -200,7 +200,24 @@ def add_h5ads_to_store(
         BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
     ),
 ):
-    """Add files to an existing Zarr store."""
+    """Add h5ad files to an existing Zarr store.
+
+    Args:
+        adata_paths: Paths to the h5ad files used to create the zarr store.
+        output_path: Path to the output zarr store.
+        chunk_size: Size of the chunks to use for the data in the zarr store.
+        shard_size: Size of the shards to use for the data in the zarr store.
+        zarr_compressor: Compressors to use to compress the data in the zarr store.
+
+    Examples:
+        >>> from arrayloaders.io.store_creation import add_h5ads_to_store
+        >>> datasets = [
+        ...     "path/to/first_adata.h5ad",
+        ...     "path/to/second_adata.h5ad",
+        ...     "path/to/third_adata.h5ad",
+        ... ]
+        >>> add_h5ads_to_store(datasets, "path/to/output/zarr_store")
+    """
     shards = list(Path(output_path).glob("chunk_*.zarr"))
     if len(shards) == 0:
         raise ValueError(
@@ -242,16 +259,18 @@ def add_h5ads_to_store(
             ]
         )
         idxs_shuffled = np.random.default_rng().permutation(np.arange(len(adata)))
-        f = zarr.open_group(shard, mode="w")
+        adata.X = adata.X[idxs_shuffled, :]
+        adata.obs = adata.obs.iloc[idxs_shuffled]
+
         if encoding == "array":
             adata.X = da.from_array(adata.X, chunks=(chunk_size, -1)).map_blocks(
                 lambda xx: xx.toarray().astype("f4"), dtype="f4"
             )
+
+        f = zarr.open_group(shard, mode="w")
         _write_sharded(
             f,
-            adata[idxs_shuffled, :]
-            if encoding == "csr_matrix"
-            else adata[idxs_shuffled, :].copy(),
+            adata,
             chunk_size=chunk_size,
             shard_size=shard_size,
             compressors=zarr_compressor,
