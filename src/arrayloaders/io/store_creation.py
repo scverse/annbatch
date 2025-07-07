@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anndata as ad
+import dask.array as da
 import h5py
 import numpy as np
+import scipy.sparse as sp
 import zarr
 from tqdm import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
@@ -179,3 +182,77 @@ def create_store_from_h5ads(
             raise ValueError(
                 f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported."
             )
+
+
+def _get_array_encoding_type(path: PathLike[str] | str):
+    shards = list(Path(path).glob("chunk_*.zarr"))
+    with open(shards[0] / "X" / "zarr.json") as f:
+        encoding = json.load(f)
+    return encoding["attributes"]["encoding-type"]
+
+
+def add_h5ads_to_store(
+    adata_paths: Iterable[PathLike[str]] | Iterable[str],
+    output_path: PathLike[str] | str,
+    chunk_size: int = 4096,
+    shard_size: int = 65536,
+    zarr_compressor: Iterable[BytesBytesCodec] = (
+        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
+    ),
+):
+    """Add files to an existing Zarr store."""
+    shards = list(Path(output_path).glob("chunk_*.zarr"))
+    if len(shards) == 0:
+        raise ValueError(
+            "Store at `output_path` does not exist or is empty. Please run `create_store_from_h5ads` first."
+        )
+    encoding = _get_array_encoding_type(output_path)
+    if encoding == "array":
+        print(
+            "Detected array encoding type. Will convert to dense format before writing."
+        )
+
+    adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
+    var_mask = adata_concat.var_names.isin(adata_concat.var_names)
+    adata_concat.obs_names_make_unique()
+    chunks = _create_chunks_for_shuffling(
+        adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True
+    )
+
+    for shard, chunk in tqdm(zip(shards, chunks, strict=False)):
+        if encoding == "array":
+            f = zarr.open_group(shard)
+            adata_shard = ad.AnnData(
+                X=ad.experimental.read_elem_lazy(f["X"])
+                .map_blocks(sp.csr_matrix)
+                .compute(),
+                obs=ad.io.read_elem(f["obs"]),
+                var=ad.io.read_elem(f["var"]),
+            )
+        else:
+            adata_shard = ad.read_zarr(shard)
+        adata = ad.concat(
+            [
+                adata_shard,
+                ad.AnnData(
+                    X=adata_concat.X[chunk, :][:, var_mask].compute(),
+                    obs=adata_concat.obs.iloc[chunk],
+                    var=adata_concat.var.loc[var_mask],
+                ),
+            ]
+        )
+        idxs_shuffled = np.random.default_rng().permutation(np.arange(len(adata)))
+        f = zarr.open_group(shard, mode="w")
+        if encoding == "array":
+            adata.X = da.from_array(adata.X, chunks=(chunk_size, -1)).map_blocks(
+                lambda xx: xx.toarray().astype("f4"), dtype="f4"
+            )
+        _write_sharded(
+            f,
+            adata[idxs_shuffled, :]
+            if encoding == "csr_matrix"
+            else adata[idxs_shuffled, :].copy(),
+            chunk_size=chunk_size,
+            shard_size=shard_size,
+            compressors=zarr_compressor,
+        )
