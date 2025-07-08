@@ -281,8 +281,9 @@ def add_h5ads_to_store(
             ]
         )
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
-        adata.X = adata.X[idxs_shuffled, :]
-        adata.obs = adata.obs.iloc[idxs_shuffled]
+        adata = adata[
+            idxs_shuffled, :
+        ].copy()  # this significantly speeds up writing to disk
 
         if encoding == "array":
             adata.X = da.from_array(adata.X, chunks=(chunk_size, -1)).map_blocks(
