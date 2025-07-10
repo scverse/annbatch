@@ -23,6 +23,7 @@ Home = "https://github.com/laminlabs/arrayloaders"
 
 [project.optional-dependencies]
 dev = [
+    "zarrs",
     "lamindb",
     "pre-commit",
     "nox",
