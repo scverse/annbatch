@@ -24,6 +24,7 @@ Home = "https://github.com/laminlabs/arrayloaders"
 [project.optional-dependencies]
 dev = [
     "zarrs",
+    "scipy>1.15.0",  # rng argument to scipy.sparse.random
     "lamindb",
     "pre-commit",
     "nox",
