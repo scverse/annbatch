@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anndata as ad
+import dask.array as da
 import h5py
 import numpy as np
+import scipy.sparse as sp
 import zarr
 from tqdm import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
@@ -67,6 +70,20 @@ def _lazy_load_h5ads(
         with h5py.File(path) as f:
             adata = ad.AnnData(
                 X=ad.experimental.read_elem_lazy(f["X"], chunks=(chunk_size, -1)),
+                obs=ad.io.read_elem(f["obs"]),
+                var=ad.io.read_elem(f["var"]),
+            )
+            adatas.append(adata)
+
+    return ad.concat(adatas, join="outer")
+
+
+def _load_h5ads(paths: Iterable[PathLike[str]] | Iterable[str]):
+    adatas = []
+    for path in paths:
+        with h5py.File(path) as f:
+            adata = ad.AnnData(
+                X=ad.io.read_elem(f["X"]),
                 obs=ad.io.read_elem(f["obs"]),
                 var=ad.io.read_elem(f["var"]),
             )
@@ -179,3 +196,105 @@ def create_store_from_h5ads(
             raise ValueError(
                 f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported."
             )
+
+
+def _get_array_encoding_type(path: PathLike[str] | str):
+    shards = list(Path(path).glob("chunk_*.zarr"))
+    with open(shards[0] / "X" / "zarr.json") as f:
+        encoding = json.load(f)
+    return encoding["attributes"]["encoding-type"]
+
+
+def add_h5ads_to_store(
+    adata_paths: Iterable[PathLike[str]] | Iterable[str],
+    output_path: PathLike[str] | str,
+    chunk_size: int = 4096,
+    shard_size: int = 65536,
+    zarr_compressor: Iterable[BytesBytesCodec] = (
+        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
+    ),
+    cache_h5ads: bool = True,
+):
+    """Add h5ad files to an existing Zarr store.
+
+    Args:
+        adata_paths: Paths to the h5ad files used to create the zarr store.
+        output_path: Path to the output zarr store.
+        chunk_size: Size of the chunks to use for the data in the zarr store.
+        shard_size: Size of the shards to use for the data in the zarr store.
+        zarr_compressor: Compressors to use to compress the data in the zarr store.
+        cache_h5ads: Whether to cache the h5ad files into memory before writing them to the store.
+
+    Examples:
+        >>> from arrayloaders.io.store_creation import add_h5ads_to_store
+        >>> datasets = [
+        ...     "path/to/first_adata.h5ad",
+        ...     "path/to/second_adata.h5ad",
+        ...     "path/to/third_adata.h5ad",
+        ... ]
+        >>> add_h5ads_to_store(datasets, "path/to/output/zarr_store")
+    """
+    shards = list(Path(output_path).glob("chunk_*.zarr"))
+    if len(shards) == 0:
+        raise ValueError(
+            "Store at `output_path` does not exist or is empty. Please run `create_store_from_h5ads` first."
+        )
+    encoding = _get_array_encoding_type(output_path)
+    if encoding == "array":
+        print(
+            "Detected array encoding type. Will convert to dense format before writing."
+        )
+
+    if cache_h5ads:
+        adata_concat = _load_h5ads(adata_paths)
+        chunks = np.array_split(
+            np.random.default_rng().permutation(len(adata_concat)), len(shards)
+        )
+    else:
+        adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
+        chunks = _create_chunks_for_shuffling(
+            adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True
+        )
+    var_mask = adata_concat.var_names.isin(adata_concat.var_names)
+    adata_concat.obs_names_make_unique()
+
+    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards)):
+        if encoding == "array":
+            f = zarr.open_group(shard)
+            adata_shard = ad.AnnData(
+                X=ad.experimental.read_elem_lazy(f["X"])
+                .map_blocks(sp.csr_matrix)
+                .compute(),
+                obs=ad.io.read_elem(f["obs"]),
+                var=ad.io.read_elem(f["var"]),
+            )
+        else:
+            adata_shard = ad.read_zarr(shard)
+        adata = ad.concat(
+            [
+                adata_shard,
+                ad.AnnData(
+                    X=adata_concat.X[chunk, :][:, var_mask],
+                    obs=adata_concat.obs.iloc[chunk],
+                    var=adata_concat.var.loc[var_mask],
+                ),
+            ]
+        )
+        idxs_shuffled = np.random.default_rng().permutation(len(adata))
+        adata = adata[
+            idxs_shuffled, :
+        ].copy()  # this significantly speeds up writing to disk
+
+        if encoding == "array":
+            adata.X = da.from_array(adata.X, chunks=(chunk_size, -1)).map_blocks(
+                lambda xx: xx.toarray().astype("f4"), dtype="f4"
+            )
+
+        f = zarr.open_group(shard, mode="w")
+        _write_sharded(
+            f,
+            adata,
+            chunk_size=chunk_size,
+            shard_size=shard_size,
+            compressors=zarr_compressor,
+        )
