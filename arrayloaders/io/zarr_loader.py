@@ -4,6 +4,7 @@ import asyncio
 import math
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict, defaultdict
+from dataclasses import dataclass
 from itertools import accumulate, chain, islice, pairwise
 from typing import TYPE_CHECKING, Generic, NamedTuple, TypeVar, cast
 
@@ -18,6 +19,7 @@ from .utils import WorkerHandle, check_lt_1, check_var_shapes
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
+    from types import ModuleType
     from typing import Self
 
 
@@ -27,6 +29,14 @@ def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
 accepted_on_disk_types = OnDiskArray.__constraints__
+
+
+@dataclass
+class CSRContainer:
+    elems: tuple[np.ndarray, np.ndarray, np.ndarray]
+    shape: tuple[int, int]
+
+
 InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
 
 
@@ -83,6 +93,8 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     _on_add: Callable | None = None
     _batch_size: int = 1
     _shapes: list[tuple[int, int]] = []
+    sp_module: ModuleType
+    np_module: ModuleType
 
     def __init__(
         self,
@@ -90,10 +102,25 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         on_add: Callable | None = None,
         return_index: bool = False,
         batch_size: int = 1,
+        use_cupy: bool = False,
     ):
         self._on_add = on_add
         self._return_index = return_index
         self._batch_size = batch_size
+        if use_cupy:
+            try:
+                import cupy as cp
+                import cupy.sparse as cpx
+
+                self.sp_module = cpx
+                self.np_module = cp
+            except ImportError:
+                raise ImportError(
+                    "Cannot find cupy module even though `use_cupy` argument was set to `True`"
+                ) from None
+        else:
+            self.sp_module = sp
+            self.np_module = np
 
     @property
     def dataset_type(self) -> type[OnDiskArray]:
@@ -235,7 +262,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         Returns:
             A :class:`numpy.ndarray` of chunk ids.
         """
-        chunks = np.array(list(range(math.ceil(self.n_obs / chunk_size))))
+        chunks = np.arange(math.ceil(self.n_obs / chunk_size))
         if shuffle:
             worker_handle.shuffle(chunks)
 
@@ -247,7 +274,9 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         worker_handle: WorkerHandle,
         preload_nchunks: int,
         shuffle: bool,
-        fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
+        fetch_data: Callable[
+            [list[slice], int], Awaitable[InMemoryArray | CSRContainer]
+        ],
     ) -> Iterator[
         tuple[InMemoryArray, None | np.ndarray]
         | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
@@ -281,6 +310,13 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             chunks: list[InMemoryArray] = zsync.sync(
                 index_datasets(dataset_index_to_slices, fetch_data)
             )
+            if isinstance(chunks[0], CSRContainer):
+                chunks = [
+                    self.sp_module.csr_matrix(
+                        tuple(self.np_module.array(e) for e in c.elems), shape=c.shape
+                    )
+                    for c in chunks
+                ]
             # Accumulate labels
             labels: None | list[np.ndarray] = None
             if self.labels is not None:
@@ -316,7 +352,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                     for index in dataset_indices
                 ]
             # Do batch returns, handling leftover data as necessary
-            mod = sp if isinstance(chunks[0], sp.csr_matrix) else np
+            mod = (
+                self.sp_module
+                if isinstance(chunks[0], self.sp_module.csr_matrix)
+                else np
+            )
             in_memory_data = (
                 mod.vstack(chunks)
                 if in_memory_data is None
@@ -429,6 +469,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         shuffle: bool = True,
         return_index: bool = False,
         batch_size: int = 1,
+        use_cupy: bool = False,
     ):
         check_lt_1(
             [
@@ -447,6 +488,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
                 # on_add=self._cache_update_callback,
                 return_index=return_index,
                 batch_size=batch_size,
+                use_cupy=use_cupy,
             )
         )
         self._chunk_size = chunk_size
@@ -621,7 +663,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         self,
         slices: list[slice],
         dataset_idx: int,
-    ) -> sp.csr_matrix:
+    ) -> CSRContainer:
         # See https://github.com/scverse/anndata/blob/361325fc621887bf4f381e9412b150fcff599ff7/src/anndata/_core/sparse_dataset.py#L272-L295
         # for the inspiration of this function.
         indptr, indices, data = await self._get_sparse_elems(dataset_idx)
@@ -647,16 +689,16 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
         start_indptr = indptr_indices[0] - next(offsets)
         if len(slices) < 2:  # there is only one slice so no need to concatenate
-            return sp.csr_matrix(
-                (data_np, indices_np, start_indptr),
+            return CSRContainer(
+                elems=(data_np, indices_np, start_indptr),
                 shape=(start_indptr.shape[0] - 1, self._dataset_manager.n_var),
             )
         end_indptr = np.concatenate(
             [s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)]
         )
         indptr_np = np.concatenate([start_indptr, end_indptr])
-        return sp.csr_matrix(
-            (data_np, indices_np, indptr_np),
+        return CSRContainer(
+            elems=(data_np, indices_np, indptr_np),
             shape=(indptr_np.shape[0] - 1, self._dataset_manager.n_var),
         )
 
