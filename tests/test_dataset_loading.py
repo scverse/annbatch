@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 from importlib.util import find_spec
+from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
@@ -22,8 +23,8 @@ try:
     from cupy import ndarray as CupyArray
     from cupy.sparse import csr_matrix as CupyCSRMatrix
 except ImportError:
-    CupyCSRMatrix = None
-    CupyArray = None
+    CupyCSRMatrix = NoneType
+    CupyArray = NoneType
 
 if TYPE_CHECKING:
     from pathlib import Path
