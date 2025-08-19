@@ -27,7 +27,7 @@ def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
 accepted_on_disk_types = OnDiskArray.__constraints__
-InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
+InMemoryArray = TypeVar("InMemoryArray", sp.csr_array, np.ndarray)
 
 
 def _batched(iterable, n):
@@ -339,7 +339,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             # Do batch returns, handling leftover data as necessary
             vstack = (
                 sp.vstack
-                if isinstance(chunks[0], sp.csr_matrix | sp.csr_array)
+                if isinstance(chunks[0], sp.csr_array | sp.csr_array)
                 else np.vstack
             )
             if self.labels is not None:
@@ -463,7 +463,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
             raise NotImplementedError(
                 "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
             )
-        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
+        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_array] = (
             AnnDataManager(
                 # TODO: https://github.com/scverse/anndata/issues/2021
                 # on_add=self._cache_update_callback,
@@ -643,7 +643,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         self,
         slices: list[slice],
         dataset_idx: int,
-    ) -> sp.csr_matrix:
+    ) -> sp.csr_array:
         # See https://github.com/scverse/anndata/blob/361325fc621887bf4f381e9412b150fcff599ff7/src/anndata/_core/sparse_dataset.py#L272-L295
         # for the inspiration of this function.
         indptr, indices, data = await self._get_sparse_elems(dataset_idx)
@@ -669,7 +669,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
         start_indptr = indptr_indices[0] - next(offsets)
         if len(slices) < 2:  # there is only one slice so no need to concatenate
-            return sp.csr_matrix(
+            return sp.csr_array(
                 (data_np, indices_np, start_indptr),
                 shape=(start_indptr.shape[0] - 1, self._dataset_manager.n_var),
             )
@@ -677,7 +677,7 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):
             [s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)]
         )
         indptr_np = np.concatenate([start_indptr, end_indptr])
-        return sp.csr_matrix(
+        return sp.csr_array(
             (data_np, indices_np, indptr_np),
             shape=(indptr_np.shape[0] - 1, self._dataset_manager.n_var),
         )
