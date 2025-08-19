@@ -427,6 +427,7 @@ Args:
     preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
     shuffle: Whether or not to shuffle the data, by default True
     return_index: Whether or not to return the index on each iteration, by default False
+    use_cupy: Whether or not to use cupy for non-io array operations like vstack and indexing. This option entails greater GPU memory usage.
 """
 
 
