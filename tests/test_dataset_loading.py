@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+from importlib.util import find_spec
 from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
@@ -16,6 +17,13 @@ from arrayloaders.io import (
     ZarrSparseDataset,
     read_lazy_store,
 )
+
+try:
+    from cupy import ndarray as CupyArray
+    from cupy.sparse import csr_matrix as CupyCSRMatrix
+except ImportError:
+    CupyCSRMatrix = None
+    CupyArray = None
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -91,12 +99,14 @@ def concat(dicts: list[Data]) -> ListData:
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
                 dataset_class=dataset_class,
-                batch_size=batch_size: dataset_class(
+                batch_size=batch_size,
+                use_cupy=use_cupy: dataset_class(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
                     return_index=True,
                     batch_size=batch_size,
+                    use_cupy=use_cupy,
                 ).add_datasets(
                     **concat(
                         [
@@ -109,14 +119,26 @@ def concat(dicts: list[Data]) -> ListData:
                         ]
                     )
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}",  # type: ignore[attr-defined]
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if use_cupy else ''}",  # type: ignore[attr-defined]
+                marks=pytest.mark.skipif(
+                    find_spec("cupy") is None and use_cupy, reason="need cupy installed"
+                ),
             )
-            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size in [
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size, use_cupy in [
                 elem
+                for use_cupy in [True, False]
                 for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
                 for elem in [
-                    [1, 5, None, dataset_class, None, 1],  # singleton chunk size
-                    [5, 1, None, dataset_class, None, 1],  # singleton preload
+                    [
+                        1,
+                        5,
+                        None,
+                        dataset_class,
+                        None,
+                        1,
+                        use_cupy,
+                    ],  # singleton chunk size
+                    [5, 1, None, dataset_class, None, 1, use_cupy],  # singleton preload
                     [
                         10,
                         5,
@@ -124,6 +146,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         5,
+                        use_cupy,
                     ],  # batch size divides total in memory size evenly
                     [
                         10,
@@ -132,6 +155,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         50,
+                        use_cupy,
                     ],  # batch size equal to in-memory size loading
                     [
                         10,
@@ -140,6 +164,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         15,
+                        use_cupy,
                     ],  # batch size does not divide in memory size evenly
                 ]
             ]
@@ -174,7 +199,7 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader, use_
         n_elems += 1 if (is_dask := isinstance(loader, DaskDataset)) else x.shape[0]
         # Check feature dimension
         assert x.shape[0 if is_dask else 1] == 100
-        batches += [x]
+        batches += [x.get() if isinstance(x, CupyCSRMatrix | CupyArray) else x]
         if label is not None:
             labels += [label]
         if index is not None:
