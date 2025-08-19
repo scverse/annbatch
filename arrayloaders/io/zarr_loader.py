@@ -235,7 +235,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         Returns:
             A :class:`numpy.ndarray` of chunk ids.
         """
-        chunks = np.array(list(range(math.ceil(self.n_obs / chunk_size))))
+        chunks = np.arange(math.ceil(self.n_obs / chunk_size))
         if shuffle:
             worker_handle.shuffle(chunks)
 
