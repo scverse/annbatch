@@ -151,7 +151,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             )
         datasets = self.train_datasets + [dataset]
         check_var_shapes(datasets)
-        self._shapes += [dataset.shape]
+        self._shapes = self._shapes + [dataset.shape]
         self.train_datasets = datasets
         if self.labels is not None:  # labels exist
             self.labels += [obs]
