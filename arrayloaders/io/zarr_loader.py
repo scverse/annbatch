@@ -105,6 +105,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
     _return_index: bool = False
     _on_add: Callable | None = None
     _batch_size: int = 1
+    _shapes: list[tuple[int, int]] = []
 
     def __init__(
         self,
@@ -123,11 +124,11 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
 
     @property
     def n_obs(self) -> int:
-        return sum(ds.shape[0] for ds in self.train_datasets)
+        return sum(shape[0] for shape in self._shapes)
 
     @property
     def n_var(self) -> int:
-        return self.train_datasets[0].shape[1]
+        return self._shapes[0][1]
 
     def add_anndatas(
         self,
@@ -173,7 +174,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             )
         datasets = self.train_datasets + [dataset]
         check_var_shapes(datasets)
-        self._var_size = datasets[0].shape[1]  # TODO: joins
+        self._shapes += [dataset.shape]
         self.train_datasets = datasets
         if self.labels is not None:  # labels exist
             self.labels += [obs]
@@ -207,9 +208,8 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         max_idx = index.stop
         curr_pos = 0
         slices = []
-        for idx, array in enumerate(self.train_datasets):
+        for idx, (n_obs, _) in enumerate(self._shapes):
             array_start = curr_pos
-            n_obs = array.shape[0]
             array_end = curr_pos + n_obs
 
             start = max(min_idx, array_start)
