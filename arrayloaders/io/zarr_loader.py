@@ -110,10 +110,10 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         if use_cupy:
             try:
                 import cupy as cp
-                import cupyx.scipy.sparse as cpx
+                import cupyx.scipy.sparse as cpx  # pragma: no cover
 
-                self.sp_module = cpx
-                self.np_module = cp
+                self.sp_module = cpx  # pragma: no cover
+                self.np_module = cp  # pragma: no cover
             except ImportError:
                 raise ImportError(
                     "Cannot find cupy module even though `use_cupy` argument was set to `True`"
