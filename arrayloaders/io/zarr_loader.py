@@ -110,7 +110,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         if use_cupy:
             try:
                 import cupy as cp
-                import cupy.sparse as cpx
+                import cupyx.scipy.sparse as cpx
 
                 self.sp_module = cpx
                 self.np_module = cp

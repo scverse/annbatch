@@ -21,7 +21,7 @@ from arrayloaders.io import (
 
 try:
     from cupy import ndarray as CupyArray
-    from cupy.sparse import csr_matrix as CupyCSRMatrix
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
 except ImportError:
     CupyCSRMatrix = NoneType
     CupyArray = NoneType
@@ -352,3 +352,17 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader, use_zarrs):
     idxs = np.concatenate(idx_list)
 
     assert np.array_equal(x[np.argsort(idxs)], x_ref)
+
+
+@pytest.mark.skipif(
+    find_spec("cupy") is not None, reason="Can't test for no cupy if cupy is there"
+)
+def test_no_cupy():
+    with pytest.raises(ImportError, match=r"even though `use_cupy` argument"):
+        ZarrSparseDataset(
+            chunk_size=10,
+            preload_nchunks=4,
+            shuffle=True,
+            return_index=True,
+            use_cupy=True,
+        )
