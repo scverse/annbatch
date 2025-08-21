@@ -10,7 +10,7 @@ import numpy as np
 import zarr.core.sync as zsync
 from scipy import sparse as sp
 
-from .types import BackingArray, InMemoryArray, OnDiskArray
+from .types import BackingArray, InMemoryArray
 from .utils import check_lt_1, check_var_shapes
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
     return np.split(a, np.arange(size, len(a), size))
 
 
-accepted_on_disk_types = OnDiskArray.__constraints__
+accepted_backing_types = BackingArray.__constraints__
 
 
 def _batched(iterable, n):
@@ -138,7 +138,7 @@ class AnnDataManager(Generic[BackingArray, InMemoryArray]):
                 raise ValueError(
                     "Cannot add a dataset with no obs label when training datasets have already been added without labels"
                 )
-        if not isinstance(dataset, accepted_types := accepted_on_disk_types):
+        if not isinstance(dataset, accepted_types := accepted_backing_types):
             raise TypeError(
                 f"Cannot add a dataset of type {type(dataset)}, only {accepted_types} are allowed"
             )

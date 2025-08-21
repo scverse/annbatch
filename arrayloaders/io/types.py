@@ -8,7 +8,7 @@ import zarr
 from scipy import sparse as sp
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
-InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
+InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray, sp.csr_array)
 BackingArray = TypeVar(
     "BackingArray", ad.abc.CSRDataset, zarr.Array, sp.csr_matrix, np.ndarray
 )

@@ -12,6 +12,7 @@ import zarrs  # noqa: F401
 
 from arrayloaders.io import (
     DaskDataset,
+    InMemoryDataset,
     ZarrDenseDataset,
     ZarrSparseDataset,
     read_lazy_store,
@@ -31,7 +32,7 @@ class ListData(TypedDict):
     obs: list[np.ndarray]
 
 
-def open_sparse(path: Path, *, use_zarrs: bool = False) -> Data:
+def open_zarr_sparse(path: Path, *, use_zarrs: bool = False) -> Data:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set(
@@ -47,7 +48,7 @@ def open_sparse(path: Path, *, use_zarrs: bool = False) -> Data:
         }
 
 
-def open_dense(path: Path, *, use_zarrs: bool = False) -> Data:
+def open_zarr_dense(path: Path, *, use_zarrs: bool = False) -> Data:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set(
@@ -61,6 +62,20 @@ def open_dense(path: Path, *, use_zarrs: bool = False) -> Data:
             "dataset": zarr.open(path)["X"],
             "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
         }
+
+
+def open_in_memory_dense(path: Path, *, use_zarrs: bool = False) -> Data:
+    return {
+        "dataset": ad.io.read_elem(zarr.open(path)["X"]),
+        "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
+    }
+
+
+def open_in_memory_sparse(path: Path, *, use_zarrs: bool = False) -> Data:
+    return {
+        "dataset": ad.io.read_elem(zarr.open(path)["layers"]["sparse"]),
+        "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
+    }
 
 
 def concat(dicts: list[Data]) -> ListData:
@@ -91,7 +106,8 @@ def concat(dicts: list[Data]) -> ListData:
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
                 dataset_class=dataset_class,
-                batch_size=batch_size: dataset_class(
+                batch_size=batch_size,
+                open_func=open_func: dataset_class(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
@@ -99,24 +115,38 @@ def concat(dicts: list[Data]) -> ListData:
                     batch_size=batch_size,
                 ).add_datasets(
                     **concat(
-                        [
-                            (
-                                open_sparse
-                                if issubclass(dataset_class, ZarrSparseDataset)
-                                else open_dense
-                            )(p, use_zarrs=use_zarrs)
-                            for p in path.glob("*.zarr")
-                        ]
+                        [open_func(p, use_zarrs=use_zarrs) for p in path.glob("*.zarr")]
                     )
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}",  # type: ignore[attr-defined]
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}{'-dense' if open_func == open_in_memory_dense else ''}-layer_keys={layer_keys}-batch_size={batch_size}",  # type: ignore[attr-defined]
             )
-            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size in [
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size, open_func in [
                 elem
-                for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
+                for dataset_class, open_func in [
+                    (ZarrDenseDataset, open_zarr_dense),
+                    (ZarrSparseDataset, open_zarr_sparse),
+                    (InMemoryDataset, open_in_memory_dense),
+                    (InMemoryDataset, open_in_memory_sparse),
+                ]  # type: ignore[list-item]
                 for elem in [
-                    [1, 5, None, dataset_class, None, 1],  # singleton chunk size
-                    [5, 1, None, dataset_class, None, 1],  # singleton preload
+                    [
+                        1,
+                        5,
+                        None,
+                        dataset_class,
+                        None,
+                        1,
+                        open_func,
+                    ],  # singleton chunk size
+                    [
+                        5,
+                        1,
+                        None,
+                        dataset_class,
+                        None,
+                        1,
+                        open_func,
+                    ],  # singleton preload
                     [
                         10,
                         5,
@@ -124,6 +154,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         5,
+                        open_func,
                     ],  # batch size divides total in memory size evenly
                     [
                         10,
@@ -132,6 +163,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         50,
+                        open_func,
                     ],  # batch size equal to in-memory size loading
                     [
                         10,
@@ -140,6 +172,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         15,
+                        open_func,
                     ],  # batch size does not divide in memory size evenly
                 ]
             ]
@@ -157,7 +190,10 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader, use_
     adata = read_lazy_store(mock_store, obs_columns=["label"])
 
     loader = gen_loader(mock_store, shuffle, use_zarrs)
-    is_dense = isinstance(loader, ZarrDenseDataset | DaskDataset)
+    is_dense = isinstance(loader, ZarrDenseDataset | DaskDataset) or (
+        isinstance(loader, InMemoryDataset)
+        and issubclass(loader.dataset_type, np.ndarray)
+    )
     n_elems = 0
     batches = []
     labels = []
@@ -233,8 +269,7 @@ def test_zarr_store_errors_lt_1(gen_loader, mock_store):
 
 
 def test_bad_adata_X_type(mock_store):
-    data = open_dense(next(mock_store.glob("*.zarr")))
-    data["dataset"] = data["dataset"][...]
+    data = {"dataset": "foo"}
     ds = ZarrDenseDataset(
         shuffle=True,
         chunk_size=10,
@@ -276,7 +311,10 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader, use_zarrs):
         )
         ds.add_datasets(
             **concat(
-                [open_sparse(p, use_zarrs=use_zarrs) for p in mock_store.glob("*.zarr")]
+                [
+                    open_zarr_sparse(p, use_zarrs=use_zarrs)
+                    for p in mock_store.glob("*.zarr")
+                ]
             )
         )
         x_ref = (
@@ -291,7 +329,10 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader, use_zarrs):
         )
         ds.add_datasets(
             **concat(
-                [open_dense(p, use_zarrs=use_zarrs) for p in mock_store.glob("*.zarr")]
+                [
+                    open_zarr_dense(p, use_zarrs=use_zarrs)
+                    for p in mock_store.glob("*.zarr")
+                ]
             )
         )
         x_ref = read_lazy_store(mock_store, obs_columns=["label"]).X.compute(

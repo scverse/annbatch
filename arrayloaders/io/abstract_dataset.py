@@ -59,6 +59,10 @@ class AbstractIterableDataset(Generic[BackingArray, InMemoryArray], metaclass=AB
     async def _cache_update_callback(self):
         pass
 
+    @property
+    def dataset_type(self) -> type[BackingArray]:
+        return self._dataset_manager.dataset_type
+
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
         """Fetch the data for given slices and the arrays representing a dataset on-disk.
