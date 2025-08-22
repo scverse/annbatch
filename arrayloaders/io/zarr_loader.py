@@ -324,17 +324,8 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
             # Fetch the data over slices
             chunks += zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
-            if any(isinstance(c, CSRContainer) for c in chunks):
-                chunks_converted: list[OutputInMemoryArray] = [
-                    self.sp_module.csr_matrix(
-                        tuple(self.np_module.asarray(e) for e in c.elems), shape=c.shape
-                    )
-                    if isinstance(c, CSRContainer)
-                    else c
-                    for c in chunks
-                ]
-            else:
-                chunks_converted = [self.np_module.asarray(c) for c in chunks]
+            chunks_converted = self._to_output_array(chunks)
+
             # Accumulate labels
             labels: None | list[np.ndarray] = None
             if self.labels is not None:
@@ -391,7 +382,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                     np.random.default_rng().shuffle(batch_indices)
                 splits = split_given_size(batch_indices, self._batch_size)
                 for i, s in enumerate(splits):
-                    s, chunks_reindexed = self.reindex_against_integer_indices(
+                    s, chunks_reindexed = self._reindex_against_integer_indices(
                         s, chunks_converted
                     )
                     if s.shape[0] == self._batch_size:
@@ -417,7 +408,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                             chunks = []
                             in_memory_labels = None
                             in_memory_indices = None
-            elif len(chunks_converted) > 0:  # handle any leftover data
+            elif len(chunks_converted) > 0:  # handle batch size matches in-memory
                 res = [
                     vstack(chunks_converted),
                     in_memory_labels if self.labels is not None else None,
@@ -428,8 +419,32 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                 chunks = []
                 in_memory_labels = None
                 in_memory_indices = None
+        if len(chunks) > 0:  # handle leftover data
+            res = [
+                vstack(self._to_output_array(chunks)),
+                np.asarray(in_memory_labels) if self.labels is not None else None,
+            ]
+            if self._return_index:
+                res += [np.asarray(in_memory_indices)]
+            yield tuple(res)
 
-    def reindex_against_integer_indices(
+    def _to_output_array(
+        self, chunks: list[InputInMemoryArray | OutputInMemoryArray]
+    ) -> list[OutputInMemoryArray]:
+        if any(isinstance(c, CSRContainer) for c in chunks):
+            return [
+                self.sp_module.csr_matrix(
+                    tuple(self.np_module.asarray(e) for e in c.elems), shape=c.shape
+                )
+                if isinstance(c, CSRContainer)
+                else c
+                for c in chunks
+            ]
+        elif any(isinstance(c, np.ndarray) for c in chunks):
+            return [self.np_module.asarray(c) for c in chunks]
+        return chunks
+
+    def _reindex_against_integer_indices(
         self, indices: np.ndarray, chunks: list[OutputInMemoryArray]
     ) -> tuple[np.ndarray, list[OutputInMemoryArray]]:
         upper_bounds = np.cumsum(np.array([c.shape[0] for c in chunks]))

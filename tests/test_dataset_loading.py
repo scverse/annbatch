@@ -173,7 +173,7 @@ def concat(dicts: list[Data]) -> ListData:
                         None,
                         dataset_class,
                         None,
-                        15,
+                        14,
                         preload_to_gpu,
                     ],  # batch size does not divide in memory size evenly
                 ]
@@ -192,7 +192,8 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader, use_
     adata = read_lazy_store(mock_store, obs_columns=["label"])
 
     loader = gen_loader(mock_store, shuffle, use_zarrs)
-    is_dense = isinstance(loader, ZarrDenseDataset | DaskDataset)
+    is_dask = isinstance(loader, DaskDataset)
+    is_dense = isinstance(loader, ZarrDenseDataset) or is_dask
     n_elems = 0
     batches = []
     labels = []
@@ -223,7 +224,10 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader, use_
         np.testing.assert_allclose(stacked, expected_data)
         if len(labels) > 0:
             expected_labels = adata.obs["label"]
-            np.testing.assert_allclose(np.array(labels).ravel(), expected_labels)
+            np.testing.assert_allclose(
+                (np.array(labels) if is_dask else np.concatenate(labels)).ravel(),
+                expected_labels,
+            )
     else:
         if len(indices) > 0:
             indices = np.concatenate(indices).ravel()
