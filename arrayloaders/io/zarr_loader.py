@@ -417,14 +417,17 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                             chunks = []
                             in_memory_labels = None
                             in_memory_indices = None
-        if len(chunks) > 0:  # handle any leftover data
-            res = [
-                vstack(chunks),
-                in_memory_labels if self.labels is not None else None,
-            ]
-            if self._return_index:
-                res += [in_memory_indices]
-            yield tuple(res)
+            elif len(chunks_converted) > 0:  # handle any leftover data
+                res = [
+                    vstack(chunks_converted),
+                    in_memory_labels if self.labels is not None else None,
+                ]
+                if self._return_index:
+                    res += [in_memory_indices]
+                yield tuple(res)
+                chunks = []
+                in_memory_labels = None
+                in_memory_indices = None
 
     def reindex_against_integer_indices(
         self, indices: np.ndarray, chunks: list[OutputInMemoryArray]
