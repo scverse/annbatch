@@ -416,7 +416,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                 in_memory_labels if self.labels is not None else None,
             ]
             if self._return_index:
-                res += [in_memory_indices[s]]
+                res += [in_memory_indices]
             yield tuple(res)
 
 
