@@ -6,6 +6,7 @@ from abc import ABCMeta, abstractmethod
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from itertools import accumulate, chain, islice, pairwise
+from types import NoneType
 from typing import TYPE_CHECKING, Generic, NamedTuple, TypeVar, cast
 
 import anndata as ad
@@ -16,6 +17,13 @@ from scipy import sparse as sp
 from torch.utils.data import IterableDataset
 
 from .utils import WorkerHandle, check_lt_1, check_var_shapes
+
+try:
+    from cupy import ndarray as CupyArray
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
+except ImportError:
+    CupyCSRMatrix = NoneType
+    CupyArray = NoneType
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
@@ -37,7 +45,10 @@ class CSRContainer:
     shape: tuple[int, int]
 
 
-InMemoryArray = TypeVar("InMemoryArray", sp.csr_matrix, np.ndarray)
+OutputInMemoryArray = TypeVar(
+    "OutputInMemoryArray", sp.csr_matrix, np.ndarray, CupyCSRMatrix, CupyArray
+)
+InputInMemoryArray = TypeVar("InputInMemoryArray", CSRContainer, np.ndarray)
 
 
 def _batched(iterable, n):
@@ -50,8 +61,8 @@ def _batched(iterable, n):
 
 async def index_datasets(
     dataset_index_to_slices: OrderedDict[int, list[slice]],
-    fetch_data: Callable[[list[slice], int], Awaitable[InMemoryArray]],
-) -> list[InMemoryArray]:
+    fetch_data: Callable[[list[slice], int], Awaitable[CSRContainer | np.ndarray]],
+) -> list[InputInMemoryArray]:
     """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
 
     Args:
@@ -86,7 +97,7 @@ Args:
 """
 
 
-class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
+class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArray]):
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
@@ -102,12 +113,12 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         on_add: Callable | None = None,
         return_index: bool = False,
         batch_size: int = 1,
-        use_cupy: bool = False,
+        preload_to_gpu: bool = False,
     ):
         self._on_add = on_add
         self._return_index = return_index
         self._batch_size = batch_size
-        if use_cupy:
+        if preload_to_gpu:
             try:
                 import cupy as cp
                 import cupyx.scipy.sparse as cpx  # pragma: no cover
@@ -116,7 +127,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                 self.np_module = cp  # pragma: no cover
             except ImportError:
                 raise ImportError(
-                    "Cannot find cupy module even though `use_cupy` argument was set to `True`"
+                    "Cannot find cupy module even though `preload_to_gpu` argument was set to `True`"
                 ) from None
         else:
             self.sp_module = sp
@@ -274,12 +285,10 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         worker_handle: WorkerHandle,
         preload_nchunks: int,
         shuffle: bool,
-        fetch_data: Callable[
-            [list[slice], int], Awaitable[InMemoryArray | CSRContainer]
-        ],
+        fetch_data: Callable[[list[slice], int], Awaitable[np.ndarray | CSRContainer]],
     ) -> Iterator[
-        tuple[InMemoryArray, None | np.ndarray]
-        | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[InputInMemoryArray, None | np.ndarray]
+        | tuple[InputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
         """Iterate over the on-disk csr datasets.
 
@@ -295,6 +304,7 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
         in_memory_data = None
         in_memory_labels = None
         in_memory_indices = None
+        mod = self.sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
         for chunk_indices in _batched(
             self._get_chunks(chunk_size, worker_handle, shuffle), preload_nchunks
         ):
@@ -307,16 +317,18 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
             ]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
             # Fetch the data over slices
-            chunks: list[InMemoryArray] = zsync.sync(
+            chunks: list[InputInMemoryArray] = zsync.sync(
                 index_datasets(dataset_index_to_slices, fetch_data)
             )
-            if isinstance(chunks[0], CSRContainer):
-                chunks = [
+            if any(isinstance(c, CSRContainer) for c in chunks):
+                chunks_converted: list[OutputInMemoryArray] = [
                     self.sp_module.csr_matrix(
-                        tuple(self.np_module.array(e) for e in c.elems), shape=c.shape
+                        tuple(self.np_module.asarray(e) for e in c.elems), shape=c.shape
                     )
                     for c in chunks
                 ]
+            else:
+                chunks_converted = [self.np_module.asarray(c) for c in chunks]
             # Accumulate labels
             labels: None | list[np.ndarray] = None
             if self.labels is not None:
@@ -352,15 +364,10 @@ class AnnDataManager(Generic[OnDiskArray, InMemoryArray]):
                     for index in dataset_indices
                 ]
             # Do batch returns, handling leftover data as necessary
-            mod = (
-                self.sp_module
-                if isinstance(chunks[0], self.sp_module.csr_matrix)
-                else np
-            )
             in_memory_data = (
-                mod.vstack(chunks)
+                mod.vstack(chunks_converted)
                 if in_memory_data is None
-                else mod.vstack([in_memory_data, *chunks])
+                else mod.vstack([in_memory_data, *chunks_converted])
             )
             if self.labels is not None:
                 in_memory_labels = (
@@ -427,7 +434,7 @@ Args:
     preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
     shuffle: Whether or not to shuffle the data, by default True
     return_index: Whether or not to return the index on each iteration, by default False
-    use_cupy: Whether or not to use cupy for non-io array operations like vstack and indexing. This option entails greater GPU memory usage.
+    preload_to_gpu: Whether or not to use cupy for non-io array operations like vstack and indexing. This option entails greater GPU memory usage.
 """
 
 
@@ -455,12 +462,16 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABCMeta):
+class AbstractIterableDataset(
+    Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArray], metaclass=ABCMeta
+):
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
     _chunk_size: int
-    _dataset_manager: AnnDataManager[OnDiskArray, InMemoryArray]
+    _dataset_manager: AnnDataManager[
+        OnDiskArray, InputInMemoryArray, OutputInMemoryArray
+    ]
 
     def __init__(
         self,
@@ -470,7 +481,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         shuffle: bool = True,
         return_index: bool = False,
         batch_size: int = 1,
-        use_cupy: bool = False,
+        preload_to_gpu: bool = False,
     ):
         check_lt_1(
             [
@@ -483,14 +494,12 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
             raise NotImplementedError(
                 "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
             )
-        self._dataset_manager: AnnDataManager[ad.abc.CSRDataset, sp.csr_matrix] = (
-            AnnDataManager(
-                # TODO: https://github.com/scverse/anndata/issues/2021
-                # on_add=self._cache_update_callback,
-                return_index=return_index,
-                batch_size=batch_size,
-                use_cupy=use_cupy,
-            )
+        self._dataset_manager = AnnDataManager(
+            # TODO: https://github.com/scverse/anndata/issues/2021
+            # on_add=self._cache_update_callback,
+            return_index=return_index,
+            batch_size=batch_size,
+            preload_to_gpu=preload_to_gpu,
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
@@ -501,7 +510,9 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
         pass
 
     @abstractmethod
-    async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InMemoryArray:
+    async def _fetch_data(
+        self, slices: list[slice], dataset_idx: int
+    ) -> InputInMemoryArray:
         """Fetch the data for given slices and the arrays representing a dataset on-disk.
 
         Args:
@@ -545,8 +556,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InMemoryArray], metaclass=ABC
     def __iter__(
         self,
     ) -> Iterator[
-        tuple[InMemoryArray, None | np.ndarray]
-        | tuple[InMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[InputInMemoryArray, None | np.ndarray]
+        | tuple[InputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
         """Iterate over the on-disk datasets.
 
