@@ -20,7 +20,7 @@ from .utils import WorkerHandle, check_lt_1, check_var_shapes
 
 try:
     from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
 except ImportError:
     CupyCSRMatrix = NoneType
     CupyArray = NoneType
