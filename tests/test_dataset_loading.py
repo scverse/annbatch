@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import platform
+from importlib.util import find_spec
+from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
@@ -16,6 +18,13 @@ from arrayloaders.io import (
     ZarrSparseDataset,
     read_lazy_store,
 )
+
+try:
+    from cupy import ndarray as CupyArray
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
+except ImportError:
+    CupyCSRMatrix = NoneType
+    CupyArray = NoneType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -91,12 +100,14 @@ def concat(dicts: list[Data]) -> ListData:
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
                 dataset_class=dataset_class,
-                batch_size=batch_size: dataset_class(
+                batch_size=batch_size,
+                preload_to_gpu=preload_to_gpu: dataset_class(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
                     return_index=True,
                     batch_size=batch_size,
+                    preload_to_gpu=preload_to_gpu,
                 ).add_datasets(
                     **concat(
                         [
@@ -109,14 +120,35 @@ def concat(dicts: list[Data]) -> ListData:
                         ]
                     )
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}",  # type: ignore[attr-defined]
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+                marks=pytest.mark.skipif(
+                    find_spec("cupy") is None and preload_to_gpu,
+                    reason="need cupy installed",
+                ),
             )
-            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size in [
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size, preload_to_gpu in [
                 elem
+                for preload_to_gpu in [True, False]
                 for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
                 for elem in [
-                    [1, 5, None, dataset_class, None, 1],  # singleton chunk size
-                    [5, 1, None, dataset_class, None, 1],  # singleton preload
+                    [
+                        1,
+                        5,
+                        None,
+                        dataset_class,
+                        None,
+                        1,
+                        preload_to_gpu,
+                    ],  # singleton chunk size
+                    [
+                        5,
+                        1,
+                        None,
+                        dataset_class,
+                        None,
+                        1,
+                        preload_to_gpu,
+                    ],  # singleton preload
                     [
                         10,
                         5,
@@ -124,6 +156,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         5,
+                        preload_to_gpu,
                     ],  # batch size divides total in memory size evenly
                     [
                         10,
@@ -132,6 +165,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         50,
+                        preload_to_gpu,
                     ],  # batch size equal to in-memory size loading
                     [
                         10,
@@ -140,6 +174,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         15,
+                        preload_to_gpu,
                     ],  # batch size does not divide in memory size evenly
                 ]
             ]
@@ -174,7 +209,7 @@ def test_store_load_dataset(mock_store: Path, *, shuffle: bool, gen_loader, use_
         n_elems += 1 if (is_dask := isinstance(loader, DaskDataset)) else x.shape[0]
         # Check feature dimension
         assert x.shape[0 if is_dask else 1] == 100
-        batches += [x]
+        batches += [x.get() if isinstance(x, CupyCSRMatrix | CupyArray) else x]
         if label is not None:
             labels += [label]
         if index is not None:
@@ -326,3 +361,17 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader, use_zarrs):
     idxs = np.concatenate(idx_list)
 
     assert np.array_equal(x[np.argsort(idxs)], x_ref)
+
+
+@pytest.mark.skipif(
+    find_spec("cupy") is not None, reason="Can't test for no cupy if cupy is there"
+)
+def test_no_cupy():
+    with pytest.raises(ImportError, match=r"even though `preload_to_gpu` argument"):
+        ZarrSparseDataset(
+            chunk_size=10,
+            preload_nchunks=4,
+            shuffle=True,
+            return_index=True,
+            preload_to_gpu=True,
+        )
