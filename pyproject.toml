@@ -32,6 +32,7 @@ dev = [
     "pytest-cov",
     "nbproject_test",
 ]
+gpu = ["cupy-cuda12x"]
 
 [tool.pytest.ini_options]
 testpaths = [

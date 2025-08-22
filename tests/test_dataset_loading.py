@@ -101,13 +101,13 @@ def concat(dicts: list[Data]) -> ListData:
                 preload_nchunks=preload_nchunks,
                 dataset_class=dataset_class,
                 batch_size=batch_size,
-                use_cupy=use_cupy: dataset_class(
+                preload_to_gpu=preload_to_gpu: dataset_class(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
                     preload_nchunks=preload_nchunks,
                     return_index=True,
                     batch_size=batch_size,
-                    use_cupy=use_cupy,
+                    preload_to_gpu=preload_to_gpu,
                 ).add_datasets(
                     **concat(
                         [
@@ -120,14 +120,15 @@ def concat(dicts: list[Data]) -> ListData:
                         ]
                     )
                 ),
-                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if use_cupy else ''}",  # type: ignore[attr-defined]
+                id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
                 marks=pytest.mark.skipif(
-                    find_spec("cupy") is None and use_cupy, reason="need cupy installed"
+                    find_spec("cupy") is None and preload_to_gpu,
+                    reason="need cupy installed",
                 ),
             )
-            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size, use_cupy in [
+            for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size, preload_to_gpu in [
                 elem
-                for use_cupy in [True, False]
+                for preload_to_gpu in [True, False]
                 for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
                 for elem in [
                     [
@@ -137,9 +138,17 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         1,
-                        use_cupy,
+                        preload_to_gpu,
                     ],  # singleton chunk size
-                    [5, 1, None, dataset_class, None, 1, use_cupy],  # singleton preload
+                    [
+                        5,
+                        1,
+                        None,
+                        dataset_class,
+                        None,
+                        1,
+                        preload_to_gpu,
+                    ],  # singleton preload
                     [
                         10,
                         5,
@@ -147,7 +156,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         5,
-                        use_cupy,
+                        preload_to_gpu,
                     ],  # batch size divides total in memory size evenly
                     [
                         10,
@@ -156,7 +165,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         50,
-                        use_cupy,
+                        preload_to_gpu,
                     ],  # batch size equal to in-memory size loading
                     [
                         10,
@@ -165,7 +174,7 @@ def concat(dicts: list[Data]) -> ListData:
                         dataset_class,
                         None,
                         15,
-                        use_cupy,
+                        preload_to_gpu,
                     ],  # batch size does not divide in memory size evenly
                 ]
             ]
@@ -358,11 +367,11 @@ def test_torch_multiprocess_dataloading_zarr(mock_store, loader, use_zarrs):
     find_spec("cupy") is not None, reason="Can't test for no cupy if cupy is there"
 )
 def test_no_cupy():
-    with pytest.raises(ImportError, match=r"even though `use_cupy` argument"):
+    with pytest.raises(ImportError, match=r"even though `preload_to_gpu` argument"):
         ZarrSparseDataset(
             chunk_size=10,
             preload_nchunks=4,
             shuffle=True,
             return_index=True,
-            use_cupy=True,
+            preload_to_gpu=True,
         )
