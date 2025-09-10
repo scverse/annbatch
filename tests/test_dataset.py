@@ -262,7 +262,7 @@ def _custom_collate_fn(elems):
     platform.system() != "Linux",
     reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
 )
-def dataloader_fails_linux(adata_with_path: tuple[ad.AnnData, Path]):
+def test_dataloader_fails_linux_with_anndata(adata_with_path: tuple[ad.AnnData, Path]):
     ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
     ds.add_anndatas([open_sparse(p, use_zarrs=True, use_anndata=True) for p in adata_with_path[1].glob("*.zarr")])
     dataloader = DataLoader(
