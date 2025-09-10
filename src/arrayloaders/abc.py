@@ -72,13 +72,15 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         """
         ...
 
+    # TODO: validations once the sparse and dense are merged with the AnnDataManager
     def add_anndatas(  # noqa: D102
         self,
         adatas: list[ad.AnnData],
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> Self:
-        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+        self._dataset_manager.add_anndatas(adatas, layer_keys=layer_keys, obs_keys=obs_keys)
+        return self
 
     def add_anndata(  # noqa: D102
         self,
@@ -86,7 +88,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> Self:
-        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+        self._dataset_manager.add_anndata(adata, layer_key=layer_key, obs_key=obs_key)
+        return self
 
     @abstractmethod
     def _validate(self, datasets: list[OnDiskArray]) -> None: ...

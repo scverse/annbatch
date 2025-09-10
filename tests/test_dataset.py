@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
 import zarrs  # noqa: F401
+from torch.utils.data import DataLoader
+
 from arrayloaders import ZarrDenseDataset, ZarrSparseDataset
 
 try:
@@ -29,36 +32,46 @@ class Data(TypedDict):
     obs: np.ndarray
 
 
-class ListData(TypedDict):
+class ListData:
     datasets: list[ad.abc.CSRDataset | zarr.Array]
     obs: list[np.ndarray]
 
 
-def open_sparse(path: Path, *, use_zarrs: bool = False) -> Data:
+def open_sparse(path: Path, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
-        return {
+        data = {
             "dataset": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
             "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
         }
+    if use_anndata:
+        return ad.AnnData(X=data["dataset"], obs=pd.DataFrame({"label": data["obs"]}))
+    return data
 
 
-def open_dense(path: Path, *, use_zarrs: bool = False) -> Data:
+def open_dense(path: Path, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
-        return {
+        data = {
             "dataset": zarr.open(path)["X"],
             "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
         }
+    if use_anndata:
+        return ad.AnnData(X=data["dataset"], obs=pd.DataFrame({"label": data["obs"]}))
+    return data
 
 
-def concat(dicts: list[Data]) -> ListData:
-    return {
-        "datasets": [d["dataset"] for d in dicts],
-        "obs": [d["obs"] for d in dicts],
-    }
+def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
+    return (
+        {
+            "datasets": [d["dataset"] for d in datas],
+            "obs": [d["obs"] for d in datas],
+        }
+        if all(isinstance(d, dict) for d in datas)
+        else datas
+    )
 
 
 @pytest.mark.parametrize("shuffle", [True, False], ids=["shuffled", "unshuffled"])
@@ -73,22 +86,22 @@ def concat(dicts: list[Data]) -> ListData:
             preload_nchunks=preload_nchunks,
             dataset_class=dataset_class,
             batch_size=batch_size,
-            preload_to_gpu=preload_to_gpu: dataset_class(
+            preload_to_gpu=preload_to_gpu,
+            obs_keys=obs_keys: dataset_class(
                 shuffle=shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
                 return_index=True,
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
-            ).add_datasets(
-                **concat(
-                    [
-                        (open_sparse if issubclass(dataset_class, ZarrSparseDataset) else open_dense)(
-                            p, use_zarrs=use_zarrs
-                        )
-                        for p in path.glob("*.zarr")
-                    ]
-                )
+            ).add_anndatas(
+                [
+                    (open_sparse if issubclass(dataset_class, ZarrSparseDataset) else open_dense)(
+                        p, use_zarrs=use_zarrs, use_anndata=True
+                    )
+                    for p in path.glob("*.zarr")
+                ],
+                obs_keys=obs_keys,
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_class={dataset_class.__name__}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=pytest.mark.skipif(
@@ -99,12 +112,13 @@ def concat(dicts: list[Data]) -> ListData:
         for chunk_size, preload_nchunks, obs_keys, dataset_class, layer_keys, batch_size, preload_to_gpu in [
             elem
             for preload_to_gpu in [True, False]
+            for obs_keys in [None, "label"]
             for dataset_class in [ZarrDenseDataset, ZarrSparseDataset]  # type: ignore[list-item]
             for elem in [
                 [
                     1,
                     5,
-                    None,
+                    obs_keys,
                     dataset_class,
                     None,
                     1,
@@ -113,7 +127,7 @@ def concat(dicts: list[Data]) -> ListData:
                 [
                     5,
                     1,
-                    None,
+                    obs_keys,
                     dataset_class,
                     None,
                     1,
@@ -122,7 +136,7 @@ def concat(dicts: list[Data]) -> ListData:
                 [
                     10,
                     5,
-                    None,
+                    obs_keys,
                     dataset_class,
                     None,
                     5,
@@ -131,7 +145,7 @@ def concat(dicts: list[Data]) -> ListData:
                 [
                     10,
                     5,
-                    None,
+                    obs_keys,
                     dataset_class,
                     None,
                     50,
@@ -140,7 +154,7 @@ def concat(dicts: list[Data]) -> ListData:
                 [
                     10,
                     5,
-                    None,
+                    obs_keys,
                     dataset_class,
                     None,
                     14,
@@ -244,6 +258,23 @@ def _custom_collate_fn(elems):
     return x, y
 
 
+@pytest.mark.skipif(
+    platform.system() != "Linux",
+    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
+)
+def dataloader_fails_linux(adata_with_path: tuple[ad.AnnData, Path]):
+    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
+    ds.add_anndatas([open_sparse(p, use_zarrs=True, use_anndata=True) for p in adata_with_path[1].glob("*.zarr")])
+    dataloader = DataLoader(
+        ds,
+        batch_size=32,
+        num_workers=4,
+        collate_fn=_custom_collate_fn,
+    )
+    with pytest.raises(NotImplementedError, match=r"why we can't load anndata from torch"):
+        next(iter(dataloader))
+
+
 @pytest.mark.parametrize("loader", [ZarrDenseDataset, ZarrSparseDataset])
 @pytest.mark.skipif(
     platform.system() == "Linux",
@@ -254,7 +285,6 @@ def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, 
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
     """
-    from torch.utils.data import DataLoader
 
     if issubclass(loader, ZarrSparseDataset):
         ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
