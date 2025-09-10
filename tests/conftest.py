@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anndata as ad
-import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
 
-from arrayloaders.io.store_creation import _write_sharded
+from annbatch import write_sharded
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 @pytest.fixture(autouse=True)
@@ -24,22 +27,17 @@ def use_zarrs(request):
 
 
 @pytest.fixture(scope="session")
-def mock_store(tmpdir_factory, n_shards: int = 3):
+def adata_with_path(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.AnnData, Path]]:
     """Create a mock Zarr store for testing."""
     feature_dim = 100
     n_cells_per_shard = 200
     tmp_path = Path(tmpdir_factory.mktemp("stores"))
+    adata_lst = []
     for shard in range(n_shards):
         adata = ad.AnnData(
-            X=da.random.random(
-                (n_cells_per_shard, feature_dim), chunks=(10, -1)
-            ).astype("f4"),
+            X=np.random.random((n_cells_per_shard, feature_dim)).astype("f4"),
             obs=pd.DataFrame(
-                {
-                    "label": np.random.default_rng().integers(
-                        0, 5, size=n_cells_per_shard
-                    )
-                },
+                {"label": np.random.default_rng().integers(0, 5, size=n_cells_per_shard)},
                 index=np.arange(n_cells_per_shard).astype(str),
             ),
             layers={
@@ -51,12 +49,16 @@ def mock_store(tmpdir_factory, n_shards: int = 3):
                 )
             },
         )
-
-        f = zarr.open(tmp_path / f"chunk_{shard}.zarr", mode="w", zarr_format=3)
-        _write_sharded(
+        adata_lst += [adata]
+        f = zarr.open_group(tmp_path / f"chunk_{shard}.zarr", mode="w", zarr_format=3)
+        write_sharded(
             f,
             adata,
             chunk_size=10,
             shard_size=20,
         )
-    yield tmp_path
+    yield (
+        # need to match directory iteration order for correctness so can't just concatenate
+        ad.concat([ad.read_zarr(tmp_path / shard) for shard in tmp_path.iterdir() if str(shard).endswith(".zarr")]),
+        tmp_path,
+    )

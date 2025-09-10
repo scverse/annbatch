@@ -1,10 +1,57 @@
-# `arrayloaders`
+# annbatch
 
-This package still is in an early version. To use it, see:
+[![Tests][badge-tests]][tests]
+[![Documentation][badge-docs]][documentation]
 
-- [Training example](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/UMQFXo0vs0Z6)
-- [Benchmark](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/2C0ghWpz0auc)
+[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/annbatch/test.yaml?branch=main
+[badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-## Contributing
+A minibatch loader for anndata store
 
-Please run `pre-commit install` and `gitmoji -i` on the CLI before starting to work on this repository!
+## Getting started
+
+Please refer to the [documentation][],
+in particular, the [API documentation][].
+
+## Installation
+
+You need to have Python 3.10 or newer installed on your system.
+If you don't have Python installed, we recommend installing [uv][].
+
+There are several alternative options to install annbatch:
+
+<!--
+1) Install the latest release of `annbatch` from [PyPI][]:
+
+```bash
+pip install annbatch
+```
+-->
+
+1. Install the latest development version:
+
+```bash
+pip install git+https://github.com/laminlabs/annbatch.git@main
+```
+
+## Release notes
+
+See the [changelog][].
+
+## Contact
+
+For questions and help requests, you can reach out in the [scverse discourse][].
+If you found a bug, please use the [issue tracker][].
+
+## Citation
+
+> t.b.a
+
+[uv]: https://github.com/astral-sh/uv
+[scverse discourse]: https://discourse.scverse.org/
+[issue tracker]: https://github.com/laminlabs/annbatch/issues
+[tests]: https://github.com/laminlabs/annbatch/actions/workflows/test.yaml
+[documentation]: https://annbatch.readthedocs.io
+[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
+[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
+[pypi]: https://pypi.org/project/annbatch

@@ -22,23 +22,31 @@ if TYPE_CHECKING:
     from zarr.abc.codec import BytesBytesCodec
 
 
-def _write_sharded(
+def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
     chunk_size: int = 4096,
     shard_size: int = 65536,
-    compressors: Iterable[BytesBytesCodec] = (
-        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
-    ),
+    compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
+    """Write a sharded zarr store from anndata object
+
+    Args:
+        group: The destination group
+        adata: The source anndata object
+        chunk_size: Chunk size inside a shard. Defaults to 4096.
+        shard_size: Shard size i.e., number of elements in a single file. Defaults to 65536.
+        compressors: The compressors to pass to `zarr`. Defaults to (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),).
+    """
     ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
 
     def callback(
-        func: ad.experimental.Write,
-        g: zarr.Group,
-        k: str,
+        write_func: ad.experimental.Write,
+        store: zarr.Group,
+        elem_name: str,
         elem: ad.typing.RWAble,
         dataset_kwargs: Mapping[str, Any],
+        *,
         iospec: ad.experimental.IOSpec,
     ):
         if iospec.encoding_type in {"array"}:
@@ -56,15 +64,13 @@ def _write_sharded(
                 **dataset_kwargs,
             }
 
-        func(g, k, elem, dataset_kwargs=dataset_kwargs)
+        write_func(store, elem_name, elem, dataset_kwargs=dataset_kwargs)
 
     ad.experimental.write_dispatched(group, "/", adata, callback=callback)
     zarr.consolidate_metadata(group.store)
 
 
-def _lazy_load_h5ads(
-    paths: Iterable[PathLike[str]] | Iterable[str], chunk_size: int = 4096
-):
+def _lazy_load_h5ads(paths: Iterable[PathLike[str]] | Iterable[str], chunk_size: int = 4096):
     adatas = []
     for path in paths:
         with h5py.File(path) as f:
@@ -92,13 +98,10 @@ def _load_h5ads(paths: Iterable[PathLike[str]] | Iterable[str]):
     return ad.concat(adatas, join="outer")
 
 
-def _create_chunks_for_shuffling(
-    adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576, shuffle: bool = True
-):
+def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_buffer_size: int = 1_048_576, shuffle: bool = True):
     chunk_boundaries = np.cumsum([0] + list(adata.X.chunks[0]))
     slices = [
-        slice(int(start), int(end))
-        for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:], strict=True)
+        slice(int(start), int(end)) for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:], strict=True)
     ]
     if shuffle:
         random.shuffle(slices)
@@ -114,9 +117,7 @@ def create_store_from_h5ads(
     var_subset: Iterable[str] | None = None,
     chunk_size: int = 4096,
     shard_size: int = 65536,
-    zarr_compressor: Iterable[BytesBytesCodec] = (
-        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
-    ),
+    zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
     buffer_size: int = 1_048_576,
     shuffle: bool = True,
@@ -142,7 +143,8 @@ def create_store_from_h5ads(
         should_denseify: Whether or not to write as dense on disk.
         output_format: Format of the output store. Can be either "zarr" or "h5ad".
 
-    Examples:
+    Examples
+    --------
         >>> from arrayloaders.io.store_creation import create_store_from_h5ads
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
@@ -175,13 +177,11 @@ def create_store_from_h5ads(
             adata_chunk.obs = adata_chunk.obs.iloc[idxs]
         # convert to dense format before writing to disk
         if should_denseify:
-            adata_chunk.X = adata_chunk.X.map_blocks(
-                lambda xx: xx.toarray().astype("f4"), dtype="f4"
-            )
+            adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray().astype("f4"), dtype="f4")
 
         if output_format == "zarr":
             f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
-            _write_sharded(
+            write_sharded(
                 f,
                 adata_chunk,
                 chunk_size=chunk_size,
@@ -189,13 +189,9 @@ def create_store_from_h5ads(
                 compressors=zarr_compressor,
             )
         elif output_format == "h5ad":
-            adata_chunk.write_h5ad(
-                Path(output_path) / f"chunk_{i}.h5ad", compression=h5ad_compressor
-            )
+            adata_chunk.write_h5ad(Path(output_path) / f"chunk_{i}.h5ad", compression=h5ad_compressor)
         else:
-            raise ValueError(
-                f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported."
-            )
+            raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
 
 
 def _get_array_encoding_type(path: PathLike[str] | str):
@@ -210,9 +206,7 @@ def add_h5ads_to_store(
     output_path: PathLike[str] | str,
     chunk_size: int = 4096,
     shard_size: int = 65536,
-    zarr_compressor: Iterable[BytesBytesCodec] = (
-        BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),
-    ),
+    zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     cache_h5ads: bool = True,
 ):
     """Add h5ad files to an existing Zarr store.
@@ -225,7 +219,8 @@ def add_h5ads_to_store(
         zarr_compressor: Compressors to use to compress the data in the zarr store.
         cache_h5ads: Whether to cache the h5ad files into memory before writing them to the store.
 
-    Examples:
+    Examples
+    --------
         >>> from arrayloaders.io.store_creation import add_h5ads_to_store
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
@@ -241,20 +236,14 @@ def add_h5ads_to_store(
         )
     encoding = _get_array_encoding_type(output_path)
     if encoding == "array":
-        print(
-            "Detected array encoding type. Will convert to dense format before writing."
-        )
+        print("Detected array encoding type. Will convert to dense format before writing.")
 
     if cache_h5ads:
         adata_concat = _load_h5ads(adata_paths)
-        chunks = np.array_split(
-            np.random.default_rng().permutation(len(adata_concat)), len(shards)
-        )
+        chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
     else:
         adata_concat = _lazy_load_h5ads(adata_paths, chunk_size=chunk_size)
-        chunks = _create_chunks_for_shuffling(
-            adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True
-        )
+        chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
     var_mask = adata_concat.var_names.isin(adata_concat.var_names)
     adata_concat.obs_names_make_unique()
 
@@ -262,9 +251,7 @@ def add_h5ads_to_store(
         if encoding == "array":
             f = zarr.open_group(shard)
             adata_shard = ad.AnnData(
-                X=ad.experimental.read_elem_lazy(f["X"])
-                .map_blocks(sp.csr_matrix)
-                .compute(),
+                X=ad.experimental.read_elem_lazy(f["X"]).map_blocks(sp.csr_matrix).compute(),
                 obs=ad.io.read_elem(f["obs"]),
                 var=ad.io.read_elem(f["var"]),
             )
@@ -281,9 +268,7 @@ def add_h5ads_to_store(
             ]
         )
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
-        adata = adata[
-            idxs_shuffled, :
-        ].copy()  # this significantly speeds up writing to disk
+        adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
 
         if encoding == "array":
             adata.X = da.from_array(adata.X, chunks=(chunk_size, -1)).map_blocks(
@@ -291,7 +276,7 @@ def add_h5ads_to_store(
             )
 
         f = zarr.open_group(shard, mode="w")
-        _write_sharded(
+        write_sharded(
             f,
             adata,
             chunk_size=chunk_size,
