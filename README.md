@@ -1,10 +1,57 @@
-# `arrayloaders`
+# arrayloaders
 
-This package still is in an early version. To use it, see:
+[![Tests][badge-tests]][tests]
+[![Documentation][badge-docs]][documentation]
 
-- [Training example](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/UMQFXo0vs0Z6)
-- [Benchmark](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/2C0ghWpz0auc)
+[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/arrayloaders/test.yaml?branch=main
+[badge-docs]: https://img.shields.io/readthedocs/arrayloaders
 
-## Contributing
+A minibatch loader for anndata store
 
-Please run `pre-commit install` and `gitmoji -i` on the CLI before starting to work on this repository!
+## Getting started
+
+Please refer to the [documentation][],
+in particular, the [API documentation][].
+
+## Installation
+
+You need to have Python 3.10 or newer installed on your system.
+If you don't have Python installed, we recommend installing [uv][].
+
+There are several alternative options to install arrayloaders:
+
+<!--
+1) Install the latest release of `arrayloaders` from [PyPI][]:
+
+```bash
+pip install arrayloaders
+```
+-->
+
+1. Install the latest development version:
+
+```bash
+pip install git+https://github.com/laminlabs/arrayloaders.git@main
+```
+
+## Release notes
+
+See the [changelog][].
+
+## Contact
+
+For questions and help requests, you can reach out in the [scverse discourse][].
+If you found a bug, please use the [issue tracker][].
+
+## Citation
+
+> t.b.a
+
+[uv]: https://github.com/astral-sh/uv
+[scverse discourse]: https://discourse.scverse.org/
+[issue tracker]: https://github.com/laminlabs/arrayloaders/issues
+[tests]: https://github.com/laminlabs/arrayloaders/actions/workflows/test.yaml
+[documentation]: https://arrayloaders.readthedocs.io
+[changelog]: https://arrayloaders.readthedocs.io/en/latest/changelog.html
+[api documentation]: https://arrayloaders.readthedocs.io/en/latest/api.html
+[pypi]: https://pypi.org/project/arrayloaders

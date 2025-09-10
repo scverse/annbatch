@@ -1,5 +1,3 @@
-# Changelog
+```{include} ../CHANGELOG.md
 
-<!-- prettier-ignore -->
-Name | PR | Developer | Date | Version
---- | --- | --- | --- | ---
+```
