@@ -7,9 +7,8 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
+from arrayloaders import add_h5ads_to_store, create_store_from_h5ads
 from scipy.sparse import random as sparse_random
-
-from annbatch import add_h5ads_to_store, create_store_from_h5ads
 
 if TYPE_CHECKING:
     from pathlib import Path

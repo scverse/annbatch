@@ -3,9 +3,9 @@ from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, Generic
 
-from annbatch.anndata_manager import AnnDataManager
-from annbatch.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
-from annbatch.utils import WorkerHandle, add_dataset_docstring, check_lt_1
+from arrayloaders.anndata_manager import AnnDataManager
+from arrayloaders.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
+from arrayloaders.utils import WorkerHandle, add_dataset_docstring, check_lt_1
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

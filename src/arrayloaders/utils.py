@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections import OrderedDict
     from collections.abc import Awaitable, Callable
 
-    from annbatch.types import InputInMemoryArray
+    from arrayloaders.types import InputInMemoryArray
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:

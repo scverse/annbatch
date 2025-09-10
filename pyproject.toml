@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [ "hatchling" ]
 
 [project]
-name = "annbatch"
+name = "arrayloaders"
 version = "0.0.1"
 description = "A minibatch loader for anndata store"
 readme = "README.md"
@@ -62,9 +62,9 @@ optional-dependencies.test = [
   "zarrs",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://annbatch.readthedocs.io/"
-urls.Homepage = "https://github.com/laminlabs/annbatch"
-urls.Source = "https://github.com/laminlabs/annbatch"
+urls.Documentation = "https://arrayloaders.readthedocs.io/"
+urls.Homepage = "https://github.com/laminlabs/arrayloaders"
+urls.Source = "https://github.com/laminlabs/arrayloaders"
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -145,7 +145,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = [ "annbatch" ]
+source = [ "arrayloaders" ]
 omit = [
   "**/test_*.py",
 ]

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, cast
 import zarr
 from torch.utils.data import IterableDataset
 
-from annbatch.abc import AbstractIterableDataset
-from annbatch.utils import MultiBasicIndexer
+from arrayloaders.abc import AbstractIterableDataset
+from arrayloaders.utils import MultiBasicIndexer
 
 if TYPE_CHECKING:
     import numpy as np

@@ -8,7 +8,7 @@ import numpy as np
 import zarr
 from scipy import sparse as sp
 
-from annbatch.utils import CSRContainer
+from arrayloaders.utils import CSRContainer
 
 try:
     from cupy import ndarray as CupyArray

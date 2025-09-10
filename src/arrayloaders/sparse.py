@@ -10,8 +10,8 @@ import zarr
 import zarr.core.sync as zsync
 from torch.utils.data import IterableDataset
 
-from annbatch.abc import AbstractIterableDataset
-from annbatch.utils import CSRContainer, MultiBasicIndexer, __init_docstring__
+from arrayloaders.abc import AbstractIterableDataset
+from arrayloaders.utils import CSRContainer, MultiBasicIndexer, __init_docstring__
 
 
 class CSRDatasetElems(NamedTuple):

@@ -11,8 +11,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 import zarrs  # noqa: F401
-
-from annbatch import ZarrDenseDataset, ZarrSparseDataset
+from arrayloaders import ZarrDenseDataset, ZarrSparseDataset
 
 try:
     from cupy import ndarray as CupyArray

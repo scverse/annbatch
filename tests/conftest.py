@@ -9,8 +9,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-
-from annbatch import write_sharded
+from arrayloaders import write_sharded
 
 if TYPE_CHECKING:
     from collections.abc import Generator
