@@ -220,7 +220,7 @@ def add_anndata_to_chunks_directory(
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     cache_h5ads: bool = True,
 ):
-    """Add h5ad files to an existing Zarr store.
+    """Add anndata files to an existing Zarr store.
 
     Parameters
     ----------
