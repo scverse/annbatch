@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod
+from functools import wraps
 from typing import TYPE_CHECKING, Generic
 
 from arrayloaders.anndata_manager import AnnDataManager
 from arrayloaders.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
-from arrayloaders.utils import WorkerHandle, add_dataset_docstring, check_lt_1
+from arrayloaders.utils import (
+    WorkerHandle,
+    add_anndata_docstring,
+    add_anndatas_docstring,
+    add_dataset_docstring,
+    add_datasets_docstring,
+    check_lt_1,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -62,7 +70,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InputInMemoryArray:
         """Fetch the data for given slices and the arrays representing a dataset on-disk.
 
-        Args:
+        Parameters
+        ----------
             slices: The indexing slices to fetch.
             dataset_idx: The index of the dataset to fetch from.
 
@@ -128,4 +137,16 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
 
 
 AbstractIterableDataset.add_dataset.__doc__ = add_dataset_docstring
-AbstractIterableDataset.add_datasets.__doc__ = add_dataset_docstring
+AbstractIterableDataset.add_datasets.__doc__ = add_datasets_docstring
+AbstractIterableDataset.add_anndata.__doc__ = add_anndata_docstring
+AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
+
+
+def _assign_add_methods(typ):
+    for name in ["add_datasets", "add_dataset", "add_anndatas", "add_anndata"]:
+
+        @wraps(getattr(AbstractIterableDataset, name))
+        def func(self, *args, name=name, **kwargs):
+            return getattr(super(typ, self), name)(*args, **kwargs)
+
+        setattr(typ, name, func)

@@ -46,9 +46,12 @@ async def index_datasets(
 ) -> list[InputInMemoryArray]:
     """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
 
-    Args:
-        dataset_index_to_slices: A lookup of the list-placement index of a dataset to the request slices.
-        fetch_data: The function to do the fetching for a given slice-dataset index pair.
+    Parameters
+    ----------
+        dataset_index_to_slices
+            A lookup of the list-placement index of a dataset to the request slices.
+        fetch_data
+            The function to do the fetching for a given slice-dataset index pair.
     """
     tasks = []
     for dataset_idx in dataset_index_to_slices.keys():
@@ -61,20 +64,53 @@ async def index_datasets(
     return await asyncio.gather(*tasks)
 
 
-add_dataset_docstring = """\
+add_datasets_docstring = """\
 Append datasets to this loader.
 
-Args:
-    datasets: List of :class:`anndata.abc.CSRDataset` or :class:`zarr.Array` objects, generally from :attr:`anndata.AnnData.X`.
-    obs: List of `numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
+Parameters
+----------
+    datasets
+        List of :class:`{on_disk_array_type}` objects, generally from :attr:`anndata.AnnData.X`.
+    obs
+        List of :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
 """
 
 add_dataset_docstring = """\
 Append a dataset to this loader.
 
-Args:
-    dataset: :class:`anndata.abc.CSRDataset` or :class:`zarr.Array` object, generally from :attr:`anndata.AnnData.X`.
-    obs: `numpy.ndarray` labels for the dataset, generally from :attr:`anndata.AnnData.obs`.
+Parameters
+----------
+    dataset
+        :class:`{on_disk_array_type}` object, generally from :attr:`anndata.AnnData.X`.
+    obs
+        :class:`numpy.ndarray` labels for the anndata, generally from :attr:`anndata.AnnData.obs`.
+"""
+
+
+add_anndatas_docstring = """\
+Append anndatas to this loader.
+
+Parameters
+----------
+    anndatas
+        List of :class:`anndata.AnnData` objects, with :class:`{on_disk_array_type}` as the data matrix
+    obs_keys
+        List of :attr:`anndata.AnnData.obs` column labels
+    layer_keys
+        List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used
+"""
+
+add_anndata_docstring = """\
+Append a anndata to this loader.
+
+Parameters
+----------
+    anndata
+        :class:`anndata.AnnData` object, with :class:`{on_disk_array_type}` as the data matrix
+    obs_key
+        :attr:`anndata.AnnData.obs` column labels
+    layer_key
+        :attr:`anndata.AnnData.layers` key, and if None, :attr:`anndata.AnnData.X` will be used
 """
 
 
@@ -84,12 +120,18 @@ This loader batches together slice requests to the underlying {array_type} store
 This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
 The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size.
 
-Args:
-    chunk_size: The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
-    preload_nchunks: The number of chunks of contiguous array data to fetch, by default 32
-    shuffle: Whether or not to shuffle the data, by default True
-    return_index: Whether or not to return the index on each iteration, by default False
-    preload_to_gpu: Whether or not to use cupy for non-io array operations like vstack and indexing. This option entails greater GPU memory usage.
+Parameters
+----------
+    chunk_size
+        The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
+    preload_nchunks
+        The number of chunks of contiguous array data to fetch, by default 32
+    shuffle
+        Whether or not to shuffle the data, by default True
+    return_index
+        Whether or not to return the index on each iteration, by default False
+    preload_to_gpu
+        Whether or not to use cupy for non-io array operations like vstack and indexing. This option entails greater GPU memory usage.
 """
 
 
@@ -126,15 +168,21 @@ def sample_rows(
 ):
     """Samples rows from multiple arrays and their corresponding observation arrays.
 
-    Args:
-        x_list: A list of numpy arrays containing the data to sample from.
-        obs_list: A list of numpy arrays containing the corresponding observations.
-        indices: the list of indexes for each element in x_list/
-        shuffle: Whether to shuffle the rows before sampling. Defaults to True.
+    Parameters
+    ----------
+        x_list
+            A list of numpy arrays containing the data to sample from.
+        obs_list
+            A list of numpy arrays containing the corresponding observations.
+        indices
+            the list of indexes for each element in x_list/
+        shuffle
+            Whether to shuffle the rows before sampling. Defaults to True.
 
     Yields
     ------
-        tuple: A tuple containing a row from `x_list` and the corresponding row from `obs_list`.
+        tuple
+            A tuple containing a row from `x_list` and the corresponding row from `obs_list`.
     """
     lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
     cum = np.concatenate(([0], np.cumsum(lengths)))
@@ -177,16 +225,20 @@ class WorkerHandle:  # noqa: D101
     def shuffle(self, obj: np.typing.ArrayLike) -> None:
         """Perform in-place shuffle.
 
-        Args:
-            obj: The object to be shuffled
+        Parameters
+        ----------
+            obj
+                The object to be shuffled
         """
         self._rng.shuffle(obj)
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
         """Get a chunk of an incoming array accordnig to the current worker id.
 
-        Args:
-            obj: Incoming array
+        Parameters
+        ----------
+            obj
+                Incoming array
 
         Returns
         -------
@@ -205,9 +257,12 @@ def check_lt_1(vals: list[int], labels: list[str]):
     The format of the error is "{labels[i]} must be greater than 1, got {values[i]}"
     and is raised based on the first found less than one value.
 
-    Args:
-        vals: The values to check < 1
-        labels: The label for the value in the error if the value is less than one.
+    Parameters
+    ----------
+        vals
+            The values to check < 1
+        labels
+            The label for the value in the error if the value is less than one.
 
     Raises
     ------

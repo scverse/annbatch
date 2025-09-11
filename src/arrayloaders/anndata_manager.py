@@ -15,7 +15,10 @@ from arrayloaders.utils import (
     CSRContainer,
     WorkerHandle,
     _batched,
+    add_anndata_docstring,
+    add_anndatas_docstring,
     add_dataset_docstring,
+    add_datasets_docstring,
     check_lt_1,
     check_var_shapes,
     index_datasets,
@@ -176,9 +179,12 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         For example, given slice index (10, 15), for 4 datasets each with size 5 on axis zero,
         this function returns ((0,5), 2) representing slice (0,5) along axis zero of sparse dataset 2.
 
-        Args:
-            index: The queried slice.
-            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
+        Parameters
+        ----------
+            index
+                The queried slice.
+            use_original_space
+                Whether or not the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -209,9 +215,12 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     ) -> OrderedDict[int, list[slice]]:
         """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
 
-        Args:
-            slices: Slices to relative to the on-disk datasets.
-            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
+        Parameters
+        ----------
+            slices
+                Slices to relative to the on-disk datasets.
+            use_original_space
+                Whether or not the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -368,5 +377,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
             yield tuple(res)
 
 
-AnnDataManager.add_datasets.__doc__ = add_dataset_docstring
+AnnDataManager.add_datasets.__doc__ = add_datasets_docstring
 AnnDataManager.add_dataset.__doc__ = add_dataset_docstring
+AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
+AnnDataManager.add_anndata.__doc__ = add_anndata_docstring

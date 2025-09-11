@@ -6,7 +6,7 @@
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/arrayloaders/test.yaml?branch=main
 [badge-docs]: https://img.shields.io/readthedocs/arrayloaders
 
-A minibatch loader for anndata store
+A minibatch loader for anndata stores
 
 ## Getting started
 
@@ -15,7 +15,7 @@ in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.10 or newer installed on your system.
+You need to have Python 3.11 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
 There are several alternative options to install arrayloaders:

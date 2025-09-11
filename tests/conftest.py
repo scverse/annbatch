@@ -85,4 +85,7 @@ def raw_adatas_with_h5(tmpdir_factory, n_adatas: int = 4) -> tuple[ad.AnnData, P
 
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
         adatas += [adata]
-    return ad.concat(adatas, join="outer"), tmp_path
+    return ad.concat(
+        [ad.read_h5ad(tmp_path / shard) for shard in sorted(tmp_path.iterdir()) if str(shard).endswith(".h5ad")],
+        join="outer",
+    ), tmp_path

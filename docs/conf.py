@@ -59,6 +59,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "IPython.sphinxext.ipython_console_highlighting",
     "sphinxext.opengraph",
+    "scanpydoc",  # needs to be before linkcode
     *[p.stem for p in (HERE / "extensions").glob("*.py")],
 ]
 
@@ -96,6 +97,7 @@ intersphinx_mapping = {
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
     "scanpy": ("https://scanpy.readthedocs.io/en/stable/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "zarr": ("https://zarr.readthedocs.io/en/stable/", None),
 }
 
 # List of patterns, relative to source directory, that match files and
@@ -129,3 +131,8 @@ nitpick_ignore = [
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
 ]
+
+qualname_overrides = {
+    "zarr.core.array.Array": "zarr.Array",
+    "zarr.core.group.Group": "zarr.Group",
+}
