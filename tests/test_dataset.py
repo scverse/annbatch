@@ -6,6 +6,7 @@ from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
+import h5py
 import numpy as np
 import pandas as pd
 import pytest
@@ -242,6 +243,18 @@ def test_bad_adata_X_type(adata_with_path: tuple[ad.AnnData, Path]):
     )
     with pytest.raises(TypeError, match="Cannot create"):
         ds.add_dataset(**data)
+
+
+def test_bad_adata_X_hdf5(raw_adatas_with_h5: tuple[ad.AnnData, Path]):
+    with h5py.File(next(raw_adatas_with_h5[1].glob("*.h5ad"))) as f:
+        data = ad.io.sparse_dataset(f["X"])
+        ds = ZarrDenseDataset(
+            shuffle=True,
+            chunk_size=10,
+            preload_nchunks=10,
+        )
+        with pytest.raises(TypeError, match="Cannot create"):
+            ds.add_dataset(data)
 
 
 def _custom_collate_fn(elems):

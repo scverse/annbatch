@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from itertools import accumulate, chain, pairwise
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import anndata as ad
 import numpy as np
@@ -32,6 +32,10 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
     def _validate(self, datasets: list[ad.abc.CSRDataset]):
         if not all(isinstance(d, ad.abc.CSRDataset) for d in datasets):
             raise TypeError("Cannot create sparse dataset using CSRDataset data")
+        if not all(cast("ad.abc.CSRDataset", d).backend == "zarr" for d in datasets):
+            raise TypeError(
+                "Cannot use CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
+            )
 
     async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
