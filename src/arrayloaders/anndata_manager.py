@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections import OrderedDict, defaultdict
 from types import NoneType
-from typing import TYPE_CHECKING, Generic
+from typing import TYPE_CHECKING, Generic, cast
 
 import anndata as ad
 import numpy as np
@@ -19,6 +19,7 @@ from arrayloaders.utils import (
     check_lt_1,
     check_var_shapes,
     index_datasets,
+    is_in_torch_dataloader_on_linux,
     split_given_size,
 )
 
@@ -103,7 +104,22 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> None:
-        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+        if isinstance(layer_keys, str | None):
+            layer_keys = [layer_keys] * len(adatas)
+        if isinstance(obs_keys, str | None):
+            obs_keys = [obs_keys] * len(adatas)
+        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
+        check_lt_1(
+            [len(adatas)] + sum((([len(k)] if k is not None else []) for k in elem_to_keys.values()), []),
+            ["Number of anndatas"]
+            + sum(
+                ([f"Number of {label} keys"] if keys is not None else [] for keys, label in elem_to_keys.items()),
+                [],
+            ),
+        )
+        for adata, obs_key, layer_key in zip(adatas, obs_keys, layer_keys, strict=True):
+            kwargs = {"obs_key": obs_key, "layer_key": layer_key}
+            self.add_anndata(adata, **kwargs)
 
     def add_anndata(  # noqa: D102
         self,
@@ -111,7 +127,11 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> None:
-        raise NotImplementedError("See https://github.com/scverse/anndata/issues/2021")
+        dataset = adata.X if layer_key is None else adata.layers[layer_key]
+        if not isinstance(dataset, accepted_on_disk_types):
+            raise TypeError(f"Found {type(dataset)} but only {accepted_on_disk_types} are usable")
+        obs = adata.obs[obs_key].to_numpy() if obs_key is not None else None
+        self.add_dataset(cast("OnDiskArray", dataset), obs)
 
     def add_datasets(self, datasets: list[OnDiskArray], obs: list[np.ndarray] | None = None) -> None:  # noqa: D102
         if obs is None:
@@ -236,6 +256,10 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         ------
             A one-row sparse matrix.
         """
+        if is_in_torch_dataloader_on_linux():
+            raise NotImplementedError(
+                "See https://github.com/scverse/anndata/issues/2021 for why we can't load anndata from torch"
+            )
         check_lt_1(
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],

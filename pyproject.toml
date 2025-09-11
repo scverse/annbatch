@@ -149,6 +149,7 @@ source = [ "arrayloaders" ]
 omit = [
   "**/test_*.py",
 ]
+concurrency = [ "multiprocessing" ]
 
 [tool.cruft]
 skip = [

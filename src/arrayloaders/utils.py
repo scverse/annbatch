@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import platform
 from dataclasses import dataclass
 from functools import cached_property
+from importlib.util import find_spec
 from itertools import islice
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import zarr
-from torch.utils.data import get_worker_info
 
 if TYPE_CHECKING:
     from collections import OrderedDict
@@ -156,7 +158,11 @@ def sample_rows(
 class WorkerHandle:  # noqa: D101
     @cached_property
     def _worker_info(self):
-        return get_worker_info()
+        if find_spec("torch"):
+            from torch.utils.data import get_worker_info
+
+            return get_worker_info()
+        return None
 
     @cached_property
     def _rng(self):
@@ -230,3 +236,19 @@ def check_var_shapes(objs: list[SupportsShape]):
     """Small utility function to check that all objects have the same shape along the second axis"""
     if not all(objs[0].shape[1] == d.shape[1] for d in objs):
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
+
+
+def is_in_torch_dataloader_on_linux():
+    """Check if the caller of this function is inside a torch DataLoader"""
+    stack = inspect.stack()
+    for frame_info in stack:
+        local_vars = frame_info.frame.f_locals
+        if "self" in local_vars:
+            instance = local_vars["self"]
+            if find_spec("torch"):
+                # TODO: Not sure how else to detect we are in a torch dataloader
+                from torch.utils.data._utils.fetch import _IterableDatasetFetcher
+
+                if isinstance(instance, _IterableDatasetFetcher) and platform.system() == "Linux":
+                    return True
+    return False
