@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,8 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
+from scipy.sparse import random as sparse_random
+
 from arrayloaders import write_sharded
 
 if TYPE_CHECKING:
@@ -61,3 +64,25 @@ def adata_with_path(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.Ann
         ad.concat([ad.read_zarr(tmp_path / shard) for shard in tmp_path.iterdir() if str(shard).endswith(".zarr")]),
         tmp_path,
     )
+
+
+@pytest.fixture(scope="session")
+def raw_adatas_with_h5(tmpdir_factory, n_adatas: int = 4) -> tuple[ad.AnnData, Path]:
+    """Create mock anndata objects for testing."""
+    tmp_path = Path(tmpdir_factory.mktemp("raw_adatas"))
+    n_features = [random.randint(50, 100) for _ in range(n_adatas)]
+    n_cells = [random.randint(50, 100) for _ in range(n_adatas)]
+    adatas = []
+    for i, (m, n) in enumerate(zip(n_cells, n_features, strict=True)):
+        adata = ad.AnnData(
+            X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
+            obs=pd.DataFrame(
+                {"label": np.random.default_rng().integers(0, 5, size=m)},
+                index=np.arange(m).astype(str),
+            ),
+            var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
+        )
+
+        adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
+        adatas += [adata]
+    return ad.concat(adatas, join="outer"), tmp_path
