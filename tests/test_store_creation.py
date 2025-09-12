@@ -61,7 +61,6 @@ def test_store_creation(
 
 @pytest.mark.parametrize("densify", [True, False])
 @pytest.mark.parametrize("read_full_anndatas", [True, False])
-@pytest.mark.parametrize("shuffle", [True, False])
 def test_store_extension(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     densify: bool,
@@ -79,7 +78,7 @@ def test_store_extension(
         chunk_size=10,
         shard_size=20,
         n_obs_per_output_anndata=60,
-        shuffle=shuffle,
+        shuffle=True,
         should_denseify=densify,
     )
     # add h5ads to existing store

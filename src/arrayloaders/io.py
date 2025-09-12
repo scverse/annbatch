@@ -125,9 +125,9 @@ def create_anndata_chunks_directory(
     should_denseify: bool = True,
     output_format: Literal["h5ad", "zarr"] = "zarr",
 ):
-    """Take a list of anndata paths, create a list of anndata chunks with uniform var spaces at the desired path with `n_obs_per_output_anndata` rows per store.
+    """Take a list of anndata paths, create an on-disk set of anndata chunks with uniform var spaces at the desired path with `n_obs_per_output_anndata` rows per store.
 
-    The main purpose of this function is to create shuffled sharded zarr stores, which is the default behavior.
+    The main purpose of this function is to create shuffled sharded zarr stores, which is the default behavior of this function.
     However, this function can also output h5 stores and also unshuffled stores as well.
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
 
@@ -240,6 +240,8 @@ def add_anndata_to_sharded_chunks_directory(
             Compressors to use to compress the data in the zarr store.
         read_full_anndatas
             Whether to read the full anndata files into memory before writing them to the store.
+        should_sparsify_output_in_memory
+            This option is for testing only.
 
     Examples
     --------
