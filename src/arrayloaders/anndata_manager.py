@@ -45,6 +45,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     _batch_size: int = 1
     _shapes: list[tuple[int, int]] = []
     _preload_to_gpu: bool = False
+    _used_anndata_adder: bool = False
 
     def __init__(
         self,
@@ -104,6 +105,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> None:
+        self._used_anndata_adder = True
         if isinstance(layer_keys, str | None):
             layer_keys = [layer_keys] * len(adatas)
         if isinstance(obs_keys, str | None):
@@ -127,6 +129,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> None:
+        self._used_anndata_adder = True
         dataset = adata.X if layer_key is None else adata.layers[layer_key]
         if not isinstance(dataset, accepted_on_disk_types):
             raise TypeError(f"Found {type(dataset)} but only {accepted_on_disk_types} are usable")
@@ -256,7 +259,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         ------
             A one-row sparse matrix.
         """
-        if is_in_torch_dataloader_on_linux():
+        if is_in_torch_dataloader_on_linux() and self._used_anndata_adder:
             raise NotImplementedError(
                 "See https://github.com/scverse/anndata/issues/2021 for why we can't load anndata from torch"
             )
