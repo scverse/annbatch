@@ -65,7 +65,7 @@ async def index_datasets(
 
 
 add_datasets_docstring = """\
-Append datasets to this loader.
+Append datasets to this dataset.
 
 Parameters
 ----------
@@ -76,7 +76,7 @@ Parameters
 """
 
 add_dataset_docstring = """\
-Append a dataset to this loader.
+Append a dataset to this dataset.
 
 Parameters
 ----------
@@ -88,7 +88,7 @@ Parameters
 
 
 add_anndatas_docstring = """\
-Append anndatas to this loader.
+Append anndatas to this dataset.
 
 Parameters
 ----------
@@ -101,7 +101,7 @@ Parameters
 """
 
 add_anndata_docstring = """\
-Append a anndata to this loader.
+Append a anndata to this dataset.
 
 Parameters
 ----------

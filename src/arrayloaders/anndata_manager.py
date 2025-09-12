@@ -257,7 +257,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         shuffle: bool,
         fetch_data: Callable[[list[slice], int], Awaitable[np.ndarray | CSRContainer]],
     ) -> Iterator[
-        tuple[InputInMemoryArray, None | np.ndarray] | tuple[InputInMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
         """Iterate over the on-disk csr datasets.
 

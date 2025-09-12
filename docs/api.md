@@ -13,7 +13,9 @@
    :toctree: generated/
 
     ZarrSparseDataset
+    ZarrSparseDataset.__iter__
     ZarrDenseDataset
+    ZarrDenseDataset.__iter__
 ```
 
 (io-helpers)=

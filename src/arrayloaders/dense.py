@@ -18,7 +18,9 @@ from arrayloaders.utils import (
 )
 
 try:
-    from cupy import ndarray as CupyArray
+    import cupy as cp
+
+    CupyArray = cp.ndarray
 except ImportError:
     CupyArray = NoneType
 
@@ -55,3 +57,6 @@ ZarrDenseDataset.add_datasets.__doc__ = add_datasets_docstring.format(on_disk_ar
 ZarrDenseDataset.add_dataset.__doc__ = add_dataset_docstring.format(on_disk_array_type="zarr.Array")
 ZarrDenseDataset.add_anndatas.__doc__ = add_anndatas_docstring.format(on_disk_array_type="zarr.Array")
 ZarrDenseDataset.add_anndata.__doc__ = add_anndata_docstring.format(on_disk_array_type="zarr.Array")
+ZarrDenseDataset.__iter__.__doc__ = AbstractIterableDataset.__iter__.__doc__.format(
+    gpu_array="cupy.ndarray", cpu_array="numpy.ndarray"
+)
