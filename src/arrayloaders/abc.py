@@ -76,7 +76,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
                 If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
                 Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
             to_torch
-                Whether to return `torch.Tensor` as the output
+                Whether to return `torch.Tensor` as the output.
+                Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
 
         Examples
         --------
