@@ -123,52 +123,6 @@ Parameters
 """
 
 
-__init_docstring__ = """A loader for on-disk {array_type} data.
-
-This loader batches together slice requests to the underlying {array_type} stores to acheive higher performance.
-This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
-The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
-
-The dataset class on its own is quite performant for "chunked loading" i.e., `chunk_size > 1`.
-When `chunk_size == 1`, a :class:`torch.utils.data.DataLoader` should wrap the dataset object.
-In this case, do not use the `add_anndata` or `add_anndatas` option due to https://github.com/scverse/anndata/issues/2021.
-Instead use :func:`anndata.io.sparse_dataset` or :func:`zarr.open` to only get the array you need.
-
-
-Parameters
-----------
-    chunk_size
-        The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
-    preload_nchunks
-        The number of chunks of contiguous array data to fetch, by default 32
-    shuffle
-        Whether or not to shuffle the data, by default True
-    return_index
-        Whether or not to return the index on each iteration, by default False
-    preload_to_gpu
-        Whether or not to use cupy for non-io array operations like vstack and indexing.
-        This option entails greater GPU memory usage.
-        Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
-    drop_last
-        Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
-        If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
-        Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
-    to_torch
-        Whether to return `torch.Tensor` as the output
-
-Examples
---------
-    >>> from arrayloaders import {child_class}
-    >>> ds = {child_class}(
-            batch_size=4096,
-            chunk_size=32,
-            preload_nchunks=512,
-        ).add_anndata(my_anndata)
-    >>> for batch in ds:
-            do_fit(batch)
-"""
-
-
 # TODO: make this part of the public zarr or zarrs-python API.
 # We can do chunk coalescing in zarrs based on integer arrays, so I think
 # there would make sense with ezclump or similar.

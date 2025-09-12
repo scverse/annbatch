@@ -10,7 +10,6 @@ from torch.utils.data import IterableDataset
 from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
 from arrayloaders.utils import (
     MultiBasicIndexer,
-    __init_docstring__,
     add_anndata_docstring,
     add_anndatas_docstring,
     add_dataset_docstring,
@@ -52,7 +51,9 @@ class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray], Iterable
 _assign_methods_to_ensure_unique_docstrings(ZarrDenseDataset)
 
 
-ZarrDenseDataset.__doc__ = __init_docstring__.format(array_type="dense", child_class="ZarrDenseDataset")
+ZarrDenseDataset.__doc__ = AbstractIterableDataset.__init__.__doc__.format(
+    array_type="dense", child_class="ZarrDenseDataset"
+)
 ZarrDenseDataset.add_datasets.__doc__ = add_datasets_docstring.format(on_disk_array_type="zarr.Array")
 ZarrDenseDataset.add_dataset.__doc__ = add_dataset_docstring.format(on_disk_array_type="zarr.Array")
 ZarrDenseDataset.add_anndatas.__doc__ = add_anndatas_docstring.format(on_disk_array_type="zarr.Array")
