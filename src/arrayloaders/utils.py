@@ -137,7 +137,10 @@ Parameters
     return_index
         Whether or not to return the index on each iteration, by default False
     preload_to_gpu
-        Whether or not to use cupy for non-io array operations like vstack and indexing. This option entails greater GPU memory usage.
+        Whether or not to use cupy for non-io array operations like vstack and indexing.
+        This option entails greater GPU memory usage.
+        Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
+
 
 Examples
 --------

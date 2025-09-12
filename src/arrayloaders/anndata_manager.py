@@ -47,7 +47,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     _on_add: Callable | None = None
     _batch_size: int = 1
     _shapes: list[tuple[int, int]] = []
-    _preload_to_gpu: bool = False
+    _preload_to_gpu: bool = True
 
     def __init__(
         self,
@@ -55,7 +55,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         on_add: Callable | None = None,
         return_index: bool = False,
         batch_size: int = 1,
-        preload_to_gpu: bool = False,
+        preload_to_gpu: bool = True,
     ):
         self._on_add = on_add
         self._return_index = return_index

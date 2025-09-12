@@ -38,7 +38,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         shuffle: bool = True,
         return_index: bool = False,
         batch_size: int = 1,
-        preload_to_gpu: bool = False,
+        preload_to_gpu: bool = True,
     ):
         check_lt_1(
             [

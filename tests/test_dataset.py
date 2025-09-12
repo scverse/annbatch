@@ -238,11 +238,7 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
     data["dataset"] = data["dataset"][...]
-    ds = ZarrDenseDataset(
-        shuffle=True,
-        chunk_size=10,
-        preload_nchunks=10,
-    )
+    ds = ZarrDenseDataset(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False)
     with pytest.raises(TypeError, match="Cannot create"):
         ds.add_dataset(**data)
 
@@ -250,11 +246,7 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
 def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
-        ds = ZarrDenseDataset(
-            shuffle=True,
-            chunk_size=10,
-            preload_nchunks=10,
-        )
+        ds = ZarrDenseDataset(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False)
         with pytest.raises(TypeError, match="Cannot create"):
             ds.add_dataset(data)
 
@@ -278,7 +270,7 @@ def _custom_collate_fn(elems):
     reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
 )
 def test_dataloader_fails_linux_with_anndata(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
-    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
+    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
     ds.add_anndatas(
         [
             open_sparse(p, use_zarrs=True, use_anndata=True)
@@ -309,7 +301,7 @@ def test_torch_multiprocess_dataloading_zarr(
     """
 
     if issubclass(loader, ZarrSparseDataset):
-        ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
+        ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
         ds.add_datasets(
             **concat(
                 [open_sparse(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]
@@ -317,7 +309,7 @@ def test_torch_multiprocess_dataloading_zarr(
         )
         x_ref = adata_with_zarr_path_same_var_space[0].layers["sparse"].toarray()
     elif issubclass(loader, ZarrDenseDataset):
-        ds = ZarrDenseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
+        ds = ZarrDenseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
         ds.add_datasets(
             **concat(
                 [open_dense(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]
