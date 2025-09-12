@@ -67,8 +67,9 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
             batch_size
                 Batch size to yield from the dataset.
             preload_to_gpu
-                Whether or not to use cupy for non-io array operations like vstack and indexing.
-                This option entails greater GPU memory usage.
+                Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
+                This option entails greater GPU memory usage, but is faster at least for sparse operations.
+                :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy.
                 Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
             drop_last
                 Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
