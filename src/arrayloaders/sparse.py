@@ -12,7 +12,7 @@ import zarr
 import zarr.core.sync as zsync
 from torch.utils.data import IterableDataset
 
-from arrayloaders.abc import AbstractIterableDataset, _assign_add_methods
+from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
 from arrayloaders.utils import (
     CSRContainer,
     MultiBasicIndexer,
@@ -144,9 +144,9 @@ class ZarrSparseDataset(  # noqa: D101
         )
 
 
-_assign_add_methods(ZarrSparseDataset)
+_assign_methods_to_ensure_unique_docstrings(ZarrSparseDataset)
 
-ZarrSparseDataset.__doc__ = __init_docstring__.format(array_type="sparse")
+ZarrSparseDataset.__doc__ = __init_docstring__.format(array_type="sparse", child_class="ZarrSparseDataset")
 ZarrSparseDataset.add_datasets.__doc__ = add_datasets_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
 ZarrSparseDataset.add_dataset.__doc__ = add_dataset_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
 ZarrSparseDataset.add_anndatas.__doc__ = add_anndatas_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")

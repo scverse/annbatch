@@ -142,8 +142,9 @@ AbstractIterableDataset.add_anndata.__doc__ = add_anndata_docstring
 AbstractIterableDataset.add_anndatas.__doc__ = add_anndatas_docstring
 
 
-def _assign_add_methods(typ):
-    for name in ["add_datasets", "add_dataset", "add_anndatas", "add_anndata"]:
+def _assign_methods_to_ensure_unique_docstrings(typ):
+    """Because both children AbstractIterableDataset inherit but do not override the methods listed, they need to be copied to ensure unique docstrings"""
+    for name in ["add_datasets", "add_dataset", "add_anndatas", "add_anndata", "__init__"]:
 
         @wraps(getattr(AbstractIterableDataset, name))
         def func(self, *args, name=name, **kwargs):

@@ -7,7 +7,7 @@ import numpy as np
 import zarr
 from torch.utils.data import IterableDataset
 
-from arrayloaders.abc import AbstractIterableDataset, _assign_add_methods
+from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
 from arrayloaders.utils import (
     MultiBasicIndexer,
     __init_docstring__,
@@ -47,10 +47,10 @@ class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray, CupyArray
             raise TypeError("Cannot create dense dataset without using a zarr.Array")
 
 
-_assign_add_methods(ZarrDenseDataset)
+_assign_methods_to_ensure_unique_docstrings(ZarrDenseDataset)
 
 
-ZarrDenseDataset.__doc__ = __init_docstring__.format(array_type="dense")
+ZarrDenseDataset.__doc__ = __init_docstring__.format(array_type="dense", child_class="ZarrDenseDataset")
 ZarrDenseDataset.add_datasets.__doc__ = add_datasets_docstring.format(on_disk_array_type="zarr.Array")
 ZarrDenseDataset.add_dataset.__doc__ = add_dataset_docstring.format(on_disk_array_type="zarr.Array")
 ZarrDenseDataset.add_anndatas.__doc__ = add_anndatas_docstring.format(on_disk_array_type="zarr.Array")
