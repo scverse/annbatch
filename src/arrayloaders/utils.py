@@ -152,6 +152,7 @@ Parameters
     drop_last
         Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
         If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
+        Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
     to_torch
         Whether to return `torch.Tensor` as the output
 
