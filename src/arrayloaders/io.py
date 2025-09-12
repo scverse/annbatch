@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
-    chunk_size: int = 4096,
-    shard_size: int = 65536,
+    chunk_size: int = 32768,
+    shard_size: int = 134_217_728,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
     """Write a sharded zarr store from a single anndata object
@@ -117,11 +117,11 @@ def create_anndata_chunks_directory(
     output_path: PathLike[str] | str,
     *,
     var_subset: Iterable[str] | None = None,
-    chunk_size: int = 4096,
-    shard_size: int = 65536,
+    chunk_size: int = 32768,
+    shard_size: int = 134_217_728,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-    n_obs_per_output_anndata: int = 1_048_576,
+    n_obs_per_output_anndata: int = 2_097_152,
     shuffle: bool = True,
     should_denseify: bool = True,
     output_format: Literal["h5ad", "zarr"] = "zarr",
@@ -217,8 +217,8 @@ def _get_array_encoding_type(path: PathLike[str] | str):
 def add_anndata_to_sharded_chunks_directory(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
-    chunk_size: int = 4096,
-    shard_size: int = 65536,
+    chunk_size: int = 32768,
+    shard_size: int = 134_217_728,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     read_full_anndatas: bool = True,
     should_sparsify_output_in_memory: bool = False,
