@@ -165,7 +165,9 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         ]
     ],
 )
-def test_store_load_dataset(adata_with_path: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs):
+def test_store_load_dataset(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs
+):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -173,8 +175,8 @@ def test_store_load_dataset(adata_with_path: tuple[ad.AnnData, Path], *, shuffle
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader = gen_loader(adata_with_path[1], shuffle, use_zarrs)
-    adata = adata_with_path[0]
+    loader = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
+    adata = adata_with_zarr_path_same_var_space[0]
     is_dense = isinstance(loader, ZarrDenseDataset)
     n_elems = 0
     batches = []
@@ -228,13 +230,13 @@ def test_store_load_dataset(adata_with_path: tuple[ad.AnnData, Path], *, shuffle
         for dataset_class in [ZarrSparseDataset, ZarrDenseDataset]
     ],
 )
-def test_zarr_store_errors_lt_1(gen_loader, adata_with_path: tuple[ad.AnnData, Path]):
+def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     with pytest.raises(ValueError, match="must be greater than 1"):
-        gen_loader(adata_with_path[1])
+        gen_loader(adata_with_zarr_path_same_var_space[1])
 
 
-def test_bad_adata_X_type(adata_with_path: tuple[ad.AnnData, Path]):
-    data = open_dense(next(adata_with_path[1].glob("*.zarr")))
+def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
     data["dataset"] = data["dataset"][...]
     ds = ZarrDenseDataset(
         shuffle=True,
@@ -245,8 +247,8 @@ def test_bad_adata_X_type(adata_with_path: tuple[ad.AnnData, Path]):
         ds.add_dataset(**data)
 
 
-def test_bad_adata_X_hdf5(raw_adatas_with_h5: tuple[ad.AnnData, Path]):
-    with h5py.File(next(raw_adatas_with_h5[1].glob("*.h5ad"))) as f:
+def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
         ds = ZarrDenseDataset(
             shuffle=True,
@@ -275,9 +277,14 @@ def _custom_collate_fn(elems):
     platform.system() != "Linux",
     reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
 )
-def test_dataloader_fails_linux_with_anndata(adata_with_path: tuple[ad.AnnData, Path]):
+def test_dataloader_fails_linux_with_anndata(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-    ds.add_anndatas([open_sparse(p, use_zarrs=True, use_anndata=True) for p in adata_with_path[1].glob("*.zarr")])
+    ds.add_anndatas(
+        [
+            open_sparse(p, use_zarrs=True, use_anndata=True)
+            for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")
+        ]
+    )
     dataloader = DataLoader(
         ds,
         batch_size=32,
@@ -293,7 +300,9 @@ def test_dataloader_fails_linux_with_anndata(adata_with_path: tuple[ad.AnnData, 
     platform.system() == "Linux",
     reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
 )
-def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, Path], loader, use_zarrs):
+def test_torch_multiprocess_dataloading_zarr(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], loader, use_zarrs
+):
     """
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
@@ -301,12 +310,20 @@ def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, 
 
     if issubclass(loader, ZarrSparseDataset):
         ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-        ds.add_datasets(**concat([open_sparse(p, use_zarrs=use_zarrs) for p in adata_with_path[1].glob("*.zarr")]))
-        x_ref = adata_with_path[0].layers["sparse"].toarray()
+        ds.add_datasets(
+            **concat(
+                [open_sparse(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]
+            )
+        )
+        x_ref = adata_with_zarr_path_same_var_space[0].layers["sparse"].toarray()
     elif issubclass(loader, ZarrDenseDataset):
         ds = ZarrDenseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-        ds.add_datasets(**concat([open_dense(p, use_zarrs=use_zarrs) for p in adata_with_path[1].glob("*.zarr")]))
-        x_ref = adata_with_path[0].X
+        ds.add_datasets(
+            **concat(
+                [open_dense(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]
+            )
+        )
+        x_ref = adata_with_zarr_path_same_var_space[0].X
     else:
         raise ValueError("Unknown loader type")
 
@@ -329,13 +346,13 @@ def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, 
 
 
 @pytest.mark.skipif(find_spec("cupy") is not None, reason="Can't test for no cupy if cupy is there")
-def test_no_cupy(adata_with_path: tuple[ad.AnnData, Path]):
+def test_no_cupy(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     ds = ZarrDenseDataset(
         chunk_size=10,
         preload_nchunks=4,
         shuffle=True,
         return_index=True,
         preload_to_gpu=True,
-    ).add_dataset(**open_dense(list(adata_with_path[1].iterdir())[0]))
+    ).add_dataset(**open_dense(list(adata_with_zarr_path_same_var_space[1].iterdir())[0]))
     with pytest.raises(ImportError, match=r"even though `preload_to_gpu` argument"):
         next(iter(ds))

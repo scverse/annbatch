@@ -25,6 +25,6 @@
    :toctree: generated/
 
     write_sharded
-    add_anndata_to_chunks_directory
+    add_anndata_to_sharded_chunks_directory
     create_anndata_chunks_directory
 ```

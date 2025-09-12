@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anndata as ad
-import dask.array as da
 import numpy as np
 import scipy.sparse as sp
 import zarr
+from dask.array.core import Array as DaskArray
 from tqdm import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
@@ -82,7 +82,8 @@ def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[
         adata.obs = adata.obs.to_memory()
         adata.var = adata.var.to_memory()
         adatas.append(adata)
-
+    if len(adatas) == 1:
+        return adatas[0]
     return ad.concat(adatas, join="outer")
 
 
@@ -212,15 +213,18 @@ def _get_array_encoding_type(path: PathLike[str] | str):
     return encoding["attributes"]["encoding-type"]
 
 
-def add_anndata_to_chunks_directory(
+def add_anndata_to_sharded_chunks_directory(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
     chunk_size: int = 4096,
     shard_size: int = 65536,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
-    cache_h5ads: bool = True,
+    read_full_anndatas: bool = True,
+    should_sparsify_output_in_memory: bool = False,
 ):
-    """Add anndata files to an existing Zarr store.
+    """Add anndata files to an existing directory of sharded zarr stores.
+
+    The var space of the source anndata files will be adapted to the target store.
 
     Parameters
     ----------
@@ -234,18 +238,18 @@ def add_anndata_to_chunks_directory(
             Size of the shards to use for the data in the zarr store.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
-        cache_h5ads
-            Whether to cache the h5ad files into memory before writing them to the store.
+        read_full_anndatas
+            Whether to read the full anndata files into memory before writing them to the store.
 
     Examples
     --------
-        >>> from arrayloaders.io.store_creation import add_anndata_to_chunks_directory
+        >>> from arrayloaders.io.store_creation import add_anndata_to_sharded_chunks_directory
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
         ...     "path/to/third_adata.h5ad",
         ... ]
-        >>> add_anndata_to_chunks_directory(datasets, "path/to/output/zarr_store")
+        >>> add_anndata_to_sharded_chunks_directory(datasets, "path/to/output/zarr_store")
     """
     shards = list(Path(output_path).glob("chunk_*.zarr"))
     if len(shards) == 0:
@@ -256,42 +260,43 @@ def add_anndata_to_chunks_directory(
     if encoding == "array":
         print("Detected array encoding type. Will convert to dense format before writing.")
 
-    if cache_h5ads:
+    if read_full_anndatas:
         adata_concat = _read_into_memory(adata_paths)
         chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
     else:
         adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths, chunk_size=chunk_size)
         chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
-    var_mask = adata_concat.var_names.isin(adata_concat.var_names)
     adata_concat.obs_names_make_unique()
+    if encoding == "array":
+        if not should_sparsify_output_in_memory:
+            if isinstance(adata_concat.X, sp.spmatrix):
+                adata_concat.X = adata_concat.X.toarray()
+            elif isinstance(adata_concat.X, DaskArray) and isinstance(adata_concat.X._meta, sp.spmatrix):
+                adata_concat.X = adata_concat.X.map_blocks(
+                    lambda x: x.toarray(), meta=np.ndarray, dtype=adata_concat.X.dtype
+                )
+    elif encoding == "csr_matrix":
+        if isinstance(adata_concat.X, np.ndarray):
+            adata_concat.X = sp.csr_matrix(adata_concat.X)
+        elif isinstance(adata_concat.X, DaskArray) and isinstance(adata_concat.X._meta, np.ndarray):
+            adata_concat.X = adata_concat.X.map_blocks(
+                sp.csr_matrix, meta=sp.csr_matrix(np.array([0], dtype=adata_concat.X.dtype))
+            )
 
     for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards)):
-        if encoding == "array":
-            f = zarr.open_group(shard)
-            adata_shard = ad.AnnData(
-                X=ad.experimental.read_elem_lazy(f["X"]).map_blocks(sp.csr_matrix).compute(),
-                obs=ad.io.read_elem(f["obs"]),
-                var=ad.io.read_elem(f["var"]),
-            )
+        if should_sparsify_output_in_memory and encoding == "array":
+            adata_shard = _lazy_load_with_obs_var_in_memory([shard])
+            adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
         else:
             adata_shard = ad.read_zarr(shard)
+
         adata = ad.concat(
-            [
-                adata_shard,
-                ad.AnnData(
-                    X=adata_concat.X[chunk, :][:, var_mask],
-                    obs=adata_concat.obs.iloc[chunk],
-                    var=adata_concat.var.loc[var_mask],
-                ),
-            ]
+            [adata_shard, adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]], join="outer"
         )
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
         adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
-
-        if encoding == "array":
-            adata.X = da.from_array(adata.X, chunks=(chunk_size, -1)).map_blocks(
-                lambda xx: xx.toarray().astype("f4"), dtype="f4"
-            )
+        if should_sparsify_output_in_memory and encoding == "array":
+            adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.dtype)).compute()
 
         f = zarr.open_group(shard, mode="w")
         write_sharded(
