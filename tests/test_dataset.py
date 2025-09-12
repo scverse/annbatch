@@ -243,6 +243,30 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
+def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    # batch_size guaranteed to have leftovers to drop
+    ds = ZarrSparseDataset(
+        shuffle=False,
+        chunk_size=5,
+        preload_nchunks=10,
+        batch_size=42,
+        preload_to_gpu=False,
+        return_index=True,
+        drop_last=True,
+    )
+    ds.add_dataset(**open_sparse(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
+    adata = adata_with_zarr_path_same_var_space[0]
+    batches = []
+    indices = []
+    for x, _, idx in ds:
+        batches += [x]
+        indices += [idx]
+    X = sp.vstack(batches).toarray()
+    assert X.shape[0] < adata.shape[0]
+    X_expected = adata[np.concatenate(indices)].layers["sparse"].toarray()
+    np.testing.assert_allclose(X, X_expected)
+
+
 def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])

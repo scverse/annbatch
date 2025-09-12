@@ -29,6 +29,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
     _worker_handle: WorkerHandle
     _chunk_size: int
     _dataset_manager: AnnDataManager[OnDiskArray, InputInMemoryArray, OutputInMemoryArray]
+    _drop_last: bool
 
     def __init__(
         self,
@@ -39,6 +40,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         return_index: bool = False,
         batch_size: int = 1,
         preload_to_gpu: bool = True,
+        drop_last: bool = False,
     ):
         check_lt_1(
             [
@@ -62,6 +64,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         self._preload_nchunks = preload_nchunks
         self._shuffle = shuffle
         self._worker_handle = WorkerHandle()
+        self._drop_last = drop_last
 
     async def _cache_update_callback(self):
         pass
@@ -133,6 +136,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
             self._preload_nchunks,
             self._shuffle,
             self._fetch_data,
+            self._drop_last,
         )
 
 

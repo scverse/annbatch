@@ -256,6 +256,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         preload_nchunks: int,
         shuffle: bool,
         fetch_data: Callable[[list[slice], int], Awaitable[np.ndarray | CSRContainer]],
+        drop_last: bool,
     ) -> Iterator[
         tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
@@ -367,7 +368,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                         in_memory_data = None
                         in_memory_labels = None
                         in_memory_indices = None
-        if in_memory_data is not None:  # handle any leftover data
+        if in_memory_data is not None and drop_last:  # handle any leftover data
             res = [
                 in_memory_data,
                 in_memory_labels if self.labels is not None else None,

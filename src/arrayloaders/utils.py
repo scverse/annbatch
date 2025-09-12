@@ -140,7 +140,9 @@ Parameters
         Whether or not to use cupy for non-io array operations like vstack and indexing.
         This option entails greater GPU memory usage.
         Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
-
+    drop_last
+        Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
+        If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
 
 Examples
 --------
