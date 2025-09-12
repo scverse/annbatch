@@ -90,6 +90,7 @@ def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[
 def _read_into_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
     adatas = []
     for path in paths:
+        print(path)
         adata = getattr(ad, f"read_{Path(path).suffix.split('.')[-1]}")(path)
         adatas.append(adata)
 
@@ -229,7 +230,7 @@ def add_anndata_to_sharded_chunks_directory(
     Parameters
     ----------
         adata_paths
-            Paths to the anndata files used to create the zarr store.
+            Paths to the anndata files to be appended to the collection of output chunks.
         output_path
             Path to the output zarr store.
         chunk_size

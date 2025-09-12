@@ -20,15 +20,12 @@ def test_store_creation(
     densify: bool,
 ):
     var_subset = [f"gene_{i}" for i in range(100)]
-
-    (adata_with_h5_path_different_var_space[1] / "zarr_store").mkdir(parents=True, exist_ok=True)
+    h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
+    output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}_{densify}"
+    output_path.mkdir(parents=True, exist_ok=True)
     create_anndata_chunks_directory(
-        [
-            adata_with_h5_path_different_var_space[1] / f
-            for f in sorted(adata_with_h5_path_different_var_space[1].iterdir())
-            if str(f).endswith(".h5ad")
-        ],
-        adata_with_h5_path_different_var_space[1] / "zarr_store",
+        [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
+        output_path,
         var_subset=var_subset,
         chunk_size=10,
         shard_size=20,
@@ -38,12 +35,8 @@ def test_store_creation(
     )
 
     adata_orig = adata_with_h5_path_different_var_space[0]
-    print("zarr", list((adata_with_h5_path_different_var_space[1] / "zarr_store").iterdir()))
     adata = ad.concat(
-        [
-            ad.read_zarr(zarr_path)
-            for zarr_path in sorted((adata_with_h5_path_different_var_space[1] / "zarr_store").iterdir())
-        ],
+        [ad.read_zarr(zarr_path) for zarr_path in sorted((output_path).iterdir())],
         join="outer",
     )
     assert adata.X.shape[0] == adata_orig.X.shape[0]
@@ -65,15 +58,16 @@ def test_store_extension(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     densify: bool,
     read_full_anndatas: bool,
-    shuffle: bool,
 ):
-    store_path = adata_with_h5_path_different_var_space[1] / "zarr_store"
     all_h5_paths = sorted(adata_with_h5_path_different_var_space[1].iterdir())
+    store_path = (
+        adata_with_h5_path_different_var_space[1].parent / f"zarr_store_extension_test_{densify}_{read_full_anndatas}"
+    )
     original = all_h5_paths
     additional = all_h5_paths[4:]  # don't add everything to get a "different" var space
     # create new store
     create_anndata_chunks_directory(
-        [adata_with_h5_path_different_var_space[1] / f for f in original if str(f).endswith(".h5ad")],
+        original,
         store_path,
         chunk_size=10,
         shard_size=20,
@@ -90,9 +84,7 @@ def test_store_extension(
         shard_size=20,
     )
 
-    adata = ad.concat(
-        [ad.read_zarr(zarr_path) for zarr_path in (adata_with_h5_path_different_var_space[1] / "zarr_store").iterdir()]
-    )
+    adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])
     adata_orig = adata_with_h5_path_different_var_space[0]
     expected_adata = ad.concat([adata_orig, adata_orig[adata_orig.obs["store_id"] >= 4]], join="outer")
     assert adata.X.shape[1] == expected_adata.X.shape[1]
