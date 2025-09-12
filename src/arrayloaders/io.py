@@ -162,7 +162,7 @@ def create_anndata_chunks_directory(
 
     Examples
     --------
-        >>> from arrayloaders.io.store_creation import create_anndata_chunks_directory
+        >>> from arrayloaders import create_anndata_chunks_directory
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
@@ -246,7 +246,7 @@ def add_anndata_to_sharded_chunks_directory(
 
     Examples
     --------
-        >>> from arrayloaders.io.store_creation import add_anndata_to_sharded_chunks_directory
+        >>> from arrayloaders import add_anndata_to_sharded_chunks_directory
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
