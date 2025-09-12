@@ -25,7 +25,7 @@ except ImportError:
     CupyArray = NoneType
 
 
-class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray, CupyArray | np.ndarray], IterableDataset):  # noqa: D101
+class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray], IterableDataset):  # noqa: D101
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
         indexer = MultiBasicIndexer(

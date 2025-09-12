@@ -44,10 +44,7 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
             ),
             layers={
                 "sparse": sp.random(
-                    n_cells_per_shard,
-                    feature_dim,
-                    format="csr",
-                    rng=np.random.default_rng(),
+                    n_cells_per_shard, feature_dim, format="csr", rng=np.random.default_rng(), dtype="int32"
                 )
             },
         )

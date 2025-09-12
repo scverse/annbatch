@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
+import torch
 import zarr
 import zarrs  # noqa: F401
 from torch.utils.data import DataLoader
@@ -25,6 +26,7 @@ except ImportError:
     CupyArray = NoneType
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -95,6 +97,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 return_index=True,
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
+                to_torch=False,
             ).add_anndatas(
                 [
                     (open_sparse if issubclass(dataset_class, ZarrSparseDataset) else open_dense)(
@@ -243,6 +246,42 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
+@pytest.mark.parametrize(
+    "preload_to_gpu",
+    [
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                find_spec("cupy") is None,
+                reason="need cupy installed",
+            ),
+        ),
+        False,
+    ],
+)
+@pytest.mark.parametrize(
+    ["dataset_class", "open_func"], [[ZarrSparseDataset, open_sparse], [ZarrDenseDataset, open_dense]]
+)
+def test_to_torch(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    dataset_class: type[ZarrDenseDataset] | type[ZarrSparseDataset],
+    open_func: Callable[[Path], Data],
+    preload_to_gpu: bool,
+):
+    # batch_size guaranteed to have leftovers to drop
+    ds = dataset_class(
+        shuffle=False,
+        chunk_size=5,
+        preload_nchunks=10,
+        batch_size=42,
+        preload_to_gpu=preload_to_gpu,
+        return_index=True,
+        to_torch=True,
+    )
+    ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
+    assert isinstance(next(iter(ds))[0], torch.Tensor)
+
+
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     # batch_size guaranteed to have leftovers to drop
     ds = ZarrSparseDataset(
@@ -253,6 +292,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path])
         preload_to_gpu=False,
         return_index=True,
         drop_last=True,
+        to_torch=False,
     )
     ds.add_dataset(**open_sparse(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
     adata = adata_with_zarr_path_same_var_space[0]
@@ -276,7 +316,9 @@ def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnDa
 
 
 def _custom_collate_fn(elems):
-    if isinstance(elems[0][0], sp.csr_matrix):
+    if isinstance(elems[0][0], torch.Tensor):
+        x = torch.vstack([v[0].to_dense() for v in elems])
+    elif isinstance(elems[0][0], sp.csr_matrix):
         x = sp.vstack([v[0] for v in elems]).toarray()
     else:
         x = np.vstack([v[0] for v in elems])

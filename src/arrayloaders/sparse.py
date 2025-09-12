@@ -7,7 +7,6 @@ from typing import NamedTuple, cast
 
 import anndata as ad
 import numpy as np
-import scipy.sparse as sp
 import zarr
 import zarr.core.sync as zsync
 from torch.utils.data import IterableDataset
@@ -38,7 +37,7 @@ class CSRDatasetElems(NamedTuple):
 
 
 class ZarrSparseDataset(  # noqa: D101
-    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer, CupyCSRMatrix | sp.csr_matrix], IterableDataset
+    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer], IterableDataset
 ):
     _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 

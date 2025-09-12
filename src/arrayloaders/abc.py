@@ -23,13 +23,12 @@ if TYPE_CHECKING:
     import numpy as np
 
 
-class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
+class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
     _chunk_size: int
-    _dataset_manager: AnnDataManager[OnDiskArray, InputInMemoryArray, OutputInMemoryArray]
-    _drop_last: bool
+    _dataset_manager: AnnDataManager[OnDiskArray, InputInMemoryArray]
 
     def __init__(
         self,
@@ -41,6 +40,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         batch_size: int = 1,
         preload_to_gpu: bool = True,
         drop_last: bool = False,
+        to_torch: bool = True,
     ):
         check_lt_1(
             [
@@ -59,12 +59,13 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
             return_index=return_index,
             batch_size=batch_size,
             preload_to_gpu=preload_to_gpu,
+            drop_last=drop_last,
+            to_torch=to_torch,
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
         self._shuffle = shuffle
         self._worker_handle = WorkerHandle()
-        self._drop_last = drop_last
 
     async def _cache_update_callback(self):
         pass
@@ -124,7 +125,10 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
     ) -> Iterator[
         tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
-        """Iterate over the on-disk datasets, returning :class:`{gpu_array}` or :class:`{cpu_array}` depending on whether or not `preload_to_gpu` is set.
+        """
+        Iterate over the on-disk datasets, returning :class:`{gpu_array}` or :class:`{cpu_array}` depending on whether or not `preload_to_gpu` is set.
+
+        Will convert to a :class:`torch.Tensor` if `to_torch` is True.
 
         Yields
         ------
@@ -136,7 +140,6 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
             self._preload_nchunks,
             self._shuffle,
             self._fetch_data,
-            self._drop_last,
         )
 
 
