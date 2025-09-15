@@ -286,7 +286,7 @@ def test_dataloader_fails_linux_with_anndata(adata_with_zarr_path_same_var_space
     with pytest.raises(NotImplementedError, match=r"why we can't load anndata from torch"):
         next(iter(dataloader))
     ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-    ds.add_datasets(**concat([open_sparse(p) for p in adata_with_path[1].glob("*.zarr")]))
+    ds.add_datasets(**concat([open_sparse(p) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]))
     dataloader = DataLoader(
         ds,
         batch_size=32,
