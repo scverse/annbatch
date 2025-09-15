@@ -139,7 +139,7 @@ This speedup is more than 100x and shows the significant impact data loading has
 As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "foundation model").
 But loading minibatches of bytes off desk will be almost certainly slower than loading them from an in-memory source.
 Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
-However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art.
+However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
 
 ## Release notes
 
