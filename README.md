@@ -60,7 +60,7 @@ create_store_from_h5ads(
 
 ### Data loading
 
-You can use the the `arrayloaders` Dataloader in two settings:
+You can use the the `arrayloaders` dataset iterator in two settings:
 
 * Chunked access: Better performance, no control oversampling strategy (only random access).
 * User configurable sampling strategy: Less performant (~4x slower), but full control over sampling strategy.
@@ -102,14 +102,15 @@ for batch in ds:
     ...
 ```
 
-For performance reason, you should use our dataloader directly without wrapping it into a PyTorch dataloader.
-Your code will work the same way as with a PyTorch dataloader, but you will get better performance.
+For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.dataloader`.
+Your code will work the same way as with a {class}`torch.utils.data.dataloader`, but you will get better performance.
 
 #### User configurable sampling strategy
 
-At the moment we do not support user-configurable sampling strategies.
-While you can do perfect random access, by wrapping in a {class}`torch.utils.data.DataLoader`, we do not officially support this functionality and indeed it comes [with pitfalls](https://github.com/scverse/anndata/issues/2021).
-If you are interested in contributing this feature to the project, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
+At the moment we do not support user-configurable sampling strategies like weighting or sampling.
+With a pre-shuffled store and blocked access, your model fit should not be affected by using chunked access.
+
+If you are interested in contributing this feature to the project or leaning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
 ## Speed comparison to other dataloaders
 
