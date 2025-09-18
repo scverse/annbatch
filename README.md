@@ -1,7 +1,8 @@
 # arrayloaders
 
 > [!CAUTION]
-> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format to change as it is simply an anndata file.
+> This pacakge does not have a stable API. However, we do not anticipate the on-disk format to change as it is simply an
+> anndata file.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
@@ -53,7 +54,7 @@ create_store_from_h5ads(
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    output_path="path/to/output/store", # a directory containing `chunk_{i}.zarr`
+    output_path="path/to/output/store",  # a directory containing `chunk_{i}.zarr`
     shuffle=True,  # shuffling is needed if you want to use chunked access
 )
 ```
@@ -102,7 +103,8 @@ for batch in ds:
     ...
 ```
 
-For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.dataloader`.
+For performance reasons, you should use our dataloader directly without wrapping it into a {class}
+`torch.utils.data.dataloader`.
 Your code will work the same way as with a {class}`torch.utils.data.dataloader`, but you will get better performance.
 
 #### User configurable sampling strategy
@@ -110,36 +112,53 @@ Your code will work the same way as with a {class}`torch.utils.data.dataloader`,
 At the moment we do not support user-configurable sampling strategies like weighting or sampling.
 With a pre-shuffled store and blocked access, your model fit should not be affected by using chunked access.
 
-If you are interested in contributing this feature to the project or leaning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
+If you are interested in contributing this feature to the project or leaning more, please get in touch
+on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
 ## Speed comparison to other dataloaders
 
-We provide a quickstart notebook that gives both some boilerplate code and provides a speed comparison to other comparable dataloaders:
+We provide a speed comparison to other comparable dataloaders below.
+Notably, our data loader comes with a significant speedup compared to other dataloaders:
 
-TODO: figure and notebook
+<img src="docs/_static/speed_comparision.png" alt="fit_time_vs_loading_speed" width="400">
+
+We've run the above benchmark on an AWS `ml.m5.8xlarge` instance.
+The code to reproduce the above results can be found on LaminHub:
+
+* [Benchmark results](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/e6Ry7noc4Y0d)
+* [Arrayloaders code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/yl0iTPhJjkqW)
+* [MappedCollection code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/YfzHfoomTkfu)
+* [scDataset code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/L6CAf9w0qdQj)
 
 ## Why data loading speed matters?
 
-Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer vision or natural language processing.
+Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer
+vision or natural language processing.
 This size differential puts significantly more pressure on the data loading pipeline to fully utilize a modern GPU.
 Intuitively, if the model is small, doing the actual computation is relatively fast.
 Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster.
 
-As an illustrative, example let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
-Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with data loading speed:
+As an illustrative, example let's train a logistic regression
+model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
+Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with
+data loading speed:
 
 <img src="docs/_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
 
-From the graph we can see that the fit time can be decreased substantially with faster data loading speeds (several orders of magnitude).
-E.g. we are able to reduce the fit time from ~280s for a data loading speed of ~1000 samples/sec to ~1.5s for a data loading speed of ~1.000.000 samples/sec.
+From the graph we can see that the fit time can be decreased substantially with faster data loading speeds (several
+orders of magnitude).
+E.g. we are able to reduce the fit time from ~280s for a data loading speed of ~1000 samples/sec to ~1.5s for a data
+loading speed of ~1.000.000 samples/sec.
 This speedup is more than 100x and shows the significant impact data loading has on total training time.
 
 ## When would you use this data laoder?
 
-As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "foundation model").
+As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "
+foundation model").
 But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
 Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
-However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
+However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered
+here can provide significant speedups over state of the art out-of-core dataloaders.
 
 ## Release notes
 
