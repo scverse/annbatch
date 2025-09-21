@@ -1,7 +1,7 @@
 # arrayloaders
 
 > [!CAUTION]
-> This pacakge does not have a stable API. However, we do not anticipate the on-disk format to change as it is simply an
+> This package does not have a stable API. However, we do not anticipate the on-disk format to change as it is simply an
 > anndata file.
 
 [![Tests][badge-tests]][tests]
