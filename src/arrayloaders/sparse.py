@@ -11,7 +11,7 @@ import zarr
 import zarr.core.sync as zsync
 
 try:
-    from torch.utils.data import _IterableDataset
+    from torch.utils.data import IterableDataset as _IterableDataset
 except ImportError:
 
     class _IterableDataset:
