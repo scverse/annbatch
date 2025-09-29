@@ -238,7 +238,7 @@ def add_to_collection(
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         read_full_anndatas
-            Whether to read the full anndata files into memory before writing them to the store.
+            Whether to read the full input anndata files into memory before writing them to the store.
             Otherwise, reading will be done lazily.
         should_sparsify_output_in_memory
             This option is for testing only appending sparse files to dense stores.

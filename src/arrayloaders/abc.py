@@ -51,7 +51,6 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         In this case, do not use the `add_anndata` or `add_anndatas` option due to https://github.com/scverse/anndata/issues/2021.
         Instead use :func:`anndata.io.sparse_dataset` or :func:`zarr.open` to only get the array you need.
 
-
         Parameters
         ----------
             chunk_size
