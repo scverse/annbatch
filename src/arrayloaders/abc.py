@@ -108,7 +108,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         )
         if batch_size > (chunk_size * preload_nchunks):
             raise NotImplementedError(
-                "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
+                "Cannot yield batches bigger than the iterated in-memory size i.e., batch_size > (chunk_size * preload_nchunks)."
             )
 
         for package, arg, arg_name in [
