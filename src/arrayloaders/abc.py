@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     import anndata as ad
     import numpy as np
+    import torch
 
 
 class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
@@ -53,6 +54,10 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         In this case, do not use the `add_anndata` or `add_anndatas` option due to https://github.com/scverse/anndata/issues/2021.
         Instead use :func:`anndata.io.sparse_dataset` or :func:`zarr.open` to only get the array you need.
 
+        If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
+        If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
+        If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for {array_type}.
+
 
         Parameters
         ----------
@@ -69,8 +74,9 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
             preload_to_gpu
                 Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
                 This option entails greater GPU memory usage, but is faster at least for sparse operations.
-                :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy.
+                :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
                 Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
+                For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to denseify.
             drop_last
                 Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
                 If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
@@ -88,6 +94,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
                     preload_nchunks=512,
                 ).add_anndata(my_anndata)
             >>> for batch in ds:
+                    # optionally convert to dense
+                    # batch = batch.to_dense()
                     do_fit(batch)
         """
         check_lt_1(
@@ -171,7 +179,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
     def __iter__(
         self,
     ) -> Iterator[
-        tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray, None | np.ndarray]
+        | tuple[OutputInMemoryArray | torch.Tensor, None | np.ndarray, np.ndarray]
     ]:
         """
         Iterate over the on-disk datasets, returning :class:`{gpu_array}` or :class:`{cpu_array}` depending on whether or not `preload_to_gpu` is set.
