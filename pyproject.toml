@@ -29,9 +29,14 @@ dependencies = [
   "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
-  "torch",
   "tqdm",
   "zarr>=3",
+]
+optional-dependencies.cupy-cuda12 = [
+  "cupy-cuda12x",
+]
+optional-dependencies.cupy-cuda13 = [
+  "cupy-cuda13x",
 ]
 optional-dependencies.dev = [
   "pre-commit",
@@ -54,14 +59,13 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.gpu = [
-  "cupy-cuda12x",
-]
 optional-dependencies.test = [
   "coverage",
   "pytest",
-  "torch",
   "zarrs",
+]
+optional-dependencies.torch = [
+  "torch",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://arrayloaders.readthedocs.io/"
@@ -80,12 +84,12 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "stable" ]
+deps = [ "minimal" ]
 python = [ "3.11", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "pre" ]
+deps = [ "pre", "torch" ]
 python = [ "3.13" ]
 
 [tool.hatch.envs.hatch-test]
@@ -96,6 +100,9 @@ features = [ "test" ]
 # set the environment variable `UV_PRERELEASE` to "allow".
 matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
+]
+matrix.deps.features = [
+  { if = [ "torch" ], value = "torch" },
 ]
 
 [tool.ruff]

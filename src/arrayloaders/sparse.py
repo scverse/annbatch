@@ -7,10 +7,16 @@ from typing import NamedTuple, cast
 
 import anndata as ad
 import numpy as np
-import scipy.sparse as sp
 import zarr
 import zarr.core.sync as zsync
-from torch.utils.data import IterableDataset
+
+try:
+    from torch.utils.data import IterableDataset as _IterableDataset
+except ImportError:
+
+    class _IterableDataset:
+        pass
+
 
 from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
 from arrayloaders.utils import (
@@ -37,7 +43,7 @@ class CSRDatasetElems(NamedTuple):
 
 
 class ZarrSparseDataset(  # noqa: D101
-    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer, CupyCSRMatrix | sp.csr_matrix], IterableDataset
+    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer], _IterableDataset
 ):
     _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 
@@ -134,12 +140,14 @@ class ZarrSparseDataset(  # noqa: D101
             return CSRContainer(
                 elems=(data_np, indices_np, start_indptr),
                 shape=(start_indptr.shape[0] - 1, self._dataset_manager.n_var),
+                dtype=data_np.dtype,
             )
         end_indptr = np.concatenate([s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)])
         indptr_np = np.concatenate([start_indptr, end_indptr])
         return CSRContainer(
             elems=(data_np, indices_np, indptr_np),
             shape=(indptr_np.shape[0] - 1, self._dataset_manager.n_var),
+            dtype=data_np.dtype,
         )
 
 

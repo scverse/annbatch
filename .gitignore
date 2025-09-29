@@ -4,6 +4,7 @@
 buck-out/
 
 # Compiled files
+venv/
 .venv/
 __pycache__/
 .*cache/

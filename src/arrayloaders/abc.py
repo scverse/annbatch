@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod
 from functools import wraps
+from importlib.util import find_spec
 from typing import TYPE_CHECKING, Generic
 
 from arrayloaders.anndata_manager import AnnDataManager
@@ -21,14 +22,15 @@ if TYPE_CHECKING:
 
     import anndata as ad
     import numpy as np
+    import torch
 
 
-class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
+class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
     _chunk_size: int
-    _dataset_manager: AnnDataManager[OnDiskArray, InputInMemoryArray, OutputInMemoryArray]
+    _dataset_manager: AnnDataManager[OnDiskArray, InputInMemoryArray]
 
     def __init__(
         self,
@@ -39,6 +41,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         return_index: bool = False,
         batch_size: int = 1,
         preload_to_gpu: bool = True,
+        drop_last: bool = False,
+        to_torch: bool = find_spec("torch") is not None,
     ):
         """A loader for on-disk {array_type} data.
 
@@ -50,6 +54,10 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
         When `chunk_size == 1`, a :class:`torch.utils.data.DataLoader` should wrap the dataset object.
         In this case, do not use the `add_anndata` or `add_anndatas` option due to https://github.com/scverse/anndata/issues/2021.
         Instead use :func:`anndata.io.sparse_dataset` or :func:`zarr.open` to only get the array you need.
+
+        If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
+        If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
+        If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for {array_type}.
 
         Parameters
         ----------
@@ -64,9 +72,19 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
             batch_size
                 Batch size to yield from the dataset.
             preload_to_gpu
-                Whether or not to use cupy for non-io array operations like vstack and indexing.
-                This option entails greater GPU memory usage.
+                Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
+                This option entails greater GPU memory usage, but is faster at least for sparse operations.
+                :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
                 Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
+                For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to denseify.
+            drop_last
+                Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
+                If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
+                Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
+            to_torch
+                Whether to return `torch.Tensor` as the output.
+                Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
+                Defaults to True if `torch` is installed.
 
         Examples
         --------
@@ -77,6 +95,8 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
                     preload_nchunks=512,
                 ).add_anndata(my_anndata)
             >>> for batch in ds:
+                    # optionally convert to dense
+                    # batch = batch.to_dense()
                     do_fit(batch)
         """
         check_lt_1(
@@ -90,12 +110,23 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
             raise NotImplementedError(
                 "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
             )
+
+        for package, arg, arg_name in [
+            ("torch", to_torch, f"{to_torch=}"),
+            ("cupy", preload_to_gpu, f"{preload_to_gpu=}"),
+        ]:
+            if arg and not find_spec(package):
+                raise ImportError(
+                    f"Could not find {package} dependency even though {arg_name}.  Try `uv pip install {package}`"
+                )
         self._dataset_manager = AnnDataManager(
             # TODO: https://github.com/scverse/anndata/issues/2021
             # on_add=self._cache_update_callback,
             return_index=return_index,
             batch_size=batch_size,
             preload_to_gpu=preload_to_gpu,
+            drop_last=drop_last,
+            to_torch=to_torch,
         )
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
@@ -158,9 +189,13 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray, OutputInM
     def __iter__(
         self,
     ) -> Iterator[
-        tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray, None | np.ndarray]
+        | tuple[OutputInMemoryArray | torch.Tensor, None | np.ndarray, np.ndarray]
     ]:
-        """Iterate over the on-disk datasets, returning :class:`{gpu_array}` or :class:`{cpu_array}` depending on whether or not `preload_to_gpu` is set.
+        """
+        Iterate over the on-disk datasets, returning :class:`{gpu_array}` or :class:`{cpu_array}` depending on whether or not `preload_to_gpu` is set.
+
+        Will convert to a :class:`torch.Tensor` if `to_torch` is True.
 
         Yields
         ------

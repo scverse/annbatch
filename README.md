@@ -28,7 +28,7 @@ There are several alternative options to install arrayloaders:
 1) Install the latest release of `arrayloaders` from [PyPI][]:
 
 ```bash
-pip install arrayloaders
+pip install arrayloaders[cupy,torch]
 ```
 -->
 
@@ -37,6 +37,9 @@ pip install arrayloaders
 ```bash
 pip install git+https://github.com/laminlabs/arrayloaders.git@main
 ```
+
+We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, and `cupy-cuda13`.
+`cupy` provides accelerated handling of the data once it has been read off disk and does not need to be used in conjunction with `torch`.
 
 ## Basic usage example
 

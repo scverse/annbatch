@@ -10,13 +10,21 @@ from itertools import islice
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
+import scipy as sp
 import zarr
+
+try:
+    from cupy import ndarray as CupyArray
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
+except ImportError:
+    CupyArray = None
+    CupyCSRMatrix = None
 
 if TYPE_CHECKING:
     from collections import OrderedDict
     from collections.abc import Awaitable, Callable
 
-    from arrayloaders.types import InputInMemoryArray
+    from arrayloaders.types import InputInMemoryArray, OutputInMemoryArray
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -30,6 +38,7 @@ class CSRContainer:
 
     elems: tuple[np.ndarray, np.ndarray, np.ndarray]
     shape: tuple[int, int]
+    dtype: np.dtype
 
 
 def _batched(iterable, n):
@@ -286,3 +295,36 @@ def is_in_torch_dataloader_on_linux():
                 if isinstance(instance, _IterableDatasetFetcher) and platform.system() == "Linux":
                     return True
     return False
+
+
+def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool):
+    """Send the input data to a torch.Tensor"""
+    import torch
+
+    if isinstance(input, torch.Tensor):
+        return input
+    if isinstance(input, sp.sparse.csr_matrix):
+        tensor = torch.sparse_csr_tensor(
+            torch.from_numpy(input.indptr),
+            torch.from_numpy(input.indices),
+            torch.from_numpy(input.data),
+            input.shape,
+        )
+        if preload_to_gpu:
+            return tensor.cuda(non_blocking=True)
+        return tensor
+    if isinstance(input, np.ndarray):
+        tensor = torch.from_numpy(input)
+        if preload_to_gpu:
+            return tensor.cuda(non_blocking=True)
+        return tensor
+    if isinstance(input, CupyArray):
+        return torch.from_dlpack(input)
+    if isinstance(input, CupyCSRMatrix):
+        return torch.sparse_csr_tensor(
+            torch.from_dlpack(input.indptr),
+            torch.from_dlpack(input.indices),
+            torch.from_dlpack(input.data),
+            input.shape,
+        )
+    raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")

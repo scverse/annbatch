@@ -24,6 +24,7 @@ from arrayloaders.utils import (
     index_datasets,
     is_in_torch_dataloader_on_linux,
     split_given_size,
+    to_torch,
 )
 
 try:
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 accepted_on_disk_types = OnDiskArray.__constraints__
 
 
-class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArray]):  # noqa: D101
+class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray]):  # noqa: D101
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
@@ -48,6 +49,8 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     _batch_size: int = 1
     _shapes: list[tuple[int, int]] = []
     _preload_to_gpu: bool = True
+    _drop_last: bool = False
+    _to_torch: bool = True
     _used_anndata_adder: bool = False
 
     def __init__(
@@ -57,11 +60,15 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         return_index: bool = False,
         batch_size: int = 1,
         preload_to_gpu: bool = True,
+        drop_last: bool = False,
+        to_torch: bool = True,
     ):
         self._on_add = on_add
         self._return_index = return_index
         self._batch_size = batch_size
         self._preload_to_gpu = preload_to_gpu
+        self._to_torch = to_torch
+        self._drop_last = drop_last
 
     @property
     def _sp_module(self) -> ModuleType:
@@ -295,7 +302,11 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
             chunks: list[InputInMemoryArray] = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
             if any(isinstance(c, CSRContainer) for c in chunks):
                 chunks_converted: list[OutputInMemoryArray] = [
-                    self._sp_module.csr_matrix(tuple(self._np_module.asarray(e) for e in c.elems), shape=c.shape)
+                    self._sp_module.csr_matrix(
+                        tuple(self._np_module.asarray(e) for e in c.elems),
+                        shape=c.shape,
+                        dtype="float64" if self._preload_to_gpu else c.dtype,
+                    )
                     for c in chunks
                 ]
             else:
@@ -358,6 +369,8 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                     ]
                     if self._return_index:
                         res += [in_memory_indices[s]]
+                    if self._to_torch:
+                        res[0] = to_torch(res[0], self._preload_to_gpu)
                     yield tuple(res)
                 if i == (len(splits) - 1):  # end of iteration, leftover data needs be kept
                     if (s.shape[0] % self._batch_size) != 0:
@@ -370,13 +383,15 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                         in_memory_data = None
                         in_memory_labels = None
                         in_memory_indices = None
-        if in_memory_data is not None:  # handle any leftover data
+        if in_memory_data is not None and not self._drop_last:  # handle any leftover data
             res = [
                 in_memory_data,
                 in_memory_labels if self.labels is not None else None,
             ]
             if self._return_index:
                 res += [in_memory_indices]
+            if self._to_torch:
+                res[0] = to_torch(res[0], self._preload_to_gpu)
             yield tuple(res)
 
 

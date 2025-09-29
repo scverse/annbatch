@@ -5,7 +5,14 @@ from typing import cast
 
 import numpy as np
 import zarr
-from torch.utils.data import IterableDataset
+
+try:
+    from torch.utils.data import IterableDataset as _IterableDataset
+except ImportError:
+
+    class _IterableDataset:
+        pass
+
 
 from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
 from arrayloaders.utils import (
@@ -24,7 +31,7 @@ except ImportError:
     CupyArray = NoneType
 
 
-class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray, CupyArray | np.ndarray], IterableDataset):  # noqa: D101
+class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray], _IterableDataset):  # noqa: D101
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> np.ndarray:
         dataset = self._dataset_manager.train_datasets[dataset_idx]
         indexer = MultiBasicIndexer(
