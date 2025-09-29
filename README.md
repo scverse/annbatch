@@ -49,9 +49,9 @@ In the process, the data gets shuffled and is distributed across several anndata
 ### Preprocessing
 
 ```python
-from arrayloaders import create_store_from_h5ads
+from arrayloaders import create_anndata_collection
 
-create_store_from_h5ads(
+create_anndata_collection(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
@@ -105,8 +105,8 @@ for batch in ds:
     ...
 ```
 
-For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.dataloader`.
-Your code will work the same way as with a {class}`torch.utils.data.dataloader`, but you will get better performance.
+For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader`.
+Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
 #### User configurable sampling strategy
 
