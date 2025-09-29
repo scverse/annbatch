@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import scipy as sp
-import torch
 import zarr
 
 try:
@@ -300,6 +299,8 @@ def is_in_torch_dataloader_on_linux():
 
 def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool):
     """Send the input data to a torch.Tensor"""
+    import torch
+
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):

@@ -9,7 +9,14 @@ import anndata as ad
 import numpy as np
 import zarr
 import zarr.core.sync as zsync
-from torch.utils.data import IterableDataset
+
+try:
+    from torch.utils.data import _IterableDataset
+except ImportError:
+
+    class _IterableDataset:
+        pass
+
 
 from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
 from arrayloaders.utils import (
@@ -36,7 +43,7 @@ class CSRDatasetElems(NamedTuple):
 
 
 class ZarrSparseDataset(  # noqa: D101
-    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer], IterableDataset
+    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer], _IterableDataset
 ):
     _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 

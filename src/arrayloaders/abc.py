@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod
 from functools import wraps
+from importlib.util import find_spec
 from typing import TYPE_CHECKING, Generic
 
 from arrayloaders.anndata_manager import AnnDataManager
@@ -41,7 +42,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         batch_size: int = 1,
         preload_to_gpu: bool = True,
         drop_last: bool = False,
-        to_torch: bool = True,
+        to_torch: bool = find_spec("torch") is not None,
     ):
         """A loader for on-disk {array_type} data.
 
@@ -83,6 +84,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
             to_torch
                 Whether to return `torch.Tensor` as the output.
                 Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
+                Defaults to True if `torch` is installed.
 
         Examples
         --------
@@ -108,6 +110,15 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
             raise NotImplementedError(
                 "If you need batch loading that is bigger than the iterated in-memory size, please open an issue."
             )
+
+        for package, arg, arg_name in [
+            ("torch", to_torch, f"{to_torch=}"),
+            ("cupy", preload_to_gpu, f"{preload_to_gpu=}"),
+        ]:
+            if arg and not find_spec(package):
+                raise ImportError(
+                    f"Could not find {package} dependency even though {arg_name}.  Try `uv pip install {package}`"
+                )
         self._dataset_manager = AnnDataManager(
             # TODO: https://github.com/scverse/anndata/issues/2021
             # on_add=self._cache_update_callback,
