@@ -6,7 +6,7 @@ import anndata as ad
 import numpy as np
 import pytest
 
-from arrayloaders import add_anndata_to_sharded_chunks_directory, create_anndata_chunks_directory
+from arrayloaders import add_to_collection, create_anndata_collection
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,13 +23,13 @@ def test_store_creation(
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}_{densify}"
     output_path.mkdir(parents=True, exist_ok=True)
-    create_anndata_chunks_directory(
+    create_anndata_collection(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         output_path,
         var_subset=var_subset,
-        chunk_size=10,
-        shard_size=20,
-        n_obs_per_output_anndata=60,
+        zarr_chunk_size=10,
+        zarr_shard_size=20,
+        n_obs_per_dataset=60,
         shuffle=shuffle,
         should_denseify=densify,
     )
@@ -66,22 +66,22 @@ def test_store_extension(
     original = all_h5_paths
     additional = all_h5_paths[4:]  # don't add everything to get a "different" var space
     # create new store
-    create_anndata_chunks_directory(
+    create_anndata_collection(
         original,
         store_path,
-        chunk_size=10,
-        shard_size=20,
-        n_obs_per_output_anndata=60,
+        zarr_chunk_size=10,
+        zarr_shard_size=20,
+        n_obs_per_dataset=60,
         shuffle=True,
         should_denseify=densify,
     )
     # add h5ads to existing store
-    add_anndata_to_sharded_chunks_directory(
+    add_to_collection(
         additional,
         store_path,
         read_full_anndatas=read_full_anndatas,
-        chunk_size=10,
-        shard_size=20,
+        zarr_chunk_size=10,
+        zarr_shard_size=20,
     )
 
     adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])

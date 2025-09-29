@@ -45,7 +45,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
     ):
         """A loader for on-disk {array_type} data.
 
-        This loader batches together slice requests to the underlying {array_type} stores to acheive higher performance.
+        This loader batches together slice requests to the underlying {array_type} stores to achieve higher performance.
         This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
         The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
 
@@ -58,17 +58,16 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
         If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for {array_type}.
 
-
         Parameters
         ----------
             chunk_size
-                The obs size (i.e., axis 0) of contiguous array data to fetch, by default 512
+                The obs size (i.e., axis 0) of contiguous array data to fetch.
             preload_nchunks
-                The number of chunks of contiguous array data to fetch, by default 32
+                The number of chunks of contiguous array data to fetch.
             shuffle
-                Whether or not to shuffle the data, by default True
+                Whether or not to shuffle the data.
             return_index
-                Whether or not to yield the index on each iteration, by default False
+                Whether or not to yield the index on each iteration.
             batch_size
                 Batch size to yield from the dataset.
             preload_to_gpu

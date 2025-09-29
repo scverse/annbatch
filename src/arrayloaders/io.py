@@ -28,7 +28,7 @@ def write_sharded(
     shard_size: int = 134_217_728,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
-    """Write a sharded zarr store from a single anndata object
+    """Write a sharded zarr store from a single anndata object.
 
     Parameters
     ----------
@@ -37,11 +37,11 @@ def write_sharded(
         adata
             The source anndata object
         chunk_size
-            Chunk size inside a shard. Defaults to 4096.
+            Chunk size inside a shard.
         shard_size
-            Shard size i.e., number of elements in a single file. Defaults to 65536.
+            Shard size i.e., number of elements in a single file.
         compressors
-            The compressors to pass to `zarr`. Defaults to (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),).
+            The compressors to pass to `zarr`.
     """
     ad.settings.zarr_write_format = 3
 
@@ -75,7 +75,7 @@ def write_sharded(
     zarr.consolidate_metadata(group.store)
 
 
-def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[str], chunk_size: int = 4096):
+def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
     adatas = []
     for path in paths:
         adata = ad.experimental.read_lazy(path)
@@ -97,9 +97,7 @@ def _read_into_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
     return ad.concat(adatas, join="outer")
 
 
-def _create_chunks_for_shuffling(
-    adata: ad.AnnData, shuffle_n_obs_per_output_anndata: int = 1_048_576, shuffle: bool = True
-):
+def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle: bool = True):
     chunk_boundaries = np.cumsum([0] + list(adata.X.chunks[0]))
     slices = [
         slice(int(start), int(end)) for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:], strict=True)
@@ -107,29 +105,29 @@ def _create_chunks_for_shuffling(
     if shuffle:
         random.shuffle(slices)
     idxs = np.concatenate([np.arange(s.start, s.stop) for s in slices])
-    idxs = np.array_split(idxs, np.ceil(len(idxs) / shuffle_n_obs_per_output_anndata))
+    idxs = np.array_split(idxs, np.ceil(len(idxs) / shuffle_n_obs_per_dataset))
 
     return idxs
 
 
-def create_anndata_chunks_directory(
+def create_anndata_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
     *,
     var_subset: Iterable[str] | None = None,
-    chunk_size: int = 32768,
-    shard_size: int = 134_217_728,
+    zarr_chunk_size: int = 32768,
+    zarr_shard_size: int = 134_217_728,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-    n_obs_per_output_anndata: int = 2_097_152,
+    n_obs_per_dataset: int = 2_097_152,
     shuffle: bool = True,
     should_denseify: bool = True,
     output_format: Literal["h5ad", "zarr"] = "zarr",
 ):
-    """Take a list of anndata paths, create an on-disk set of anndata chunks with uniform var spaces at the desired path with `n_obs_per_output_anndata` rows per store.
+    """Take a list of anndata paths, create an on-disk set of anndata datasets (together referred to as a "collection") with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
 
-    The main purpose of this function is to create shuffled sharded zarr stores, which is the default behavior of this function.
-    However, this function can also output h5 stores and also unshuffled stores as well.
+    The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
+    However, this function can also output h5 datasets and also unshuffled datasets as well.
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
 
     Parameters
@@ -141,15 +139,15 @@ def create_anndata_chunks_directory(
         var_subset
             Subset of gene names to include in the store. If None, all genes are included.
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
-        chunk_size
+        zarr_chunk_size
             Size of the chunks to use for the data in the zarr store.
-        shard_size
+        zarr_shard_size
             Size of the shards to use for the data in the zarr store.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         h5ad_compressor
             Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
-        n_obs_per_output_anndata
+        n_obs_per_dataset
             Number of observations to load into memory at once for shuffling / pre-processing.
             The higher this number, the more memory is used, but the better the shuffling.
             This corresponds to the size of the shards created.
@@ -162,19 +160,19 @@ def create_anndata_chunks_directory(
 
     Examples
     --------
-        >>> from arrayloaders import create_anndata_chunks_directory
+        >>> from arrayloaders import create_anndata_collection
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
         ...     "path/to/third_adata.h5ad",
         ... ]
-        >>> create_anndata_chunks_directory(datasets, "path/to/output/zarr_store")
+        >>> create_anndata_collection(datasets, "path/to/output/zarr_store")
     """
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3
-    adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths, chunk_size=chunk_size)
+    adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
     adata_concat.obs_names_make_unique()
-    chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_output_anndata, shuffle=shuffle)
+    chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
 
     if var_subset is None:
         var_subset = adata_concat.var_names
@@ -197,8 +195,8 @@ def create_anndata_chunks_directory(
             write_sharded(
                 f,
                 adata_chunk,
-                chunk_size=chunk_size,
-                shard_size=shard_size,
+                chunk_size=zarr_chunk_size,
+                shard_size=zarr_shard_size,
                 compressors=zarr_compressor,
             )
         elif output_format == "h5ad":
@@ -214,16 +212,16 @@ def _get_array_encoding_type(path: PathLike[str] | str):
     return encoding["attributes"]["encoding-type"]
 
 
-def add_anndata_to_sharded_chunks_directory(
+def add_to_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
-    chunk_size: int = 32768,
-    shard_size: int = 134_217_728,
+    zarr_chunk_size: int = 32768,
+    zarr_shard_size: int = 134_217_728,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     read_full_anndatas: bool = True,
     should_sparsify_output_in_memory: bool = False,
 ):
-    """Add anndata files to an existing directory of sharded zarr stores.
+    """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
     The var space of the source anndata files will be adapted to the target store.
 
@@ -233,31 +231,33 @@ def add_anndata_to_sharded_chunks_directory(
             Paths to the anndata files to be appended to the collection of output chunks.
         output_path
             Path to the output zarr store.
-        chunk_size
+        zarr_chunk_size
             Size of the chunks to use for the data in the zarr store.
-        shard_size
+        zarr_shard_size
             Size of the shards to use for the data in the zarr store.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         read_full_anndatas
-            Whether to read the full anndata files into memory before writing them to the store.
+            Whether to read the full input anndata files into memory before writing them to the store.
+            Otherwise, reading will be done lazily.
         should_sparsify_output_in_memory
-            This option is for testing only.
+            This option is for testing only appending sparse files to dense stores.
+            To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
 
     Examples
     --------
-        >>> from arrayloaders import add_anndata_to_sharded_chunks_directory
+        >>> from arrayloaders import add_to_collection
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
         ...     "path/to/third_adata.h5ad",
         ... ]
-        >>> add_anndata_to_sharded_chunks_directory(datasets, "path/to/output/zarr_store")
+        >>> add_to_collection(datasets, "path/to/output/zarr_store")
     """
     shards = list(Path(output_path).glob("chunk_*.zarr"))
     if len(shards) == 0:
         raise ValueError(
-            "Store at `output_path` does not exist or is empty. Please run `create_anndata_chunks_directory` first."
+            "Store at `output_path` does not exist or is empty. Please run `create_anndata_collection` first."
         )
     encoding = _get_array_encoding_type(output_path)
     if encoding == "array":
@@ -267,7 +267,7 @@ def add_anndata_to_sharded_chunks_directory(
         adata_concat = _read_into_memory(adata_paths)
         chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
     else:
-        adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths, chunk_size=chunk_size)
+        adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
         chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
     adata_concat.obs_names_make_unique()
     if encoding == "array":
@@ -305,7 +305,7 @@ def add_anndata_to_sharded_chunks_directory(
         write_sharded(
             f,
             adata,
-            chunk_size=chunk_size,
-            shard_size=shard_size,
+            chunk_size=zarr_chunk_size,
+            shard_size=zarr_shard_size,
             compressors=zarr_compressor,
         )
