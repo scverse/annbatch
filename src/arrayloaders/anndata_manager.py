@@ -15,7 +15,10 @@ from arrayloaders.utils import (
     CSRContainer,
     WorkerHandle,
     _batched,
+    add_anndata_docstring,
+    add_anndatas_docstring,
     add_dataset_docstring,
+    add_datasets_docstring,
     check_lt_1,
     check_var_shapes,
     index_datasets,
@@ -44,7 +47,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     _on_add: Callable | None = None
     _batch_size: int = 1
     _shapes: list[tuple[int, int]] = []
-    _preload_to_gpu: bool = False
+    _preload_to_gpu: bool = True
     _used_anndata_adder: bool = False
 
     def __init__(
@@ -53,7 +56,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         on_add: Callable | None = None,
         return_index: bool = False,
         batch_size: int = 1,
-        preload_to_gpu: bool = False,
+        preload_to_gpu: bool = True,
     ):
         self._on_add = on_add
         self._return_index = return_index
@@ -179,9 +182,12 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         For example, given slice index (10, 15), for 4 datasets each with size 5 on axis zero,
         this function returns ((0,5), 2) representing slice (0,5) along axis zero of sparse dataset 2.
 
-        Args:
-            index: The queried slice.
-            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
+        Parameters
+        ----------
+            index
+                The queried slice.
+            use_original_space
+                Whether or not the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -212,9 +218,12 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     ) -> OrderedDict[int, list[slice]]:
         """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
 
-        Args:
-            slices: Slices to relative to the on-disk datasets.
-            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
+        Parameters
+        ----------
+            slices
+                Slices to relative to the on-disk datasets.
+            use_original_space
+                Whether or not the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -251,7 +260,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         shuffle: bool,
         fetch_data: Callable[[list[slice], int], Awaitable[np.ndarray | CSRContainer]],
     ) -> Iterator[
-        tuple[InputInMemoryArray, None | np.ndarray] | tuple[InputInMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
         """Iterate over the on-disk csr datasets.
 
@@ -371,5 +380,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
             yield tuple(res)
 
 
-AnnDataManager.add_datasets.__doc__ = add_dataset_docstring
+AnnDataManager.add_datasets.__doc__ = add_datasets_docstring
 AnnDataManager.add_dataset.__doc__ = add_dataset_docstring
+AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
+AnnDataManager.add_anndata.__doc__ = add_anndata_docstring

@@ -2,16 +2,30 @@ from __future__ import annotations
 
 import asyncio
 from itertools import accumulate, chain, pairwise
+from types import NoneType
 from typing import NamedTuple, cast
 
 import anndata as ad
 import numpy as np
+import scipy.sparse as sp
 import zarr
 import zarr.core.sync as zsync
 from torch.utils.data import IterableDataset
 
-from arrayloaders.abc import AbstractIterableDataset
-from arrayloaders.utils import CSRContainer, MultiBasicIndexer, __init_docstring__
+from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
+from arrayloaders.utils import (
+    CSRContainer,
+    MultiBasicIndexer,
+    add_anndata_docstring,
+    add_anndatas_docstring,
+    add_dataset_docstring,
+    add_datasets_docstring,
+)
+
+try:
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
+except ImportError:
+    CupyCSRMatrix = NoneType
 
 
 class CSRDatasetElems(NamedTuple):
@@ -22,7 +36,9 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
+class ZarrSparseDataset(  # noqa: D101
+    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer, CupyCSRMatrix | sp.csr_matrix], IterableDataset
+):
     _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 
     def _cache_update_callback(self):
@@ -40,8 +56,10 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
     async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
 
-        Args:
-            idx: The index
+        Parameters
+        ----------
+            idx
+                The index
 
         Returns
         -------
@@ -76,8 +94,10 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
     async def _get_sparse_elems(self, dataset_idx: int) -> CSRDatasetElems:
         """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
 
-        Args:
-            dataset_idx: The index of the dataset whose arrays are sought.
+        Parameters
+        ----------
+            dataset_idx
+                The index of the dataset whose arrays are sought.
 
         Returns
         -------
@@ -123,4 +143,15 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
         )
 
 
-ZarrSparseDataset.__init__.__doc__ = __init_docstring__.format(array_type="sparse")
+_assign_methods_to_ensure_unique_docstrings(ZarrSparseDataset)
+
+ZarrSparseDataset.__doc__ = AbstractIterableDataset.__init__.__doc__.format(
+    array_type="sparse", child_class="ZarrSparseDataset"
+)
+ZarrSparseDataset.add_datasets.__doc__ = add_datasets_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.add_dataset.__doc__ = add_dataset_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.add_anndatas.__doc__ = add_anndatas_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.add_anndata.__doc__ = add_anndata_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.__iter__.__doc__ = AbstractIterableDataset.__iter__.__doc__.format(
+    gpu_array="cupyx.scipy.sparse.spmatrix", cpu_array="scipy.sparse.csr_matrix"
+)
