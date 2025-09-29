@@ -423,7 +423,7 @@ def test_torch_multiprocess_dataloading_zarr(
 @pytest.mark.skipif(
     find_spec("cupy") is not None, reason="Can't test for preload_to_gpu True ImportError with cupy installed"
 )
-def test_no_cupy(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def test_no_cupy():
     with pytest.raises(ImportError, match=r"even though preload_to_gpu=True"):
         ZarrDenseDataset(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
 
@@ -431,7 +431,7 @@ def test_no_cupy(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
 @pytest.mark.skipif(
     find_spec("torch") is not None, reason="Can't test for to_torch True ImportError with torch installed"
 )
-def test_no_torch(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def test_no_torch():
     with pytest.raises(ImportError, match=r"even though to_torch=True"):
         ZarrDenseDataset(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
 
@@ -442,6 +442,7 @@ def test_torch_default(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Pa
     else:
         from numpy import ndarray as expected_cls
     ds = ZarrDenseDataset(
-        chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False
+        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, preload_to_gpu=False
     ).add_dataset(**open_dense(list(adata_with_zarr_path_same_var_space[1].iterdir())[0]))
-    assert isinstance(next(iter(ds))[0], expected_cls)
+    for batch in ds:
+        assert isinstance(batch[0], expected_cls)
