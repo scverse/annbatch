@@ -28,7 +28,7 @@ def write_sharded(
     shard_size: int = 134_217_728,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
-    """Write a sharded zarr store from a single anndata object
+    """Write a sharded zarr store from a single anndata object.
 
     Parameters
     ----------
@@ -37,11 +37,11 @@ def write_sharded(
         adata
             The source anndata object
         chunk_size
-            Chunk size inside a shard. Defaults to 4096.
+            Chunk size inside a shard.
         shard_size
-            Shard size i.e., number of elements in a single file. Defaults to 65536.
+            Shard size i.e., number of elements in a single file.
         compressors
-            The compressors to pass to `zarr`. Defaults to (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),).
+            The compressors to pass to `zarr`.
     """
     ad.settings.zarr_write_format = 3
 
@@ -242,7 +242,8 @@ def add_anndata_to_sharded_chunks_directory(
         read_full_anndatas
             Whether to read the full anndata files into memory before writing them to the store.
         should_sparsify_output_in_memory
-            This option is for testing only.
+            This option is for testing only appending sparse files to dense stores.
+            To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
 
     Examples
     --------

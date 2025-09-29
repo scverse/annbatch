@@ -93,11 +93,11 @@ Append anndatas to this dataset.
 Parameters
 ----------
     anndatas
-        List of :class:`anndata.AnnData` objects, with :class:`{on_disk_array_type}` as the data matrix
+        List of :class:`anndata.AnnData` objects, with :class:`{on_disk_array_type}` as the data matrix.
     obs_keys
-        List of :attr:`anndata.AnnData.obs` column labels
+        List of :attr:`anndata.AnnData.obs` column labels.
     layer_keys
-        List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used
+        List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
 """
 
 add_anndata_docstring = """\
@@ -106,11 +106,11 @@ Append a anndata to this dataset.
 Parameters
 ----------
     anndata
-        :class:`anndata.AnnData` object, with :class:`{on_disk_array_type}` as the data matrix
+        :class:`anndata.AnnData` object, with :class:`{on_disk_array_type}` as the data matrix.
     obs_key
-        :attr:`anndata.AnnData.obs` column labels
+        :attr:`anndata.AnnData.obs` column labels.
     layer_key
-        :attr:`anndata.AnnData.layers` key, and if None, :attr:`anndata.AnnData.X` will be used
+        :attr:`anndata.AnnData.layers` key, and if None, :attr:`anndata.AnnData.X` will be used.
 """
 
 
@@ -154,9 +154,9 @@ def sample_rows(
         obs_list
             A list of numpy arrays containing the corresponding observations.
         indices
-            the list of indexes for each element in x_list/
+            the list of indexes for each element in `x_list/`
         shuffle
-            Whether to shuffle the rows before sampling. Defaults to True.
+            Whether to shuffle the rows before sampling.
 
     Yields
     ------
