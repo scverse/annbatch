@@ -39,6 +39,7 @@ class CSRContainer:
 
     elems: tuple[np.ndarray, np.ndarray, np.ndarray]
     shape: tuple[int, int]
+    dtype: np.dtype
 
 
 def _batched(iterable, n):

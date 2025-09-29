@@ -302,7 +302,11 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray]):  # noqa: D101
             chunks: list[InputInMemoryArray] = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
             if any(isinstance(c, CSRContainer) for c in chunks):
                 chunks_converted: list[OutputInMemoryArray] = [
-                    self._sp_module.csr_matrix(tuple(self._np_module.asarray(e) for e in c.elems), shape=c.shape)
+                    self._sp_module.csr_matrix(
+                        tuple(self._np_module.asarray(e) for e in c.elems),
+                        shape=c.shape,
+                        dtype="float64" if self._preload_to_gpu else c.dtype,
+                    )
                     for c in chunks
                 ]
             else:

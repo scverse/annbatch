@@ -133,12 +133,14 @@ class ZarrSparseDataset(  # noqa: D101
             return CSRContainer(
                 elems=(data_np, indices_np, start_indptr),
                 shape=(start_indptr.shape[0] - 1, self._dataset_manager.n_var),
+                dtype=data_np.dtype,
             )
         end_indptr = np.concatenate([s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)])
         indptr_np = np.concatenate([start_indptr, end_indptr])
         return CSRContainer(
             elems=(data_np, indices_np, indptr_np),
             shape=(indptr_np.shape[0] - 1, self._dataset_manager.n_var),
+            dtype=data_np.dtype,
         )
 
 
