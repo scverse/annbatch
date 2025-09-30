@@ -117,7 +117,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         ]:
             if arg and not find_spec(package):
                 raise ImportError(
-                    f"Could not find {package} dependency even though {arg_name}.  Try `uv pip install {package}`"
+                    f"Could not find {package} dependency even though {arg_name}.  Try `pip install {package}`"
                 )
         self._dataset_manager = AnnDataManager(
             # TODO: https://github.com/scverse/anndata/issues/2021
