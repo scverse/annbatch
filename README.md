@@ -76,7 +76,7 @@ from pathlib import Path
 
 import anndata as ad
 import zarr
-import zarrs
+import zarrs   # noqa: F401
 
 # Using zarrs is necessary for local filesystem perforamnce.
 zarr.config.set(
