@@ -1,15 +1,36 @@
 from __future__ import annotations
 
+import glob
 from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from arrayloaders import add_to_collection, create_anndata_collection
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_store_creation_default(
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+):
+    var_subset = [f"gene_{i}" for i in range(100)]
+    h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
+    output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_default"
+    output_path.mkdir(parents=True, exist_ok=True)
+    create_anndata_collection(
+        [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
+        output_path,
+        var_subset=var_subset,
+        zarr_chunk_size=10,
+        zarr_shard_size=20,
+        n_obs_per_dataset=60,
+    )
+    assert isinstance(ad.read_zarr(next((output_path).iterdir())).X, sp.csr_matrix)
+    assert sorted(glob.glob(str(output_path / "dataset_*.zarr"))) == sorted(str(p) for p in (output_path).iterdir())
 
 
 @pytest.mark.parametrize("shuffle", [True, False])
