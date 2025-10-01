@@ -112,7 +112,7 @@ For performance reasons, you should use our dataloader directly without wrapping
 Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
 The sharded zarr file format output from {func}`arrayloaders.create_anndata_collection` is meant to reduce the burden on file systems of indexing.
-In order to take advantage of this feature to its fullest performance, though, locally, you must set the codec pipeline to use `zarrså`.
+In order to take advantage of this feature to its fullest performance, though, locally, you must set the codec pipeline to use `zarrs`.
 We have not tested remote data (i.e., using {func}`zarr.open` with a {class}`zarr.storage.ObjectStore`) but because we use {mod}`zarr`, this data loader should also work over cloud connections via relevant zarr stores.
 Note that `zarrs` cannot be used with these sorts of stores.
 
