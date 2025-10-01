@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from types import NoneType
+from importlib.util import find_spec
 from typing import cast
 
 import numpy as np
 import zarr
 
-try:
+if find_spec("torch"):
     from torch.utils.data import IterableDataset as _IterableDataset
-except ImportError:
+else:
 
     class _IterableDataset:
         pass
@@ -22,13 +22,6 @@ from arrayloaders.utils import (
     add_dataset_docstring,
     add_datasets_docstring,
 )
-
-try:
-    import cupy as cp
-
-    CupyArray = cp.ndarray
-except ImportError:
-    CupyArray = NoneType
 
 
 class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray], _IterableDataset):  # noqa: D101

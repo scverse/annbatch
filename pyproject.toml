@@ -60,12 +60,15 @@ optional-dependencies.doc = [
   "sphinxext-opengraph",
 ]
 optional-dependencies.test = [
+  "arrayloaders[zarrs]",
   "coverage",
   "pytest",
-  "zarrs",
 ]
 optional-dependencies.torch = [
   "torch",
+]
+optional-dependencies.zarrs = [
+  "zarrs",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://arrayloaders.readthedocs.io/"

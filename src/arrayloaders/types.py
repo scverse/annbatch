@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 from types import NoneType
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import anndata as ad
 import numpy as np
@@ -19,7 +19,7 @@ except ImportError:
     CupyArray = NoneType
 
 OutputInMemoryArray = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
-if find_spec("torch"):
+if find_spec("torch") or TYPE_CHECKING:
     import torch
 
     OutputInMemoryArray = OutputInMemoryArray | torch.Tensor

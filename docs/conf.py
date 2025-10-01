@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
+# For some reason doing this prevents autodoc_mock_import = ["torch"] from not being able to find the module i.e., it's not in sys.modules.
+# TODO: Bug report
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "extensions"))
@@ -65,6 +67,7 @@ extensions = [
 
 autosummary_generate = True
 autodoc_member_order = "groupwise"
+autodoc_mock_imports = ["torch"]
 default_role = "literal"
 napoleon_google_docstring = False
 napoleon_numpy_docstring = True
@@ -101,6 +104,7 @@ intersphinx_mapping = {
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "cupy": ("https://docs.cupy.dev/en/stable/", None),
+    "zarrs": ("https://zarrs-python.readthedocs.io/en/latest/", None),
 }
 
 # List of patterns, relative to source directory, that match files and
