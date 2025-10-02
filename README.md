@@ -40,7 +40,8 @@ pip install git+https://github.com/laminlabs/arrayloaders.git@main
 
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and {doc}`zarrs-python <zarrs:index>`.
 `cupy` provides accelerated handling of the data once it has been read off disk and does not need to be used in conjunction with `torch`.
-> [!IMPORTANT] {doc}`zarrs-python <zarrs:index>` gives the necessary performance boost for the sharded data produced by {func}`arrayloaders.create_anndata_collection` to be useful.
+> [!IMPORTANT]
+> [zarrs-python](https://zarrs-python.readthedocs.io/) gives the necessary performance boost for the sharded data produced by {func}`arrayloaders.create_anndata_collection` to be useful.
 
 ## Basic usage example
 
