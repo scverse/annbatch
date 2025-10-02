@@ -40,12 +40,13 @@ pip install git+https://github.com/laminlabs/arrayloaders.git@main
 
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and {doc}`zarrs-python <zarrs:index>`.
 `cupy` provides accelerated handling of the data once it has been read off disk and does not need to be used in conjunction with `torch`.
-> [!IMPORTANT] {doc}`zarrs-python <zarrs:index>` gives the necessary performance boost for the sharded data produced by {func}`arrayloaders.create_anndata_collection`.
+> [!IMPORTANT] {doc}`zarrs-python <zarrs:index>` gives the necessary performance boost for the sharded data produced by {func}`arrayloaders.create_anndata_collection` to be useful.
 
 ## Basic usage example
 
 First, you'll need to convert your existing `.h5ad` files into a zarr-backed anndata format.
 In the process, the data gets shuffled and is distributed across several anndata files.
+Shuffling is important to ensure model convergence, especially because of our contiguous data fetching scheme which is not perfectly random.
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
 See the {ref}`zarr docs on sharding <zarr:user-guide-sharding>` for more information.
 
@@ -77,6 +78,8 @@ create_anndata_collection(
 
 The data loader implements a chunked fetching strategy where `preload_nchunks` number of continguous-chunks of size `chunk_size` are loaded.
 `chunk_size` corresponds the number of rows of `anndata` store to load sequentially.
+
+We intend to support perfect random access, likely via using our dataloader inside of a {class}`torch.utils.data.DataLoader` but more work is still needed (see issue [scverse/anndata#2021](https://github.com/scverse/anndata/issues/2021)).
 
 Here is a short snippet to get you started:
 
@@ -112,7 +115,7 @@ ds = ZarrSparseDataset(
     obs_keys="label_column",
 )
 
-# Iterate over dataloader like normal
+# Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
     ...
 ```
@@ -120,7 +123,8 @@ for batch in ds:
 For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader`.
 Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
-In order to take advantage of the sharded zarr files to their fullest performance, though, locally, you must set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
+In order to take advantage of the sharded zarr files performance, though, locally, you *must* set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
+Using {mod}`zarr` on its own will not yield high performance for local filesystems.
 We have not tested remote data (i.e., using {func}`zarr.open` with a {class}`zarr.storage.ObjectStore`) but because we use {mod}`zarr`, this data loader should also work over cloud connections via relevant zarr stores.
 Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of non-local stores.
 
