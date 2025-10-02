@@ -334,6 +334,12 @@ def _custom_collate_fn(elems):
     return x, y
 
 
+@pytest.fixture(scope="session", autouse=True)
+def always_spawn():
+    # see https://github.com/google/tensorstore/issues/61
+    multiprocessing.set_start_method("spawn")
+
+
 @pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
 @pytest.mark.parametrize("loader", [ZarrDenseDataset, ZarrSparseDataset])
 def test_torch_multiprocess_dataloading_zarr(
@@ -345,8 +351,6 @@ def test_torch_multiprocess_dataloading_zarr(
     """
     from torch.utils.data import DataLoader
 
-    # see https://github.com/google/tensorstore/issues/61
-    multiprocessing.set_start_method("spawn")
     if issubclass(loader, ZarrSparseDataset):
         ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
         ds.add_datasets(
