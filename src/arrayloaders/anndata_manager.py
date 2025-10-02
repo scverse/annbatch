@@ -19,7 +19,6 @@ from arrayloaders.utils import (
     check_lt_1,
     check_var_shapes,
     index_datasets,
-    is_in_torch_dataloader_on_linux,
     split_given_size,
 )
 
@@ -256,10 +255,6 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         ------
             A one-row sparse matrix.
         """
-        if is_in_torch_dataloader_on_linux():
-            raise NotImplementedError(
-                "See https://github.com/scverse/anndata/issues/2021 for why we can't load anndata from torch"
-            )
         check_lt_1(
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],

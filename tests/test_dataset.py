@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import platform
+import multiprocessing
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
@@ -271,34 +271,14 @@ def _custom_collate_fn(elems):
     return x, y
 
 
-@pytest.mark.skipif(
-    platform.system() != "Linux",
-    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
-)
-def test_dataloader_fails_linux_with_anndata(adata_with_path: tuple[ad.AnnData, Path]):
-    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-    ds.add_anndatas([open_sparse(p, use_zarrs=True, use_anndata=True) for p in adata_with_path[1].glob("*.zarr")])
-    dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
-    )
-    with pytest.raises(NotImplementedError, match=r"why we can't load anndata from torch"):
-        next(iter(dataloader))
-
-
 @pytest.mark.parametrize("loader", [ZarrDenseDataset, ZarrSparseDataset])
-@pytest.mark.skipif(
-    platform.system() == "Linux",
-    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
-)
 def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, Path], loader, use_zarrs):
     """
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
     """
-
+    # see https://github.com/google/tensorstore/issues/61
+    multiprocessing.set_start_method("spawn")
     if issubclass(loader, ZarrSparseDataset):
         ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
         ds.add_datasets(**concat([open_sparse(p, use_zarrs=use_zarrs) for p in adata_with_path[1].glob("*.zarr")]))
