@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from importlib.util import find_spec
 from types import NoneType
 from typing import TypeVar
 
@@ -19,11 +18,6 @@ except ImportError:
     CupyArray = NoneType
 
 OutputInMemoryArray = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
-if find_spec("torch"):
-    import torch
-
-    OutputInMemoryArray = OutputInMemoryArray | torch.Tensor
-
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
 
