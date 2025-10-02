@@ -63,6 +63,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "IPython.sphinxext.ipython_console_highlighting",
     "sphinxext.opengraph",
+    "sphinx_issues",
     "scanpydoc",  # needs to be before linkcode
     *[p.stem for p in (HERE / "extensions").glob("*.py")],
 ]
@@ -90,6 +91,7 @@ nb_output_stderr = "remove"
 nb_execution_mode = "off"
 nb_merge_streams = True
 typehints_defaults = "braces"
+issues_github_path = "lamindb/arrayloaders"
 
 source_suffix = {
     ".rst": "restructuredtext",
