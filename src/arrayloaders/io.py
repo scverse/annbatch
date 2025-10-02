@@ -110,6 +110,9 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
     return idxs
 
 
+DATASET_PREFIX = "dataset"
+
+
 def create_anndata_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
@@ -121,10 +124,10 @@ def create_anndata_collection(
     h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
     n_obs_per_dataset: int = 2_097_152,
     shuffle: bool = True,
-    should_denseify: bool = True,
+    should_denseify: bool = False,
     output_format: Literal["h5ad", "zarr"] = "zarr",
 ):
-    """Take a list of anndata paths, create an on-disk set of anndata datasets (together referred to as a "collection") with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
+    """Take a list of anndata paths, create an on-disk set of anndata datasets (together referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`) with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
 
     The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
     However, this function can also output h5 datasets and also unshuffled datasets as well.
@@ -191,7 +194,7 @@ def create_anndata_collection(
             adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
 
         if output_format == "zarr":
-            f = zarr.open_group(Path(output_path) / f"chunk_{i}.zarr", mode="w")
+            f = zarr.open_group(Path(output_path) / f"{DATASET_PREFIX}_{i}.zarr", mode="w")
             write_sharded(
                 f,
                 adata_chunk,
@@ -200,13 +203,13 @@ def create_anndata_collection(
                 compressors=zarr_compressor,
             )
         elif output_format == "h5ad":
-            adata_chunk.write_h5ad(Path(output_path) / f"chunk_{i}.h5ad", compression=h5ad_compressor)
+            adata_chunk.write_h5ad(Path(output_path) / f"{DATASET_PREFIX}_{i}.h5ad", compression=h5ad_compressor)
         else:
             raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
 
 
 def _get_array_encoding_type(path: PathLike[str] | str):
-    shards = list(Path(path).glob("chunk_*.zarr"))
+    shards = list(Path(path).glob(f"{DATASET_PREFIX}_*.zarr"))
     with open(shards[0] / "X" / "zarr.json") as f:
         encoding = json.load(f)
     return encoding["attributes"]["encoding-type"]
@@ -254,7 +257,7 @@ def add_to_collection(
         ... ]
         >>> add_to_collection(datasets, "path/to/output/zarr_store")
     """
-    shards = list(Path(output_path).glob("chunk_*.zarr"))
+    shards = list(Path(output_path).glob(f"{DATASET_PREFIX}_*.zarr"))
     if len(shards) == 0:
         raise ValueError(
             "Store at `output_path` does not exist or is empty. Please run `create_anndata_collection` first."

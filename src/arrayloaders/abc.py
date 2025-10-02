@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
     import anndata as ad
     import numpy as np
-    import torch
+    from torch import Tensor
 
 
 class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
@@ -190,7 +190,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         self,
     ) -> Iterator[
         tuple[OutputInMemoryArray, None | np.ndarray]
-        | tuple[OutputInMemoryArray | torch.Tensor, None | np.ndarray, np.ndarray]
+        | tuple[OutputInMemoryArray | Tensor, None | np.ndarray, np.ndarray]
     ]:
         """
         Iterate over the on-disk datasets, returning :class:`{gpu_array}` or :class:`{cpu_array}` depending on whether or not `preload_to_gpu` is set.
