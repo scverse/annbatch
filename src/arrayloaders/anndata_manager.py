@@ -15,11 +15,15 @@ from arrayloaders.utils import (
     CSRContainer,
     WorkerHandle,
     _batched,
+    add_anndata_docstring,
+    add_anndatas_docstring,
     add_dataset_docstring,
+    add_datasets_docstring,
     check_lt_1,
     check_var_shapes,
     index_datasets,
     split_given_size,
+    to_torch,
 )
 
 try:
@@ -36,14 +40,17 @@ if TYPE_CHECKING:
 accepted_on_disk_types = OnDiskArray.__constraints__
 
 
-class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArray]):  # noqa: D101
+class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray]):  # noqa: D101
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
     _on_add: Callable | None = None
     _batch_size: int = 1
     _shapes: list[tuple[int, int]] = []
-    _preload_to_gpu: bool = False
+    _preload_to_gpu: bool = True
+    _drop_last: bool = False
+    _to_torch: bool = True
+    _used_anndata_adder: bool = False
 
     def __init__(
         self,
@@ -51,12 +58,16 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         on_add: Callable | None = None,
         return_index: bool = False,
         batch_size: int = 1,
-        preload_to_gpu: bool = False,
+        preload_to_gpu: bool = True,
+        drop_last: bool = False,
+        to_torch: bool = True,
     ):
         self._on_add = on_add
         self._return_index = return_index
         self._batch_size = batch_size
         self._preload_to_gpu = preload_to_gpu
+        self._to_torch = to_torch
+        self._drop_last = drop_last
 
     @property
     def _sp_module(self) -> ModuleType:
@@ -103,6 +114,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         layer_keys: list[str | None] | str | None = None,
         obs_keys: list[str] | str | None = None,
     ) -> None:
+        self._used_anndata_adder = True
         if isinstance(layer_keys, str | None):
             layer_keys = [layer_keys] * len(adatas)
         if isinstance(obs_keys, str | None):
@@ -126,6 +138,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         layer_key: str | None = None,
         obs_key: str | None = None,
     ) -> None:
+        self._used_anndata_adder = True
         dataset = adata.X if layer_key is None else adata.layers[layer_key]
         if not isinstance(dataset, accepted_on_disk_types):
             raise TypeError(f"Found {type(dataset)} but only {accepted_on_disk_types} are usable")
@@ -175,9 +188,12 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         For example, given slice index (10, 15), for 4 datasets each with size 5 on axis zero,
         this function returns ((0,5), 2) representing slice (0,5) along axis zero of sparse dataset 2.
 
-        Args:
-            index: The queried slice.
-            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
+        Parameters
+        ----------
+            index
+                The queried slice.
+            use_original_space
+                Whether or not the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -208,9 +224,12 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
     ) -> OrderedDict[int, list[slice]]:
         """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
 
-        Args:
-            slices: Slices to relative to the on-disk datasets.
-            use_original_space: Whether or not the slices should be reindexed against the anndata objects.
+        Parameters
+        ----------
+            slices
+                Slices to relative to the on-disk datasets.
+            use_original_space
+                Whether or not the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -247,7 +266,7 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
         shuffle: bool,
         fetch_data: Callable[[list[slice], int], Awaitable[np.ndarray | CSRContainer]],
     ) -> Iterator[
-        tuple[InputInMemoryArray, None | np.ndarray] | tuple[InputInMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
     ]:
         """Iterate over the on-disk csr datasets.
 
@@ -278,7 +297,11 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
             chunks: list[InputInMemoryArray] = zsync.sync(index_datasets(dataset_index_to_slices, fetch_data))
             if any(isinstance(c, CSRContainer) for c in chunks):
                 chunks_converted: list[OutputInMemoryArray] = [
-                    self._sp_module.csr_matrix(tuple(self._np_module.asarray(e) for e in c.elems), shape=c.shape)
+                    self._sp_module.csr_matrix(
+                        tuple(self._np_module.asarray(e) for e in c.elems),
+                        shape=c.shape,
+                        dtype="float64" if self._preload_to_gpu else c.dtype,
+                    )
                     for c in chunks
                 ]
             else:
@@ -341,6 +364,8 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                     ]
                     if self._return_index:
                         res += [in_memory_indices[s]]
+                    if self._to_torch:
+                        res[0] = to_torch(res[0], self._preload_to_gpu)
                     yield tuple(res)
                 if i == (len(splits) - 1):  # end of iteration, leftover data needs be kept
                     if (s.shape[0] % self._batch_size) != 0:
@@ -353,15 +378,19 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray, OutputInMemoryArra
                         in_memory_data = None
                         in_memory_labels = None
                         in_memory_indices = None
-        if in_memory_data is not None:  # handle any leftover data
+        if in_memory_data is not None and not self._drop_last:  # handle any leftover data
             res = [
                 in_memory_data,
                 in_memory_labels if self.labels is not None else None,
             ]
             if self._return_index:
                 res += [in_memory_indices]
+            if self._to_torch:
+                res[0] = to_torch(res[0], self._preload_to_gpu)
             yield tuple(res)
 
 
-AnnDataManager.add_datasets.__doc__ = add_dataset_docstring
+AnnDataManager.add_datasets.__doc__ = add_datasets_docstring
 AnnDataManager.add_dataset.__doc__ = add_dataset_docstring
+AnnDataManager.add_anndatas.__doc__ = add_anndatas_docstring
+AnnDataManager.add_anndata.__doc__ = add_anndata_docstring

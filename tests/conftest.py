@@ -29,7 +29,7 @@ def use_zarrs(request):
 
 
 @pytest.fixture(scope="session")
-def adata_with_path(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.AnnData, Path]]:
+def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.AnnData, Path]]:
     """Create a mock Zarr store for testing."""
     feature_dim = 100
     n_cells_per_shard = 200
@@ -44,10 +44,7 @@ def adata_with_path(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.Ann
             ),
             layers={
                 "sparse": sp.random(
-                    n_cells_per_shard,
-                    feature_dim,
-                    format="csr",
-                    rng=np.random.default_rng(),
+                    n_cells_per_shard, feature_dim, format="csr", rng=np.random.default_rng(), dtype="int32"
                 )
             },
         )
@@ -67,9 +64,11 @@ def adata_with_path(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.Ann
 
 
 @pytest.fixture(scope="session")
-def raw_adatas_with_h5(tmpdir_factory, n_adatas: int = 4) -> tuple[ad.AnnData, Path]:
+def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) -> tuple[ad.AnnData, Path]:
     """Create mock anndata objects for testing."""
     tmp_path = Path(tmpdir_factory.mktemp("raw_adatas"))
+    tmp_path = tmp_path / "h5_files"
+    tmp_path.mkdir()
     n_features = [random.randint(50, 100) for _ in range(n_adatas)]
     n_cells = [random.randint(50, 100) for _ in range(n_adatas)]
     adatas = []
@@ -77,7 +76,7 @@ def raw_adatas_with_h5(tmpdir_factory, n_adatas: int = 4) -> tuple[ad.AnnData, P
         adata = ad.AnnData(
             X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
             obs=pd.DataFrame(
-                {"label": np.random.default_rng().integers(0, 5, size=m)},
+                {"label": np.random.default_rng().integers(0, 5, size=m), "store_id": [i] * m},
                 index=np.arange(m).astype(str),
             ),
             var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
@@ -85,4 +84,7 @@ def raw_adatas_with_h5(tmpdir_factory, n_adatas: int = 4) -> tuple[ad.AnnData, P
 
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
         adatas += [adata]
-    return ad.concat(adatas, join="outer"), tmp_path
+    return ad.concat(
+        [ad.read_h5ad(tmp_path / shard) for shard in sorted(tmp_path.iterdir()) if str(shard).endswith(".h5ad")],
+        join="outer",
+    ), tmp_path

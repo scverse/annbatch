@@ -24,13 +24,19 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "anndata[dask]",
+  "anndata[lazy]",
   "dask",
   "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
   "tqdm",
   "zarr>=3",
+]
+optional-dependencies.cupy-cuda12 = [
+  "cupy-cuda12x",
+]
+optional-dependencies.cupy-cuda13 = [
+  "cupy-cuda13x",
 ]
 optional-dependencies.dev = [
   "pre-commit",
@@ -42,23 +48,27 @@ optional-dependencies.doc = [
   "ipython",
   "myst-nb>=1.1",
   "pandas",
+  "scanpydoc[theme,typehints]>=0.15.3",
   # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
   "setuptools",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",
+  "sphinx-issues>=5.0.1",
   "sphinx-tabs",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.gpu = [
-  "cupy-cuda12x",
-]
 optional-dependencies.test = [
+  "arrayloaders[zarrs]",
   "coverage",
   "pytest",
+]
+optional-dependencies.torch = [
   "torch",
+]
+optional-dependencies.zarrs = [
   "zarrs",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
@@ -78,12 +88,12 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "stable" ]
+deps = [ "minimal" ]
 python = [ "3.11", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "pre" ]
+deps = [ "pre", "torch" ]
 python = [ "3.13" ]
 
 [tool.hatch.envs.hatch-test]
@@ -94,6 +104,9 @@ features = [ "test" ]
 # set the environment variable `UV_PRERELEASE` to "allow".
 matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
+]
+matrix.deps.features = [
+  { if = [ "torch" ], value = "torch" },
 ]
 
 [tool.ruff]
