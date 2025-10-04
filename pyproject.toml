@@ -153,9 +153,10 @@ lint.pydocstyle.convention = "numpy"
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
 xfail_strict = true
-addopts = [
-  "--import-mode=importlib", # allow using test files with same name
-]
+# https://github.com/pytest-dev/pytest/issues/10965
+# addopts = [
+#   "--import-mode=importlib", # allow using test files with same name
+# ]
 
 [tool.coverage.run]
 source = [ "arrayloaders" ]
