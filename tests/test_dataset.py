@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import multiprocessing
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
@@ -334,12 +333,6 @@ def _custom_collate_fn(elems):
     return x, y
 
 
-@pytest.fixture(scope="session", autouse=True)
-def always_spawn():
-    # see https://github.com/google/tensorstore/issues/61
-    multiprocessing.set_start_method("spawn")
-
-
 @pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
 @pytest.mark.parametrize("loader", [ZarrDenseDataset, ZarrSparseDataset])
 def test_torch_multiprocess_dataloading_zarr(
@@ -371,10 +364,7 @@ def test_torch_multiprocess_dataloading_zarr(
         raise ValueError("Unknown loader type")
 
     dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
+        ds, batch_size=32, num_workers=4, collate_fn=_custom_collate_fn, multiprocessing_context="spawn"
     )
     x_list, idx_list = [], []
     for batch in dataloader:
