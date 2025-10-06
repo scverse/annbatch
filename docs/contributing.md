@@ -29,7 +29,7 @@ hatch run docs:build  # defined in the table [tool.hatch.envs.docs]
 If you prefer managing environments manually, you can use `pip`:
 
 ```bash
-cd arrayloaders
+cd annbatch
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,test,doc]"

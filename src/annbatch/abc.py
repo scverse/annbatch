@@ -5,9 +5,9 @@ from functools import wraps
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Generic
 
-from arrayloaders.anndata_manager import AnnDataManager
-from arrayloaders.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
-from arrayloaders.utils import (
+from annbatch.anndata_manager import AnnDataManager
+from annbatch.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
+from annbatch.utils import (
     WorkerHandle,
     add_anndata_docstring,
     add_anndatas_docstring,
@@ -88,7 +88,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
 
         Examples
         --------
-            >>> from arrayloaders import {child_class}
+            >>> from annbatch import {child_class}
             >>> ds = {child_class}(
                     batch_size=4096,
                     chunk_size=32,

@@ -163,7 +163,7 @@ def create_anndata_collection(
 
     Examples
     --------
-        >>> from arrayloaders import create_anndata_collection
+        >>> from annbatch import create_anndata_collection
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
@@ -249,7 +249,7 @@ def add_to_collection(
 
     Examples
     --------
-        >>> from arrayloaders import add_to_collection
+        >>> from annbatch import add_to_collection
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
