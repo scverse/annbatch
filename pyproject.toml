@@ -157,10 +157,10 @@ addopts = [
 
 [tool.coverage.run]
 source = [ "annbatch" ]
+patch = [ "subprocess" ]
 omit = [
   "**/test_*.py",
 ]
-concurrency = [ "multiprocessing" ]
 
 [tool.cruft]
 skip = [
