@@ -21,7 +21,7 @@
 # annbatch
 
 > [!CAUTION]
-> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format to change as it is simply an anndata file.
+> This package does not have a stable API.  However, we do not anticipate the on-disk format to change as it is simply an anndata file.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
@@ -39,7 +39,7 @@ in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.11 or newer installed on your system.
+You need to have Python 3.12 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
 There are several alternative options to install annbatch:

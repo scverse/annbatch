@@ -28,7 +28,7 @@ def write_sharded(
     shard_size: int = 134_217_728,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
-    """Write a sharded zarr store from a single anndata object.
+    """Write a sharded zarr store from a single AnnData object.
 
     Parameters
     ----------
@@ -127,8 +127,9 @@ def create_anndata_collection(
     should_denseify: bool = False,
     output_format: Literal["h5ad", "zarr"] = "zarr",
 ):
-    """Take a list of anndata paths, create an on-disk set of anndata datasets (together referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`) with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
+    """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
 
+    The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`).
     The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
     However, this function can also output h5 datasets and also unshuffled datasets as well.
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
@@ -136,7 +137,7 @@ def create_anndata_collection(
     Parameters
     ----------
         adata_paths
-            Paths to the anndata files used to create the zarr store.
+            Paths to the AnnData files used to create the zarr store.
         output_path
             Path to the output zarr store.
         var_subset
@@ -208,7 +209,7 @@ def create_anndata_collection(
             raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
 
 
-def _get_array_encoding_type(path: PathLike[str] | str):
+def _get_array_encoding_type(path: PathLike[str] | str) -> str:
     shards = list(Path(path).glob(f"{DATASET_PREFIX}_*.zarr"))
     with open(shards[0] / "X" / "zarr.json") as f:
         encoding = json.load(f)
@@ -223,7 +224,7 @@ def add_to_collection(
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     read_full_anndatas: bool = True,
     should_sparsify_output_in_memory: bool = False,
-):
+) -> None:
     """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
     The var space of the source anndata files will be adapted to the target store.

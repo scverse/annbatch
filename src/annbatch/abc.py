@@ -3,10 +3,9 @@ from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 from functools import wraps
 from importlib.util import find_spec
-from typing import TYPE_CHECKING, Generic
+from typing import TYPE_CHECKING
 
 from annbatch.anndata_manager import AnnDataManager
-from annbatch.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
 from annbatch.utils import (
     WorkerHandle,
     add_anndata_docstring,
@@ -24,8 +23,10 @@ if TYPE_CHECKING:
     import numpy as np
     from torch import Tensor
 
+    from annbatch.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
 
-class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclass=ABCMeta):  # noqa: D101
+
+class AbstractIterableDataset[OnDiskArray, InputInMemoryArray](metaclass=ABCMeta):  # noqa: D101
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
@@ -133,6 +134,7 @@ class AbstractIterableDataset(Generic[OnDiskArray, InputInMemoryArray], metaclas
         self._shuffle = shuffle
         self._worker_handle = WorkerHandle()
 
+    @abstractmethod
     async def _cache_update_callback(self):
         pass
 

@@ -7,6 +7,7 @@ import anndata as ad
 import numpy as np
 import pytest
 import scipy.sparse as sp
+
 from annbatch import add_to_collection, create_anndata_collection
 
 if TYPE_CHECKING:
