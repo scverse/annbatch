@@ -14,7 +14,7 @@ maintainers = [
 ]
 authors = [
   { name = "Ilan Gold" },
-  { name = "Felix Fishcer" },
+  { name = "Felix Fischer" },
 ]
 requires-python = ">=3.11"
 classifiers = [
@@ -49,8 +49,6 @@ optional-dependencies.doc = [
   "myst-nb>=1.1",
   "pandas",
   "scanpydoc[theme,typehints]>=0.15.3",
-  # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
-  "setuptools",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
