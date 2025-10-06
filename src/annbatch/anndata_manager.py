@@ -10,8 +10,8 @@ import numpy as np
 import zarr.core.sync as zsync
 from scipy import sparse as sp
 
-from arrayloaders.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
-from arrayloaders.utils import (
+from annbatch.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
+from annbatch.utils import (
     CSRContainer,
     WorkerHandle,
     _batched,

@@ -1,5 +1,5 @@
-import arrayloaders
+import annbatch
 
 
 def test_package_has_version():
-    assert arrayloaders.__version__ is not None
+    assert annbatch.__version__ is not None

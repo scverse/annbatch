@@ -14,8 +14,8 @@ else:
         pass
 
 
-from arrayloaders.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
-from arrayloaders.utils import (
+from annbatch.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
+from annbatch.utils import (
     MultiBasicIndexer,
     add_anndata_docstring,
     add_anndatas_docstring,

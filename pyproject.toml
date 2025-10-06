@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [ "hatchling" ]
 
 [project]
-name = "arrayloaders"
+name = "annbatch"
 version = "0.0.1"
 description = "A minibatch loader for anndata store"
 readme = "README.md"
@@ -61,7 +61,7 @@ optional-dependencies.doc = [
   "sphinxext-opengraph",
 ]
 optional-dependencies.test = [
-  "arrayloaders[zarrs]",
+  "annbatch[zarrs]",
   "coverage",
   "pytest",
 ]
@@ -72,9 +72,9 @@ optional-dependencies.zarrs = [
   "zarrs",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://arrayloaders.readthedocs.io/"
-urls.Homepage = "https://github.com/laminlabs/arrayloaders"
-urls.Source = "https://github.com/laminlabs/arrayloaders"
+urls.Documentation = "https://annbatch.readthedocs.io/"
+urls.Homepage = "https://github.com/laminlabs/annbatch"
+urls.Source = "https://github.com/laminlabs/annbatch"
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -159,7 +159,7 @@ xfail_strict = true
 # ]
 
 [tool.coverage.run]
-source = [ "arrayloaders" ]
+source = [ "annbatch" ]
 omit = [
   "**/test_*.py",
 ]
