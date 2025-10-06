@@ -10,9 +10,11 @@ readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [
   { name = "Ilan Gold", email = "ilan.gold@scverse.org" },
+  { name = "Felix Fischer", email = "felix.fischer@lamin.ai" },
 ]
 authors = [
   { name = "Ilan Gold" },
+  { name = "Felix Fischer" },
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -23,9 +25,19 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "anndata",
+  "anndata[lazy]",
+  "dask",
+  "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
+  "tqdm",
+  "zarr>=3",
+]
+optional-dependencies.cupy-cuda12 = [
+  "cupy-cuda12x",
+]
+optional-dependencies.cupy-cuda13 = [
+  "cupy-cuda13x",
 ]
 optional-dependencies.dev = [
   "pre-commit",
@@ -37,25 +49,31 @@ optional-dependencies.doc = [
   "ipython",
   "myst-nb>=1.1",
   "pandas",
-  # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
-  "setuptools",
+  "scanpydoc[theme,typehints]>=0.15.3",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",
+  "sphinx-issues>=5.0.1",
   "sphinx-tabs",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
 optional-dependencies.test = [
-  "coverage>=7.10",
+  "annbatch[zarrs]",
+  "coverage",
   "pytest",
-  "pytest-cov",     # For VS Code’s coverage functionality
+]
+optional-dependencies.torch = [
+  "torch",
+]
+optional-dependencies.zarrs = [
+  "zarrs",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://annbatch.readthedocs.io/"
-urls.Homepage = "https://github.com/scverse/annbatch"
-urls.Source = "https://github.com/scverse/annbatch"
+urls.Homepage = "https://github.com/laminlabs/annbatch"
+urls.Source = "https://github.com/laminlabs/annbatch"
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -69,22 +87,25 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "stable" ]
-python = [ "3.10", "3.13" ]
+deps = [ "minimal" ]
+python = [ "3.11", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "pre" ]
+deps = [ "pre", "torch" ]
 python = [ "3.13" ]
 
 [tool.hatch.envs.hatch-test]
-features = [ "dev", "test" ]
+features = [ "test" ]
 
 [tool.hatch.envs.hatch-test.overrides]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
 matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
+]
+matrix.deps.features = [
+  { if = [ "torch" ], value = "torch" },
 ]
 
 [tool.ruff]
@@ -103,6 +124,7 @@ lint.select = [
   "F",      # Errors detected by Pyflakes
   "I",      # isort
   "RUF100", # Report unused noqa directives
+  "TC",     # Typing imports
   "TID",    # flake8-tidy-imports
   "UP",     # pyupgrade
   "W",      # Warning detected by Pycodestyle
