@@ -6,8 +6,9 @@ from typing import TypeVar
 import anndata as ad
 import numpy as np
 import zarr
-from annbatch.utils import CSRContainer
 from scipy import sparse as sp
+
+from annbatch.utils import CSRContainer
 
 try:
     from cupy import ndarray as CupyArray
