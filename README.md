@@ -4,21 +4,21 @@
 
 [scverse discourse]: https://discourse.scverse.org/
 
-[issue tracker]: https://github.com/laminlabs/arrayloaders/issues
+[issue tracker]: https://github.com/laminlabs/annbatch/issues
 
-[tests]: https://github.com/laminlabs/arrayloaders/actions/workflows/test.yaml
+[tests]: https://github.com/laminlabs/annbatch/actions/workflows/test.yaml
 
-[documentation]: https://arrayloaders.readthedocs.io
+[documentation]: https://annbatch.readthedocs.io
 
-[changelog]: https://arrayloaders.readthedocs.io/en/latest/changelog.html
+[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
 
-[api documentation]: https://arrayloaders.readthedocs.io/en/latest/api.html
+[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
 
-[pypi]: https://pypi.org/project/arrayloaders
+[pypi]: https://pypi.org/project/annbatch
 
 [zarrs-python]: https://zarrs-python.readthedocs.io/
 
-# arrayloaders
+# annbatch
 
 > [!CAUTION]
 > This pacakge does not have a stable API.  However, we do not anticipate the on-disk format to change as it is simply an anndata file.
@@ -26,9 +26,9 @@
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/arrayloaders/test.yaml?branch=main
+[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/annbatch/test.yaml?branch=main
 
-[badge-docs]: https://img.shields.io/readthedocs/arrayloaders
+[badge-docs]: https://img.shields.io/readthedocs/annbatch
 
 A minibatch loader for anndata stores
 
@@ -42,20 +42,20 @@ in particular, the [API documentation][].
 You need to have Python 3.11 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
-There are several alternative options to install arrayloaders:
+There are several alternative options to install annbatch:
 
 <!--
-1) Install the latest release of `arrayloaders` from [PyPI][]:
+1) Install the latest release of `annbatch` from [PyPI][]:
 
 ```bash
-pip install arrayloaders
+pip install annbatch
 ```
 -->
 
 1. Install the latest development version:
 
 ```bash
-pip install git+https://github.com/laminlabs/arrayloaders.git@main
+pip install git+https://github.com/laminlabs/annbatch.git@main
 ```
 
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
@@ -67,7 +67,7 @@ We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda
 
 Basic preprocessing:
 ```python
-from arrayloaders import create_anndata_collection
+from annbatch import create_anndata_collection
 
 import zarr
 from pathlib import Path
@@ -93,7 +93,7 @@ Data loading:
 ```python
 from pathlib import Path
 
-from arrayloaders import ZarrSparseDataset
+from annbatch import ZarrSparseDataset
 import anndata as ad
 import zarr
 import zarrs   # noqa: F401

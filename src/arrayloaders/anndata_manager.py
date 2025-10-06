@@ -8,10 +8,8 @@ from typing import TYPE_CHECKING, Generic, cast
 import anndata as ad
 import numpy as np
 import zarr.core.sync as zsync
-from scipy import sparse as sp
-
-from arrayloaders.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
-from arrayloaders.utils import (
+from annbatch.types import InputInMemoryArray, OnDiskArray, OutputInMemoryArray
+from annbatch.utils import (
     CSRContainer,
     WorkerHandle,
     _batched,
@@ -26,6 +24,7 @@ from arrayloaders.utils import (
     split_given_size,
     to_torch,
 )
+from scipy import sparse as sp
 
 try:
     from cupy import ndarray as CupyArray
