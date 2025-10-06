@@ -10,6 +10,8 @@ from datetime import datetime
 from importlib.metadata import metadata
 from pathlib import Path
 
+# For some reason doing this prevents autodoc_mock_import = ["torch"] from not being able to find the module i.e., it's not in sys.modules.
+# TODO: Bug report
 import annbatch  # noqa: F401
 
 HERE = Path(__file__).parent
