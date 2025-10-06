@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
-from types import NoneType
 from typing import NamedTuple, cast
 
 import anndata as ad
@@ -10,9 +10,9 @@ import numpy as np
 import zarr
 import zarr.core.sync as zsync
 
-try:
+if find_spec("torch"):
     from torch.utils.data import IterableDataset as _IterableDataset
-except ImportError:
+else:
 
     class _IterableDataset:
         pass
@@ -27,11 +27,6 @@ from arrayloaders.utils import (
     add_dataset_docstring,
     add_datasets_docstring,
 )
-
-try:
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
-except ImportError:
-    CupyCSRMatrix = NoneType
 
 
 class CSRDatasetElems(NamedTuple):
