@@ -20,7 +20,7 @@
 
 [lamin]: https://lamin.ai/
 
-[scverse]: [https://lamin.ai/](https://scverse.org/)
+[scverse]: https://scverse.org/
 
 # annbatch
 
