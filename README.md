@@ -56,7 +56,7 @@ pip install annbatch
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
 > [!IMPORTANT]
-> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful.
+> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
 
 ## Basic usage example
 
