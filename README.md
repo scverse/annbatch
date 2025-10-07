@@ -27,7 +27,7 @@
 # annbatch
 
 > [!CAUTION]
-> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format to change as it is simply an anndata file.
+> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format in an incompatible manner (since it is normal anndata).
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
