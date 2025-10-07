@@ -4,9 +4,9 @@
 
 [scverse discourse]: https://discourse.scverse.org/
 
-[issue tracker]: https://github.com/laminlabs/annbatch/issues
+[issue tracker]: https://github.com/scverse/annbatch/issues
 
-[tests]: https://github.com/laminlabs/annbatch/actions/workflows/test.yaml
+[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
 
 [documentation]: https://annbatch.readthedocs.io
 
@@ -26,7 +26,7 @@
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/annbatch/test.yaml?branch=main
+[badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
@@ -42,24 +42,15 @@ in particular, the [API documentation][].
 You need to have Python 3.11 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
-There are several alternative options to install annbatch:
-
-<!--
-1) Install the latest release of `annbatch` from [PyPI][]:
+To install the latest release of `annbatch` from [PyPI][]:
 
 ```bash
 pip install annbatch
 ```
--->
 
-1. Install the latest development version:
-
-```bash
-pip install git+https://github.com/laminlabs/annbatch.git@main
-```
 
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
-`cupy` provides accelerated handling of the data once it has been read off disk and does not need to be used in conjunction with `torch`.
+`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
 > [!IMPORTANT]
 > [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful.
 
