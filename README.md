@@ -22,6 +22,8 @@
 
 [scverse]: https://scverse.org/
 
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/#in-depth
+
 # annbatch
 
 > [!CAUTION]
@@ -121,7 +123,7 @@ for batch in ds:
 
 <!--HEADER-->
 
-For a deeper dive, please see our [LINK BROKEN: docs page](XXXXX)
+For a deeper dive into this example, please see the [in-depth section of our docs][]
 
 <!--FOOTER-->
 ## Release notes
