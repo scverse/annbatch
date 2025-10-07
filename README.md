@@ -18,6 +18,10 @@
 
 [zarrs-python]: https://zarrs-python.readthedocs.io/
 
+[lamin]: https://lamin.ai/
+
+[scverse]: [https://lamin.ai/](https://scverse.org/)
+
 # annbatch
 
 > [!CAUTION]
@@ -30,7 +34,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A minibatch loader for anndata stores
+A minibatch loader + utilities for on-disk anndata, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
