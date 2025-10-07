@@ -34,7 +34,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A minibatch loader + utilities for on-disk anndata, co-developed by [lamin][] and [scverse][]
+A data loader + io utilities for minibatching anndata, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
