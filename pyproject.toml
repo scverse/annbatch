@@ -71,8 +71,8 @@ optional-dependencies.zarrs = [
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://annbatch.readthedocs.io/"
-urls.Homepage = "https://github.com/laminlabs/annbatch"
-urls.Source = "https://github.com/laminlabs/annbatch"
+urls.Homepage = "https://github.com/scverse/annbatch"
+urls.Source = "https://github.com/scverse/annbatch"
 
 [tool.hatch.envs.default]
 installer = "uv"
