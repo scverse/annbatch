@@ -24,8 +24,10 @@ if TYPE_CHECKING:
 def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
-    chunk_size: int = 32768,
-    shard_size: int = 134_217_728,
+    sparse_chunk_size: int = 32768,
+    sparse_shard_size: int = 134_217_728,
+    dense_chunk_obs: int = 1024,
+    dense_shard_obs: int = 4194304,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
     """Write a sharded zarr store from a single anndata object.
@@ -36,10 +38,14 @@ def write_sharded(
             The destination group, must be zarr v3
         adata
             The source anndata object
-        chunk_size
-            Chunk size inside a shard.
-        shard_size
-            Shard size i.e., number of elements in a single file.
+        sparse_chunk_size
+            Chunk size of `indices` and `data` inside a shard.
+        sparse_shard_size
+            Shard size i.e., number of elements in a single sparse `data` or `indices` file.
+        dense_chunk_obs
+            Number of obs elements per dense chunk
+        dense_shard_obs
+            Number of obs elements per dense shard
         compressors
             The compressors to pass to `zarr`.
     """
@@ -54,21 +60,22 @@ def write_sharded(
         *,
         iospec: ad.experimental.IOSpec,
     ):
-        if iospec.encoding_type in {"array"}:
+        if iospec.encoding_type in {"array"} and (
+            any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
+        ):
             dataset_kwargs = {
-                "shards": (shard_size,) + (elem.shape[1:]),  # only shard over 1st dim
-                "chunks": (chunk_size,) + (elem.shape[1:]),  # only chunk over 1st dim
+                "shards": (min(dense_shard_obs, elem.shape[0]),) + (elem.shape[1:]),  # only shard over 1st dim
+                "chunks": (min(dense_chunk_obs, elem.shape[0]),) + (elem.shape[1:]),  # only chunk over 1st dim
                 "compressors": compressors,
                 **dataset_kwargs,
             }
         elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
             dataset_kwargs = {
-                "shards": (shard_size,),
-                "chunks": (chunk_size,),
+                "shards": (sparse_shard_size,),
+                "chunks": (sparse_chunk_size,),
                 "compressors": compressors,
                 **dataset_kwargs,
             }
-
         write_func(store, elem_name, elem, dataset_kwargs=dataset_kwargs)
 
     ad.experimental.write_dispatched(group, "/", adata, callback=callback)
@@ -118,8 +125,10 @@ def create_anndata_collection(
     output_path: PathLike[str] | str,
     *,
     var_subset: Iterable[str] | None = None,
-    zarr_chunk_size: int = 32768,
-    zarr_shard_size: int = 134_217_728,
+    zarr_sparse_chunk_size: int = 32768,
+    zarr_sparse_shard_size: int = 134_217_728,
+    zarr_dense_chunk_obs: int = 1024,
+    zarr_dense_shard_obs: int = 4194304,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
     n_obs_per_dataset: int = 2_097_152,
@@ -142,10 +151,14 @@ def create_anndata_collection(
         var_subset
             Subset of gene names to include in the store. If None, all genes are included.
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
-        zarr_chunk_size
-            Size of the chunks to use for the data in the zarr store.
-        zarr_shard_size
-            Size of the shards to use for the data in the zarr store.
+        zarr_sparse_chunk_size
+            Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
+        zarr_sparse_shard_size
+            Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
+        zarr_dense_chunk_size
+            Number of observations per dense zarr chunk (all chunking happens along the first axis for `obsX` elements).
+        zarr_dense_shard_size
+            Number of observations per dense zarr shard (all sharding happens along the first axis for `obsX` elements).
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         h5ad_compressor
@@ -174,6 +187,9 @@ def create_anndata_collection(
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3
     adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
+    if adata_concat.shape[0] < n_obs_per_dataset:
+        msg = f"Cannot put {n_obs_per_dataset} observations in each output anndata when there are only {adata_concat.shape[0]} data points in the source."
+        raise ValueError(msg)
     adata_concat.obs_names_make_unique()
     chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
 
@@ -184,11 +200,13 @@ def create_anndata_collection(
         var_mask = adata_concat.var_names.isin(var_subset)
         adata_chunk = adata_concat[chunk, :][:, var_mask].copy()
         adata_chunk.X = adata_chunk.X.persist()
+        for k, elem in adata_chunk.obsm.items():
+            if isinstance(elem, DaskArray):
+                adata_chunk.obsm[k] = elem.persist()
         if shuffle:
             # shuffle adata in memory to break up individual chunks
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-            adata_chunk.X = adata_chunk.X[idxs, :]
-            adata_chunk.obs = adata_chunk.obs.iloc[idxs]
+            adata_chunk = adata_chunk[idxs].copy()
         # convert to dense format before writing to disk
         if should_denseify:
             adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
@@ -198,8 +216,10 @@ def create_anndata_collection(
             write_sharded(
                 f,
                 adata_chunk,
-                chunk_size=zarr_chunk_size,
-                shard_size=zarr_shard_size,
+                sparse_chunk_size=zarr_sparse_chunk_size,
+                sparse_shard_size=zarr_sparse_shard_size,
+                dense_chunk_obs=zarr_dense_chunk_obs,
+                dense_shard_obs=zarr_dense_shard_obs,
                 compressors=zarr_compressor,
             )
         elif output_format == "h5ad":
@@ -218,8 +238,10 @@ def _get_array_encoding_type(path: PathLike[str] | str):
 def add_to_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
-    zarr_chunk_size: int = 32768,
-    zarr_shard_size: int = 134_217_728,
+    zarr_sparse_chunk_size: int = 32768,
+    zarr_sparse_shard_size: int = 134_217_728,
+    zarr_dense_chunk_obs: int = 1024,
+    zarr_dense_shard_obs: int = 4194304,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     read_full_anndatas: bool = True,
     should_sparsify_output_in_memory: bool = False,
@@ -234,10 +256,14 @@ def add_to_collection(
             Paths to the anndata files to be appended to the collection of output chunks.
         output_path
             Path to the output zarr store.
-        zarr_chunk_size
+        zarr_sparse_chunk_size
             Size of the chunks to use for the data in the zarr store.
-        zarr_shard_size
+        zarr_sparse_shard_size
             Size of the shards to use for the data in the zarr store.
+        zarr_dense_chunk_size
+            Number of observations per dense zarr chunk (all chunking happens along the first axis for `obsX` elements).
+        zarr_dense_shard_size
+            Number of observations per dense zarr shard (all sharding happens along the first axis for `obsX` elements).
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         read_full_anndatas
@@ -308,7 +334,9 @@ def add_to_collection(
         write_sharded(
             f,
             adata,
-            chunk_size=zarr_chunk_size,
-            shard_size=zarr_shard_size,
+            sparse_chunk_size=zarr_sparse_chunk_size,
+            sparse_shard_size=zarr_sparse_shard_size,
+            dense_chunk_obs=zarr_dense_chunk_obs,
+            dense_shard_obs=zarr_dense_shard_obs,
             compressors=zarr_compressor,
         )

@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
+import zarr
+
 from annbatch import add_to_collection, create_anndata_collection
 
 if TYPE_CHECKING:
@@ -24,8 +27,10 @@ def test_store_creation_default(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         output_path,
         var_subset=var_subset,
-        zarr_chunk_size=10,
-        zarr_shard_size=20,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_obs=10,
+        zarr_dense_shard_obs=20,
         n_obs_per_dataset=60,
     )
     assert isinstance(ad.read_zarr(next((output_path).iterdir())).X, sp.csr_matrix)
@@ -47,8 +52,10 @@ def test_store_creation(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         output_path,
         var_subset=var_subset,
-        zarr_chunk_size=10,
-        zarr_shard_size=20,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_obs=5,
+        zarr_dense_shard_obs=10,
         n_obs_per_dataset=60,
         shuffle=shuffle,
         should_denseify=densify,
@@ -65,11 +72,21 @@ def test_store_creation(
         sorted(adata.var.index),
         sorted(adata_orig.var.index),
     )
+    assert "arr" in adata.obsm
     if not shuffle:
         np.testing.assert_array_equal(
             adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
             adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
         )
+        np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
+        adata.obs.index = adata_orig.obs.index  # correct for concat
+        pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
+    z = zarr.open(output_path / "dataset_0.zarr")
+    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
+    if not densify:
+        assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
+    else:
+        assert z["X"].chunks[0] == 5, z["X"]["indices"]
 
 
 @pytest.mark.parametrize("densify", [True, False])
@@ -89,8 +106,10 @@ def test_store_extension(
     create_anndata_collection(
         original,
         store_path,
-        zarr_chunk_size=10,
-        zarr_shard_size=20,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_obs=10,
+        zarr_dense_shard_obs=20,
         n_obs_per_dataset=60,
         shuffle=True,
         should_denseify=densify,
@@ -100,8 +119,10 @@ def test_store_extension(
         additional,
         store_path,
         read_full_anndatas=read_full_anndatas,
-        zarr_chunk_size=10,
-        zarr_shard_size=20,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_obs=10,
+        zarr_dense_shard_obs=20,
     )
 
     adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])

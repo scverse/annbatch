@@ -10,8 +10,9 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-from annbatch import write_sharded
 from scipy.sparse import random as sparse_random
+
+from annbatch import write_sharded
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -79,6 +80,7 @@ def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) ->
                 index=np.arange(m).astype(str),
             ),
             var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
+            obsm={"arr": np.random.randn(m, 10)},
         )
 
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
