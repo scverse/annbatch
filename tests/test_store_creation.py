@@ -37,6 +37,35 @@ def test_store_creation_default(
     assert sorted(glob.glob(str(output_path / "dataset_*.zarr"))) == sorted(str(p) for p in (output_path).iterdir())
 
 
+def test_store_creation_drop_elem(
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+):
+    var_subset = [f"gene_{i}" for i in range(100)]
+    h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
+    output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_drop_elems"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    def transform(a: ad.AnnData) -> ad.AnnData:
+        del a.obsm
+        del a.raw
+        return a
+
+    create_anndata_collection(
+        [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
+        output_path,
+        var_subset=var_subset,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_obs=10,
+        zarr_dense_shard_obs=20,
+        n_obs_per_dataset=60,
+        transform_input_adata=transform,
+    )
+    adata_output = ad.read_zarr(next((output_path).iterdir()))
+    assert "arr" not in adata_output.obsm
+    assert adata_output.raw is None
+
+
 @pytest.mark.parametrize("shuffle", [True, False])
 @pytest.mark.parametrize("densify", [True, False])
 def test_store_creation(
