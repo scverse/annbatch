@@ -187,9 +187,6 @@ def create_anndata_collection(
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3
     adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
-    if adata_concat.shape[0] < n_obs_per_dataset:
-        msg = f"Cannot put {n_obs_per_dataset} observations in each output anndata when there are only {adata_concat.shape[0]} data points in the source."
-        raise ValueError(msg)
     adata_concat.obs_names_make_unique()
     chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
 
