@@ -181,7 +181,7 @@ def create_anndata_collection(
         output_format
             Format of the output store. Can be either "zarr" or "h5ad".
         transform_input_adata
-            Function to allow transforming the concatenated inputs i.e, dropping `obsm` or bringing an element into memory.
+            Function to allow transforming the concatenated inputs, i.e, dropping `obsm` or bringing an element into memory, before writing to disk.
 
     Examples
     --------
