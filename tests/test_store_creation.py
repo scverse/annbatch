@@ -82,11 +82,11 @@ def test_store_creation(
         adata.obs.index = adata_orig.obs.index  # correct for concat
         pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
-    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
+    assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])
     if not densify:
-        assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
+        assert z["X"]["indices"].chunks[0] == 10
     else:
-        assert z["X"].chunks[0] == 5, z["X"]["indices"]
+        assert z["X"].chunks == (5, z["X"].shape[1])
 
 
 @pytest.mark.parametrize("densify", [True, False])
@@ -132,8 +132,8 @@ def test_store_extension(
     assert adata.X.shape[0] == expected_adata.X.shape[0]
     assert "arr" in adata.obsm
     z = zarr.open(store_path / "dataset_0.zarr")
-    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
+    assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])
     if not densify:
-        assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
+        assert z["X"]["indices"].chunks[0] == 10
     else:
-        assert z["X"].chunks[0] == 5, z["X"]["indices"]
+        assert z["X"].chunks == (5, z["X"].shape[1])

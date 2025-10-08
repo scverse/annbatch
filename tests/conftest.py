@@ -80,7 +80,7 @@ def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) ->
                 index=np.arange(m).astype(str),
             ),
             var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
-            obsm={"arr": np.random.randn(m, 10)},
+            obsm={"arr": np.random.randn(m, 9)},
         )
 
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
