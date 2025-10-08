@@ -88,6 +88,11 @@ def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[
         adata = ad.experimental.read_lazy(path)
         adata.obs = adata.obs.to_memory()
         adata.var = adata.var.to_memory()
+        if adata.raw is not None:
+            adata_raw = adata.raw.to_adata()
+            del adata.raw
+            adata_raw.var = adata_raw.var.to_memory()
+            adata.raw = adata_raw
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]

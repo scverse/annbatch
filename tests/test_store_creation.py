@@ -78,6 +78,10 @@ def test_store_creation(
             adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
             adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
         )
+        np.testing.assert_array_equal(
+            adata.raw.X if isinstance(adata.raw.X, np.ndarray) else adata.raw.X.toarray(),
+            adata_orig.raw.X if isinstance(adata_orig.raw.X, np.ndarray) else adata_orig.raw.X.toarray(),
+        )
         np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
         adata.obs.index = adata_orig.obs.index  # correct for concat
         pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
