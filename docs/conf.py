@@ -12,7 +12,7 @@ from pathlib import Path
 
 # For some reason doing this prevents autodoc_mock_import = ["torch"] from not being able to find the module i.e., it's not in sys.modules.
 # TODO: Bug report
-import arrayloaders  # noqa: F401
+import annbatch  # noqa: F401
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "extensions"))
@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE / "extensions"))
 
 # NOTE: If you installed your project in editable mode, this might be stale.
 #       If this is the case, reinstall it to refresh the metadata
-info = metadata("arrayloaders")
+info = metadata("annbatch")
 project_name = info["Name"]
 author = info["Author"]
 copyright = f"{datetime.now():%Y}, {author}."
@@ -91,7 +91,7 @@ nb_output_stderr = "remove"
 nb_execution_mode = "off"
 nb_merge_streams = True
 typehints_defaults = "braces"
-issues_github_path = "lamindb/arrayloaders"
+issues_github_path = "lamindb/annbatch"
 
 source_suffix = {
     ".rst": "restructuredtext",

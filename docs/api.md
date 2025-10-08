@@ -1,7 +1,7 @@
 # API
 
 ```{eval-rst}
-.. module:: arrayloaders
+.. module:: annbatch
 ```
 
 (loaders)=
