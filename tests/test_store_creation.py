@@ -121,8 +121,8 @@ def test_store_extension(
         read_full_anndatas=read_full_anndatas,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=10,
-        zarr_dense_shard_obs=20,
+        zarr_dense_chunk_obs=5,
+        zarr_dense_shard_obs=10,
     )
 
     adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])
@@ -130,3 +130,10 @@ def test_store_extension(
     expected_adata = ad.concat([adata_orig, adata_orig[adata_orig.obs["store_id"] >= 4]], join="outer")
     assert adata.X.shape[1] == expected_adata.X.shape[1]
     assert adata.X.shape[0] == expected_adata.X.shape[0]
+    assert "arr" in adata.obsm
+    z = zarr.open(store_path / "dataset_0.zarr")
+    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
+    if not densify:
+        assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
+    else:
+        assert z["X"].chunks[0] == 5, z["X"]["indices"]
