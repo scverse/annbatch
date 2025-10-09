@@ -23,10 +23,15 @@ def test_write_sharded_bad_chunk_size(tmp_path):
         write_sharded(z, adata, dense_chunk_obs=20)
 
 
-def test_write_sharded_shard_size_too_big(tmp_path):
+@pytest.mark.parametrize(
+    ["chunk_size", "expected_shard_size"],
+    [pytest.param(3, 9, id="n_obs_not_divisible_by_chunk"), pytest.param(5, 10, id="n_obs_divisible_by_chunk")],
+)
+def test_write_sharded_shard_size_too_big(tmp_path, chunk_size, expected_shard_size):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
-    write_sharded(z, adata, dense_chunk_obs=5, dense_shard_obs=20)
+    write_sharded(z, adata, dense_chunk_obs=chunk_size, dense_shard_obs=20)
+    assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_obs`
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
