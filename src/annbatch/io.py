@@ -134,7 +134,6 @@ def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[
 def _read_into_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
     adatas = []
     for path in paths:
-        print(path)
         adata = getattr(ad, f"read_{Path(path).suffix.split('.')[-1]}")(path)
         adatas.append(adata)
 
