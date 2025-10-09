@@ -207,9 +207,11 @@ def create_anndata_collection(
         var_mask = adata_concat.var_names.isin(var_subset)
         adata_chunk = adata_concat[chunk, :][:, var_mask].copy()
         adata_chunk.X = adata_chunk.X.persist()
-        for k, elem in adata_chunk.obsm.items():
-            if isinstance(elem, DaskArray):
-                adata_chunk.obsm[k] = elem.persist()
+        if adata_chunk.raw is not None:
+            adata_raw = adata_chunk.raw.to_adata()
+            adata_raw.X = adata_raw.X.persist()
+            del adata_chunk.raw
+            adata_chunk.raw = adata_raw
         if shuffle:
             # shuffle adata in memory to break up individual chunks
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
