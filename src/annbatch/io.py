@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
     from typing import Any, Literal
 
     from zarr.abc.codec import BytesBytesCodec
+
+
+def _round_down(num: int, divisor: int):
+    return num - (num % divisor)
 
 
 def write_sharded(
@@ -61,21 +66,31 @@ def write_sharded(
         *,
         iospec: ad.experimental.IOSpec,
     ):
+        # Ensure we're not overriding anything here
+        dataset_kwargs = dataset_kwargs.copy()
         if iospec.encoding_type in {"array"} and (
             any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
         ):
+            # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
+            shard_size = min(dense_shard_obs, _round_down(elem.shape[0], dense_chunk_obs))
+            chunk_size = min(dense_chunk_obs, _round_down(elem.shape[0], dense_chunk_obs))
+            # If the shape is less than the computed size (impossible given rounds?) or the rounding caused created a 0-size chunk, then error
+            if elem.shape[0] < chunk_size or chunk_size == 0:
+                raise ValueError(
+                    f"Choose a dense shard obs {dense_shard_obs} and chunk obs {dense_chunk_obs} with non-zero size less than the number of observations {elem.shape[0]}"
+                )
             dataset_kwargs = {
-                "shards": (min(dense_shard_obs, elem.shape[0]),) + (elem.shape[1:]),  # only shard over 1st dim
-                "chunks": (min(dense_chunk_obs, elem.shape[0]),) + (elem.shape[1:]),  # only chunk over 1st dim
-                "compressors": compressors,
                 **dataset_kwargs,
+                "shards": (shard_size,) + elem.shape[1:],  # only shard over 1st dim
+                "chunks": (chunk_size,) + elem.shape[1:],  # only chunk over 1st dim
+                "compressors": compressors,
             }
         elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
             dataset_kwargs = {
+                **dataset_kwargs,
                 "shards": (sparse_shard_size,),
                 "chunks": (sparse_chunk_size,),
                 "compressors": compressors,
-                **dataset_kwargs,
             }
         write_func(store, elem_name, elem, dataset_kwargs=dataset_kwargs)
 
@@ -85,11 +100,27 @@ def write_sharded(
 
 def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
     adatas = []
-    for path in paths:
+    raw_detected_in_inputs = False
+    found_keys = {"layers": set({}), "obsm": set({})}
+    for idx, path in enumerate(paths):
         adata = ad.experimental.read_lazy(path)
         adata.obs = adata.obs.to_memory()
         adata.var = adata.var.to_memory()
+        for elem_name, keys in found_keys.items():
+            curr_keys = set(getattr(adata, elem_name).keys())
+            if (len(keys) > 0 or idx > 0) and len(curr_keys.symmetric_difference(keys)) > 0:
+                warnings.warn(
+                    f"Some anndatas have {elem_name} keys not present in others' {elem_name}, consider stopping and using the `transform_input_adata` argument to alter {elem_name} accordingly.",
+                    stacklevel=2,
+                )
+            keys.update(curr_keys)
         if adata.raw is not None:
+            if not raw_detected_in_inputs and idx > 0:
+                warnings.warn(
+                    "Some anndatas have raw and others do not, consider deleting raw via `transform_input_adata`",
+                    stacklevel=2,
+                )
+            raw_detected_in_inputs = True
             adata_raw = adata.raw.to_adata()
             del adata.raw
             adata_raw.var = adata_raw.var.to_memory()
@@ -212,6 +243,10 @@ def create_anndata_collection(
             adata_raw.X = adata_raw.X.persist()
             del adata_chunk.raw
             adata_chunk.raw = adata_raw
+        for dict_elem in [adata_chunk.obsm, adata_chunk.layers]:
+            for k, elem in dict_elem.items():
+                if isinstance(elem, DaskArray):
+                    dict_elem[k] = elem.persist()
         if shuffle:
             # shuffle adata in memory to break up individual chunks
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))

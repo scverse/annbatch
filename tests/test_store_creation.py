@@ -10,10 +10,46 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import add_to_collection, create_anndata_collection
+from annbatch import add_to_collection, create_anndata_collection, write_sharded
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_write_sharded_bad_chunk_size(tmp_path):
+    adata = ad.AnnData(np.random.randn(10, 20))
+    z = zarr.open(tmp_path / "foo.zarr")
+    with pytest.raises(ValueError, match=r"Choose a dense"):
+        write_sharded(z, adata, dense_chunk_obs=20)
+
+
+def test_write_sharded_shard_size_too_big(tmp_path):
+    adata = ad.AnnData(np.random.randn(10, 20))
+    z = zarr.open(tmp_path / "foo.zarr")
+    write_sharded(z, adata, dense_chunk_obs=5, dense_shard_obs=20)
+
+
+@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
+def test_store_creation_with_different_keys(elem_name, tmp_path):
+    adata_1 = ad.AnnData(X=np.random.randn(10, 20))
+    extra_args = (
+        {elem_name: {"arr": np.random.randn(10, 20)}} if elem_name != "raw" else {"raw": {"X": np.random.randn(10, 20)}}
+    )
+    adata_2 = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
+    path_1 = tmp_path / "just_x.h5ad"
+    path_2 = tmp_path / "with_extra_key.h5ad"
+    adata_1.write_h5ad(path_1)
+    adata_2.write_h5ad(path_2)
+    with pytest.warns(UserWarning, match=rf"Some anndatas have {elem_name}"):
+        create_anndata_collection(
+            [path_1, path_2],
+            tmp_path / "collection",
+            zarr_sparse_chunk_size=10,
+            zarr_sparse_shard_size=20,
+            zarr_dense_chunk_obs=5,
+            zarr_dense_shard_obs=10,
+            n_obs_per_dataset=10,
+        )
 
 
 def test_store_creation_default(
