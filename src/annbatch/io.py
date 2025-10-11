@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import warnings
+from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -98,29 +99,38 @@ def write_sharded(
     zarr.consolidate_metadata(group.store)
 
 
+def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
+    num_raw_in_adata = 0
+    found_keys: dict[str, defaultdict[str, int]] = {"layers": defaultdict(lambda: 0), "obsm": defaultdict(lambda: 0)}
+    for path in paths:
+        adata = ad.experimental.read_lazy(path)
+        for elem_name, key_count in found_keys.items():
+            curr_keys = set(getattr(adata, elem_name).keys())
+            for key in curr_keys:
+                key_count[key] += 1
+        if adata.raw is not None:
+            num_raw_in_adata += 1
+    if num_raw_in_adata != len(paths):
+        warnings.warn(
+            f"Found anndata at {path} that has raw and others do not (other paths: {paths}), consider deleting raw via `transform_input_adata`",
+            stacklevel=2,
+        )
+    for elem_name, key_count in found_keys.items():
+        for key, count in key_count.items():
+            if count > 0:
+                warnings.warn(
+                    f"Found anndata at {path} that has {elem_name} key {key} not present in the other paths' {elem_name} (other paths: {paths}), consider stopping and using the `transform_input_adata` argument to alter {elem_name} accordingly.",
+                    stacklevel=2,
+                )
+
+
 def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
     adatas = []
-    raw_detected_in_inputs = False
-    found_keys = {"layers": set({}), "obsm": set({})}
-    for idx, path in enumerate(paths):
+    for path in paths:
         adata = ad.experimental.read_lazy(path)
         adata.obs = adata.obs.to_memory()
         adata.var = adata.var.to_memory()
-        for elem_name, keys in found_keys.items():
-            curr_keys = set(getattr(adata, elem_name).keys())
-            if (len(keys) > 0 or idx > 0) and len(curr_keys.symmetric_difference(keys)) > 0:
-                warnings.warn(
-                    f"Some anndatas have {elem_name} keys not present in others' {elem_name}, consider stopping and using the `transform_input_adata` argument to alter {elem_name} accordingly.",
-                    stacklevel=2,
-                )
-            keys.update(curr_keys)
         if adata.raw is not None:
-            if not raw_detected_in_inputs and idx > 0:
-                warnings.warn(
-                    "Some anndatas have raw and others do not, consider deleting raw via `transform_input_adata`",
-                    stacklevel=2,
-                )
-            raw_detected_in_inputs = True
             adata_raw = adata.raw.to_adata()
             del adata.raw
             adata_raw.var = adata_raw.var.to_memory()
@@ -225,6 +235,7 @@ def create_anndata_collection(
     """
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3
+    _check_for_mismatched_keys(adata_paths)
     adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
     adata_concat.obs_names_make_unique()
     adata_concat = transform_input_adata(adata_concat)
@@ -334,6 +345,7 @@ def add_to_collection(
     encoding = _get_array_encoding_type(output_path)
     if encoding == "array":
         print("Detected array encoding type. Will convert to dense format before writing.")
+    _check_for_mismatched_keys(list(adata_paths) + shards)
 
     if read_full_anndatas:
         adata_concat = _read_into_memory(adata_paths)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import glob
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import anndata as ad
 import numpy as np
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_write_sharded_bad_chunk_size(tmp_path):
+def test_write_sharded_bad_chunk_size(tmp_path: Path):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
     with pytest.raises(ValueError, match=r"Choose a dense"):
@@ -27,7 +27,7 @@ def test_write_sharded_bad_chunk_size(tmp_path):
     ["chunk_size", "expected_shard_size"],
     [pytest.param(3, 9, id="n_obs_not_divisible_by_chunk"), pytest.param(5, 10, id="n_obs_divisible_by_chunk")],
 )
-def test_write_sharded_shard_size_too_big(tmp_path, chunk_size, expected_shard_size):
+def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expected_shard_size: int):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
     write_sharded(z, adata, dense_chunk_obs=chunk_size, dense_shard_obs=20)
@@ -35,7 +35,7 @@ def test_write_sharded_shard_size_too_big(tmp_path, chunk_size, expected_shard_s
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
-def test_store_creation_with_different_keys(elem_name, tmp_path):
+def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
     adata_1 = ad.AnnData(X=np.random.randn(10, 20))
     extra_args = (
         {elem_name: {"arr": np.random.randn(10, 20)}} if elem_name != "raw" else {"raw": {"X": np.random.randn(10, 20)}}
@@ -45,7 +45,7 @@ def test_store_creation_with_different_keys(elem_name, tmp_path):
     path_2 = tmp_path / "with_extra_key.h5ad"
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
-    with pytest.warns(UserWarning, match=rf"Some anndatas have {elem_name}"):
+    with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
         create_anndata_collection(
             [path_1, path_2],
             tmp_path / "collection",
@@ -54,6 +54,46 @@ def test_store_creation_with_different_keys(elem_name, tmp_path):
             zarr_dense_chunk_obs=5,
             zarr_dense_shard_obs=10,
             n_obs_per_dataset=10,
+        )
+
+
+@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
+@pytest.mark.parametrize("read_full_anndatas", [True, False])
+def test_store_addition_different_keys(
+    elem_name: Literal["obsm", "layers", "raw"],
+    tmp_path: Path,
+    read_full_anndatas: bool,
+):
+    adata_orig = ad.AnnData(X=np.random.randn(100, 20))
+    orig_path = tmp_path / "orig.h5ad"
+    adata_orig.write_h5ad(orig_path)
+    output_path = tmp_path / "zarr_store_addition_different_keys"
+    output_path.mkdir(parents=True, exist_ok=True)
+    create_anndata_collection(
+        [orig_path],
+        output_path,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_obs=10,
+        zarr_dense_shard_obs=20,
+        n_obs_per_dataset=50,
+    )
+    extra_args = (
+        {elem_name: {"arr": np.random.randn(10, 20)}} if elem_name != "raw" else {"raw": {"X": np.random.randn(10, 20)}}
+    )
+    adata = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
+    additional_path = tmp_path / "with_extra_key.h5ad"
+    adata.write_h5ad(additional_path)
+    with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
+        # add h5ads to existing store
+        add_to_collection(
+            [additional_path],
+            output_path,
+            read_full_anndatas=read_full_anndatas,
+            zarr_sparse_chunk_size=10,
+            zarr_sparse_shard_size=20,
+            zarr_dense_chunk_obs=5,
+            zarr_dense_shard_obs=10,
         )
 
 
