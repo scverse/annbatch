@@ -89,7 +89,7 @@ Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster
 As an illustrative, example let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
 Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with data loading speed:
 
-<img src="docs/_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
+<img src="_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
 
 From the graph we can see that the fit time can be decreased substantially with faster data loading speeds (several orders of magnitude).
 E.g. we are able to reduce the fit time from ~280s for a data loading speed of ~1000 samples/sec to ~1.5s for a data loading speed of ~1.000.000 samples/sec.
@@ -100,6 +100,9 @@ This speedup is more than 100x and shows the significant impact data loading has
 As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "foundation model").
 But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
 Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
+To accelerate reading the data into memory, you may still find [zarrs-python][] in conjunction with sharding still helpful in the same way it accelerates io here.
+To this end, please have a look at [this gist](https://gist.github.com/ilan-gold/c73383def3798df2724405aa64e40c3d) comparing file loading speeds between {func}`anndata.io.read_zarr` and {func}`anndata.io.read_h5ad`.
+It highlights how [zarrs-python][] and sharding can help there as well.
 However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
 
 ```{include} ../README.md

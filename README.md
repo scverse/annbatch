@@ -4,9 +4,9 @@
 
 [scverse discourse]: https://discourse.scverse.org/
 
-[issue tracker]: https://github.com/laminlabs/annbatch/issues
+[issue tracker]: https://github.com/scverse/annbatch/issues
 
-[tests]: https://github.com/laminlabs/annbatch/actions/workflows/test.yaml
+[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
 
 [documentation]: https://annbatch.readthedocs.io
 
@@ -18,19 +18,25 @@
 
 [zarrs-python]: https://zarrs-python.readthedocs.io/
 
+[lamin]: https://lamin.ai/
+
+[scverse]: https://scverse.org/
+
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/#in-depth
+
 # annbatch
 
 > [!CAUTION]
-> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format to change as it is simply an anndata file.
+> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format in an incompatible manner (since it is normal anndata).
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/annbatch/test.yaml?branch=main
+[badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A minibatch loader for anndata stores
+A data loader + io utilities for minibatching on-disk anndata, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
@@ -42,26 +48,17 @@ in particular, the [API documentation][].
 You need to have Python 3.11 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
-There are several alternative options to install annbatch:
-
-<!--
-1) Install the latest release of `annbatch` from [PyPI][]:
+To install the latest release of `annbatch` from [PyPI][]:
 
 ```bash
 pip install annbatch
 ```
--->
 
-1. Install the latest development version:
-
-```bash
-pip install git+https://github.com/laminlabs/annbatch.git@main
-```
 
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
-`cupy` provides accelerated handling of the data once it has been read off disk and does not need to be used in conjunction with `torch`.
+`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
 > [!IMPORTANT]
-> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful.
+> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
 
 ## Basic usage example
 
@@ -126,7 +123,7 @@ for batch in ds:
 
 <!--HEADER-->
 
-For a deeper dive, please see our [LINK BROKEN: docs page](XXXXX)
+For a deeper dive into this example, please see the [in-depth section of our docs][]
 
 <!--FOOTER-->
 ## Release notes
