@@ -30,7 +30,6 @@ See the {ref}`zarr docs on sharding <zarr:user-guide-sharding>` for more informa
 #### Chunked access
 
 ```python
-
 ds = ZarrSparseDataset(
     batch_size=4096,
     chunk_size=32,
