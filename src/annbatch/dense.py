@@ -47,9 +47,6 @@ class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray], _Iterabl
         if not all(isinstance(d, zarr.Array) for d in datasets):
             raise TypeError("Cannot create dense dataset without using a zarr.Array")
 
-    def _cache_update_callback(self) -> None:
-        pass
-
 
 _assign_methods_to_ensure_unique_docstrings(ZarrDenseDataset)
 
