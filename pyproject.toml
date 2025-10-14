@@ -5,7 +5,7 @@ requires = [ "hatchling" ]
 [project]
 name = "annbatch"
 version = "0.0.1"
-description = "A minibatch loader for AnnData store"
+description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [

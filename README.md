@@ -37,7 +37,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader and io utilities for minibatching on-disk anndata, co-developed by [lamin][] and [scverse][]
+A data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
@@ -107,7 +107,7 @@ ds = ZarrSparseDataset(
 ).add_anndatas(
     [
         ad.AnnData(
-            # note that you can open an anndata file using any type of zarr store
+            # note that you can open an AnnData file using any type of zarr store
             X=ad.io.sparse_dataset(zarr.open(p)["X"]),
             obs=ad.io.read_elem(zarr.open(p)["obs"]),
         )
