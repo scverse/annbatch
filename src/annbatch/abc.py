@@ -134,9 +134,8 @@ class AbstractIterableDataset[OnDiskArray, InputInMemoryArray](metaclass=ABCMeta
         self._shuffle = shuffle
         self._worker_handle = WorkerHandle()
 
-    @abstractmethod
     async def _cache_update_callback(self):
-        pass
+        return None
 
     @abstractmethod
     async def _fetch_data(self, slices: list[slice], dataset_idx: int) -> InputInMemoryArray:
