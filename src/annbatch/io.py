@@ -129,7 +129,7 @@ def create_anndata_collection(
 ):
     """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
 
-    The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`).
+    The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
     The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
     However, this function can also output h5 datasets and also unshuffled datasets as well.
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
