@@ -127,8 +127,6 @@ def test_store_creation(
         )
         np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
         adata.obs.index = adata_orig.obs.index  # correct for concat
-        print(adata.obs)
-        print(adata_orig.obs)
         pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks[0] == 10, z["obsm"]["arr"]
