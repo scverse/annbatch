@@ -22,7 +22,9 @@ except ImportError:
 
 if TYPE_CHECKING:
     from collections import OrderedDict
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Generator, Iterable
+
+    from torch import Tensor
 
     from annbatch.types import InputInMemoryArray, OutputInMemoryArray
 
@@ -41,7 +43,7 @@ class CSRContainer:
     dtype: np.dtype
 
 
-def _batched(iterable, n):
+def _batched[T](iterable: Iterable[T], n: int) -> Generator[list[T], None, None]:
     if n < 1:
         raise ValueError("n must be >= 1")
     it = iter(iterable)
@@ -153,7 +155,7 @@ def sample_rows(
     indices: list[np.ndarray] | None = None,
     *,
     shuffle: bool = True,
-):
+) -> Generator[tuple[np.ndarray, np.ndarray | None], None, None]:
     """Samples rows from multiple arrays and their corresponding observation arrays.
 
     Parameters
@@ -239,7 +241,7 @@ class WorkerHandle:  # noqa: D101
         return chunks_split[worker_id]
 
 
-def check_lt_1(vals: list[int], labels: list[str]):
+def check_lt_1(vals: list[int], labels: list[str]) -> None:
     """Raise a ValueError if any of the values are less than one.
 
     The format of the error is "{labels[i]} must be greater than 1, got {values[i]}"
@@ -275,13 +277,13 @@ class SupportsShape(Protocol):  # noqa: D101
     def shape(self) -> tuple[int, int] | list[int]: ...  # noqa: D102
 
 
-def check_var_shapes(objs: list[SupportsShape]):
+def check_var_shapes(objs: list[SupportsShape]) -> None:
     """Small utility function to check that all objects have the same shape along the second axis"""
     if not all(objs[0].shape[1] == d.shape[1] for d in objs):
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
-def is_in_torch_dataloader_on_linux():
+def is_in_torch_dataloader_on_linux() -> bool:
     """Check if the caller of this function is inside a torch DataLoader"""
     stack = inspect.stack()
     for frame_info in stack:
@@ -297,7 +299,7 @@ def is_in_torch_dataloader_on_linux():
     return False
 
 
-def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool):
+def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
     """Send the input data to a torch.Tensor"""
     import torch
 

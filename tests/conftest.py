@@ -82,7 +82,7 @@ def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) ->
                 index=np.arange(m).astype(str),
             ),
             var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
-            obsm={"arr": np.random.randn(m, 10)},
+            obsm={"arr": np.random.randn(m, 9)},
         )
         adata_raw = adata[:, adata.var.index[: (n // 2)]].copy()
         adata_raw.obsm = None
