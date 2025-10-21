@@ -139,7 +139,7 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
         adata.raw = adata_raw
 
     for k, elem in adata.obsm.items():
-        # TODO: handle `Dataset2D` in `obsm` and `varm` that are 
+        # TODO: handle `Dataset2D` in `obsm` and `varm` that are
         if isinstance(elem, DaskArray):
             adata.obsm[k] = elem.persist()
 
@@ -183,8 +183,8 @@ def create_anndata_collection(
             Paths to the AnnData files used to create the zarr store.
         output_path
             Path to the output zarr store.
-        load_function: Callable[[PathLike[str] | str], ad.AnnData]
-            Function to lazy-load anndata files. By default, `anndata.experimental.read_lazy` is used.
+        load_function
+            Function to lazy-load anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
             If you only need a subset of the input anndata files (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading.
             The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
         var_subset
