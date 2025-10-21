@@ -64,7 +64,11 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
 
 
 @pytest.fixture(scope="session")
-def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) -> tuple[ad.AnnData, Path]:
+def adata_with_h5_path_different_var_space(
+    tmpdir_factory,
+    n_adatas: int = 6,
+    create_heterogeneous_adatas: bool = False,
+) -> tuple[ad.AnnData, Path]:
     """Create mock anndata objects for testing."""
     tmp_path = Path(tmpdir_factory.mktemp("raw_adatas"))
     tmp_path = tmp_path / "h5_files"
@@ -79,12 +83,15 @@ def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) ->
                 {"label": np.random.default_rng().integers(0, 5, size=m), "store_id": [i] * m},
                 index=np.arange(m).astype(str),
             ),
-            var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
+            var=pd.DataFrame(
+                index=[f"gene_{gene}" for gene in range(n // 2)] + [f"gene_{gene}_{i}" for gene in range(n // 2, n)]
+            ),
             obsm={"arr": np.random.randn(m, 10)},
         )
-        adata_raw = adata[:, adata.var.index[: (n // 2)]].copy()
-        adata_raw.obsm = None
-        adata.raw = adata_raw
+        if (not create_heterogeneous_adatas) or (i % 2 == 0):
+            adata_raw = adata[:, adata.var.index[: (n // 2)]].copy()
+            adata_raw.obsm = None
+            adata.raw = adata_raw
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
         adatas += [adata]
     return ad.concat(

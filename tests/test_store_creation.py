@@ -16,6 +16,22 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _read_lazy_x_and_obs_only(path) -> ad.AnnData:
+    adata_ = ad.experimental.read_lazy(path)
+    if adata_.raw is not None:
+        x = adata_.raw.X
+        var = adata_.raw.var
+    else:
+        x = adata_.X
+        var = adata_.var
+
+    return ad.AnnData(
+        X=x,
+        obs=adata_.obs.to_memory(),
+        var=var.to_memory(),
+    )
+
+
 def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
 ):
@@ -29,8 +45,8 @@ def test_store_creation_default(
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=10,
-        zarr_dense_shard_obs=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
     )
     assert isinstance(ad.read_zarr(next((output_path).iterdir())).X, sp.csr_matrix)
@@ -45,23 +61,18 @@ def test_store_creation_drop_elem(
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_drop_elems"
     output_path.mkdir(parents=True, exist_ok=True)
 
-    def transform(a: ad.AnnData) -> ad.AnnData:
-        del a.obsm
-        del a.raw
-        return a
-
     create_anndata_collection(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         output_path,
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=10,
-        zarr_dense_shard_obs=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
-        transform_input_adata=transform,
+        load_function=_read_lazy_x_and_obs_only,
     )
-    adata_output = ad.read_zarr(next((output_path).iterdir()))
+    adata_output = ad.read_zarr(next(output_path.iterdir()))
     assert "arr" not in adata_output.obsm
     assert adata_output.raw is None
 
@@ -83,16 +94,19 @@ def test_store_creation(
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=5,
-        zarr_dense_shard_obs=10,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
         shuffle=shuffle,
         should_denseify=densify,
     )
 
     adata_orig = adata_with_h5_path_different_var_space[0]
+    # subset to var_subset
+    adata_orig = adata_orig[:, adata_orig.var.index.isin(var_subset)]
+    adata_orig.obs_names_make_unique()
     adata = ad.concat(
-        [ad.read_zarr(zarr_path) for zarr_path in sorted((output_path).iterdir())],
+        [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())],
         join="outer",
     )
     assert adata.X.shape[0] == adata_orig.X.shape[0]
@@ -113,13 +127,54 @@ def test_store_creation(
         )
         np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
         adata.obs.index = adata_orig.obs.index  # correct for concat
+        print(adata.obs)
+        print(adata_orig.obs)
         pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
-    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
+    assert z["obsm"]["arr"].chunks[0] == 10, z["obsm"]["arr"]
     if not densify:
         assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
     else:
-        assert z["X"].chunks[0] == 5, z["X"]["indices"]
+        assert z["X"].chunks[0] == 10, z["X"]["indices"]
+
+
+def test_heterogeneous_structure_store_creation(
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+):
+    h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
+    output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous"
+    output_path.mkdir(parents=True, exist_ok=True)
+    h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
+    create_anndata_collection(
+        h5_paths,
+        output_path,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
+        n_obs_per_dataset=60,
+        load_function=_read_lazy_x_and_obs_only,
+        shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
+    )
+
+    adatas_orig = []
+    for file in h5_paths:
+        dataset = ad.read_h5ad(file)
+        adatas_orig.append(
+            ad.AnnData(
+                X=dataset.X if dataset.raw is None else dataset.raw.X,
+                obs=dataset.obs,
+                var=dataset.var if dataset.raw is None else dataset.raw.var,
+            )
+        )
+
+    adata_orig = ad.concat(adatas_orig, join="outer")
+    adata_orig.obs_names_make_unique()
+    adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())])
+
+    pd.testing.assert_frame_equal(adata_orig.var, adata.var)
+    pd.testing.assert_frame_equal(adata_orig.obs, adata.obs)
+    np.testing.assert_array_equal(adata_orig.X.toarray(), adata.X.toarray())
 
 
 @pytest.mark.parametrize("densify", [True, False])
@@ -141,8 +196,8 @@ def test_store_extension(
         store_path,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=10,
-        zarr_dense_shard_obs=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
         shuffle=True,
         should_denseify=densify,
@@ -154,8 +209,8 @@ def test_store_extension(
         read_full_anndatas=read_full_anndatas,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=5,
-        zarr_dense_shard_obs=10,
+        zarr_dense_chunk_size=5,
+        zarr_dense_shard_size=10,
     )
 
     adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])
