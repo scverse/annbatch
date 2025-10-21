@@ -70,7 +70,7 @@ import zarr
 from pathlib import Path
 
 # Using zarrs is necessary for local filesystem perforamnce.
-# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the rigth version.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
@@ -95,7 +95,7 @@ import anndata as ad
 import zarr
 
 # Using zarrs is necessary for local filesystem perforamnce.
-# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the rigth version.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
