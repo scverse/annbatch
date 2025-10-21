@@ -68,9 +68,9 @@ from annbatch import create_anndata_collection
 
 import zarr
 from pathlib import Path
-import zarrs   # noqa: F401
 
 # Using zarrs is necessary for local filesystem perforamnce.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the rigth version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
@@ -93,9 +93,9 @@ from pathlib import Path
 from annbatch import ZarrSparseDataset
 import anndata as ad
 import zarr
-import zarrs   # noqa: F401
 
 # Using zarrs is necessary for local filesystem perforamnce.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the rigth version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
