@@ -184,8 +184,7 @@ def create_anndata_collection(
         load_function: Callable[[PathLike[str] | str], ad.AnnData]
             Function to lazy-load anndata files. By default, `anndata.experimental.read_lazy` is used.
             If you only need a subset of the input anndata files (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading.
-            The input to the function is a path to an anndata file, and the output is an anndata object which is backed on disk. See `ad.experimental.read_lazy` for more details.
-            It's recommended to persist small elements into memory (e.g., `obs`, `var`, etc.) to speed up processing.
+            The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
         var_subset
             Subset of gene names to include in the store. If None, all genes are included.
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
