@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-import zarrs  # noqa: F401
+
 from annbatch import ZarrDenseDataset, ZarrSparseDataset
 
 try:
