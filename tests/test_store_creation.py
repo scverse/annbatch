@@ -131,9 +131,9 @@ def test_store_creation(
     z = zarr.open(output_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks[0] == 10, z["obsm"]["arr"]
     if not densify:
-        assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
+        assert z["X"]["indices"].chunks[0] == 10
     else:
-        assert z["X"].chunks[0] == 10, z["X"]["indices"]
+        assert z["X"].chunks[0] == 10, z["X"]
 
 
 def test_heterogeneous_structure_store_creation(
@@ -173,6 +173,7 @@ def test_heterogeneous_structure_store_creation(
     pd.testing.assert_frame_equal(adata_orig.var, adata.var)
     pd.testing.assert_frame_equal(adata_orig.obs, adata.obs)
     np.testing.assert_array_equal(adata_orig.X.toarray(), adata.X.toarray())
+
 
 
 @pytest.mark.parametrize("densify", [True, False])
@@ -218,8 +219,8 @@ def test_store_extension(
     assert adata.X.shape[0] == expected_adata.X.shape[0]
     assert "arr" in adata.obsm
     z = zarr.open(store_path / "dataset_0.zarr")
-    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
+    assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])
     if not densify:
-        assert z["X"]["indices"].chunks[0] == 10, z["X"]["indices"]
+        assert z["X"]["indices"].chunks[0] == 10
     else:
-        assert z["X"].chunks[0] == 5, z["X"]["indices"]
+        assert z["X"].chunks == (5, z["X"].shape[1])
