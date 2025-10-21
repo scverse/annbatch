@@ -139,6 +139,7 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
         adata.raw = adata_raw
 
     for k, elem in adata.obsm.items():
+        # TODO: handle `Dataset2D` in `obsm` and `varm` that are 
         if isinstance(elem, DaskArray):
             adata.obsm[k] = elem.persist()
 
