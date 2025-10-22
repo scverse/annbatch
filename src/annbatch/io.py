@@ -224,7 +224,7 @@ def create_anndata_collection(
         output_path
             Path to the output zarr store.
         load_adata
-            Function tocustomize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
+            Function to customize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
             If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
             The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
         var_subset
