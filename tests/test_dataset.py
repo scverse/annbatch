@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import platform
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
@@ -12,7 +11,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-import zarrs  # noqa: F401
+
 from annbatch import ZarrDenseDataset, ZarrSparseDataset
 
 try:
@@ -333,46 +332,8 @@ def _custom_collate_fn(elems):
     return x, y
 
 
-@pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
-@pytest.mark.skipif(
-    platform.system() != "Linux",
-    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
-)
-def test_dataloader_fails_linux_with_anndata(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
-    from torch.utils.data import DataLoader
-
-    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
-    ds.add_anndatas(
-        [
-            open_sparse(p, use_zarrs=True, use_anndata=True)
-            for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")
-        ]
-    )
-    dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
-    )
-    with pytest.raises(NotImplementedError, match=r"why we can't load anndata from torch"):
-        next(iter(dataloader))
-    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
-    ds.add_datasets(**concat([open_sparse(p) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]))
-    dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
-    )
-    next(iter(dataloader))
-
-
 @pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
 @pytest.mark.parametrize("loader", [ZarrDenseDataset, ZarrSparseDataset])
-@pytest.mark.skipif(
-    platform.system() == "Linux",
-    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
-)
 def test_torch_multiprocess_dataloading_zarr(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], loader, use_zarrs
 ):
@@ -402,10 +363,7 @@ def test_torch_multiprocess_dataloading_zarr(
         raise ValueError("Unknown loader type")
 
     dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
+        ds, batch_size=32, num_workers=4, collate_fn=_custom_collate_fn, multiprocessing_context="spawn"
     )
     x_list, idx_list = [], []
     for batch in dataloader:

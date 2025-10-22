@@ -5,7 +5,7 @@ requires = [ "hatchling" ]
 [project]
 name = "annbatch"
 version = "0.0.1"
-description = "A minibatch loader for anndata store"
+description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [
@@ -16,10 +16,9 @@ authors = [
   { name = "Ilan Gold" },
   { name = "Felix Fischer" },
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.14"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
@@ -67,7 +66,7 @@ optional-dependencies.torch = [
   "torch",
 ]
 optional-dependencies.zarrs = [
-  "zarrs",
+  "zarrs>=0.2.1",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://annbatch.readthedocs.io/"
@@ -87,7 +86,7 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
 deps = [ "minimal" ]
-python = [ "3.11", "3.13" ]
+python = [ "3.12", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
@@ -151,9 +150,10 @@ lint.pydocstyle.convention = "numpy"
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
 xfail_strict = true
-addopts = [
-  "--import-mode=importlib", # allow using test files with same name
-]
+# https://github.com/pytest-dev/pytest/issues/10965
+# addopts = [
+#   "--import-mode=importlib", # allow using test files with same name
+# ]
 
 [tool.coverage.run]
 source = [ "annbatch" ]

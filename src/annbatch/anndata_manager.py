@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections import OrderedDict, defaultdict
 from types import NoneType
-from typing import TYPE_CHECKING, Generic, cast
+from typing import TYPE_CHECKING, cast
 
 import anndata as ad
 import numpy as np
@@ -22,7 +22,6 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     index_datasets,
-    is_in_torch_dataloader_on_linux,
     split_given_size,
     to_torch,
 )
@@ -41,7 +40,7 @@ if TYPE_CHECKING:
 accepted_on_disk_types = OnDiskArray.__constraints__
 
 
-class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray]):  # noqa: D101
+class AnnDataManager[OnDiskArray, InputInMemoryArray]:  # noqa: D101
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
@@ -275,10 +274,6 @@ class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray]):  # noqa: D101
         ------
             A one-row sparse matrix.
         """
-        if is_in_torch_dataloader_on_linux() and self._used_anndata_adder:
-            raise NotImplementedError(
-                "See https://github.com/scverse/anndata/issues/2021 for why we can't load anndata from torch"
-            )
         check_lt_1(
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],

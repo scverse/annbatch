@@ -27,7 +27,8 @@
 # annbatch
 
 > [!CAUTION]
-> This pacakge does not have a stable API.  However, we do not anticipate the on-disk format in an incompatible manner (since it is normal anndata).
+> This package does not have a stable API.
+  However, we do not anticipate the on-disk format to change in an incompatible manner.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
@@ -36,7 +37,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader + io utilities for minibatching on-disk anndata, co-developed by [lamin][] and [scverse][]
+A data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
@@ -45,7 +46,7 @@ in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.11 or newer installed on your system.
+You need to have Python 3.12 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
 To install the latest release of `annbatch` from [PyPI][]:
@@ -53,7 +54,6 @@ To install the latest release of `annbatch` from [PyPI][]:
 ```bash
 pip install annbatch
 ```
-
 
 We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
@@ -68,9 +68,9 @@ from annbatch import create_anndata_collection
 
 import zarr
 from pathlib import Path
-import zarrs   # noqa: F401
 
 # Using zarrs is necessary for local filesystem perforamnce.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
@@ -93,9 +93,9 @@ from pathlib import Path
 from annbatch import ZarrSparseDataset
 import anndata as ad
 import zarr
-import zarrs   # noqa: F401
 
 # Using zarrs is necessary for local filesystem perforamnce.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
@@ -107,7 +107,7 @@ ds = ZarrSparseDataset(
 ).add_anndatas(
     [
         ad.AnnData(
-            # note that you can open an anndata file using any type of zarr store
+            # note that you can open an AnnData file using any type of zarr store
             X=ad.io.sparse_dataset(zarr.open(p)["X"]),
             obs=ad.io.read_elem(zarr.open(p)["obs"]),
         )
@@ -120,6 +120,10 @@ ds = ZarrSparseDataset(
 for batch in ds:
     ...
 ```
+
+<!--TODO: proper intersphinx and/or migrate note-->
+
+For usage of our loader inside of `torch`, please see our [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `DataLoader`.
 
 <!--HEADER-->
 
@@ -134,7 +138,3 @@ See the [changelog][].
 
 For questions and help requests, you can reach out in the [scverse discourse][].
 If you found a bug, please use the [issue tracker][].
-
-## Citation
-
-> t.b.a
