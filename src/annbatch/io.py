@@ -11,6 +11,7 @@ import anndata as ad
 import numpy as np
 import scipy.sparse as sp
 import zarr
+from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
 from tqdm import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
@@ -33,8 +34,8 @@ def write_sharded(
     *,
     sparse_chunk_size: int = 32768,
     sparse_shard_size: int = 134_217_728,
-    dense_chunk_obs: int = 1024,
-    dense_shard_obs: int = 4194304,
+    dense_chunk_size: int = 1024,
+    dense_shard_size: int = 4194304,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
 ):
     """Write a sharded zarr store from a single AnnData object.
@@ -49,10 +50,10 @@ def write_sharded(
             Chunk size of `indices` and `data` inside a shard.
         sparse_shard_size
             Shard size i.e., number of elements in a single sparse `data` or `indices` file.
-        dense_chunk_obs
-            Number of obs elements per dense chunk
-        dense_shard_obs
-            Number of obs elements per dense shard
+        dense_chunk_size
+            Number of obs elements per dense chunk along the first axis
+        dense_shard_size
+            Number of obs elements per dense shard along the first axis
         compressors
             The compressors to pass to `zarr`.
     """
@@ -124,17 +125,13 @@ def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
                 )
 
 
-def _lazy_load_with_obs_var_in_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
+def _lazy_load_anndatas(
+    paths: Iterable[PathLike[str]] | Iterable[str],
+    load_function: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
+):
     adatas = []
     for path in paths:
-        adata = ad.experimental.read_lazy(path)
-        adata.obs = adata.obs.to_memory()
-        adata.var = adata.var.to_memory()
-        if adata.raw is not None:
-            adata_raw = adata.raw.to_adata()
-            del adata.raw
-            adata_raw.var = adata_raw.var.to_memory()
-            adata.raw = adata_raw
+        adata = load_function(path)
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]
@@ -163,6 +160,36 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
     return idxs
 
 
+def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
+    adata.X = adata.X.persist()
+
+    if isinstance(adata.obs, Dataset2D):
+        adata.obs = adata.obs.to_memory()
+    if isinstance(adata.var, Dataset2D):
+        adata.var = adata.var.to_memory()
+    if adata.raw is not None:
+        adata_raw = adata.raw.to_adata()
+        if isinstance(adata_raw.X, DaskArray):
+            adata_raw.X = adata_raw.X.persist()
+        if isinstance(adata_raw.var, Dataset2D):
+            adata_raw.var = adata_raw.var.to_memory()
+        if isinstance(adata_raw.obs, Dataset2D):
+            adata_raw.obs = adata_raw.obs.to_memory()
+        del adata.raw
+        adata.raw = adata_raw
+
+    for k, elem in adata.obsm.items():
+        # TODO: handle `Dataset2D` in `obsm` and `varm` that are
+        if isinstance(elem, DaskArray):
+            adata.obsm[k] = elem.persist()
+
+    for k, elem in adata.layers.items():
+        if isinstance(elem, DaskArray):
+            adata.layers[k] = elem.persist()
+
+    return adata
+
+
 DATASET_PREFIX = "dataset"
 
 
@@ -170,18 +197,18 @@ def create_anndata_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
     *,
+    load_function: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
     var_subset: Iterable[str] | None = None,
     zarr_sparse_chunk_size: int = 32768,
     zarr_sparse_shard_size: int = 134_217_728,
-    zarr_dense_chunk_obs: int = 1024,
-    zarr_dense_shard_obs: int = 4194304,
+    zarr_dense_chunk_size: int = 1024,
+    zarr_dense_shard_size: int = 4_194_304,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
     n_obs_per_dataset: int = 2_097_152,
     shuffle: bool = True,
     should_denseify: bool = False,
     output_format: Literal["h5ad", "zarr"] = "zarr",
-    transform_input_adata: Callable[[ad.AnnData], ad.AnnData] = lambda x: x,
 ):
     """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
 
@@ -196,6 +223,10 @@ def create_anndata_collection(
             Paths to the AnnData files used to create the zarr store.
         output_path
             Path to the output zarr store.
+        load_function
+            Function to lazy-load anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
+            If you only need a subset of the input anndata files (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading.
+            The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
         var_subset
             Subset of gene names to include in the store. If None, all genes are included.
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
@@ -204,9 +235,9 @@ def create_anndata_collection(
         zarr_sparse_shard_size
             Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
         zarr_dense_chunk_size
-            Number of observations per dense zarr chunk (all chunking happens along the first axis for `obsX` elements).
+            Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
         zarr_dense_shard_size
-            Number of observations per dense zarr shard (all sharding happens along the first axis for `obsX` elements).
+            Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         h5ad_compressor
@@ -218,28 +249,39 @@ def create_anndata_collection(
         shuffle
             Whether to shuffle the data before writing it to the store.
         should_denseify
-            Whether or not to write as dense on disk.
+            Whether to write as dense on disk.
         output_format
             Format of the output store. Can be either "zarr" or "h5ad".
-        transform_input_adata
-            Function to allow transforming the concatenated inputs, i.e, dropping `obsm` or bringing an element into memory, before writing to disk.
 
     Examples
     --------
+        >>> import anndata as ad
         >>> from annbatch import create_anndata_collection
+        # create a custom load function to only keep `.X`, `.obs` and `.var` in the output store
+        >>> def read_lazy_x_and_obs_only(path):
+        ...     adata = ad.experimental.read_lazy(path)
+        ...     return ad.AnnData(
+        ...         X=adata.X,
+        ...         obs=adata.obs.to_memory(),
+        ...         var=adata.var.to_memory(),
+        ...)
+
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
         ...     "path/to/third_adata.h5ad",
         ... ]
-        >>> create_anndata_collection(datasets, "path/to/output/zarr_store")
+        >>> create_anndata_collection(
+        ...    datasets,
+        ...    "path/to/output/zarr_store",
+        ...    load_function=read_lazy_x_and_obs_only,
+        ...)
     """
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3
     _check_for_mismatched_keys(adata_paths)
-    adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
+    adata_concat = _lazy_load_anndatas(adata_paths, load_function=load_function)
     adata_concat.obs_names_make_unique()
-    adata_concat = transform_input_adata(adata_concat)
     chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
 
     if var_subset is None:
@@ -248,16 +290,7 @@ def create_anndata_collection(
     for i, chunk in enumerate(tqdm(chunks)):
         var_mask = adata_concat.var_names.isin(var_subset)
         adata_chunk = adata_concat[chunk, :][:, var_mask].copy()
-        adata_chunk.X = adata_chunk.X.persist()
-        if adata_chunk.raw is not None:
-            adata_raw = adata_chunk.raw.to_adata()
-            adata_raw.X = adata_raw.X.persist()
-            del adata_chunk.raw
-            adata_chunk.raw = adata_raw
-        for dict_elem in [adata_chunk.obsm, adata_chunk.layers]:
-            for k, elem in dict_elem.items():
-                if isinstance(elem, DaskArray):
-                    dict_elem[k] = elem.persist()
+        adata_chunk = _persist_adata_in_memory(adata_chunk)
         if shuffle:
             # shuffle adata in memory to break up individual chunks
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
@@ -273,8 +306,8 @@ def create_anndata_collection(
                 adata_chunk,
                 sparse_chunk_size=zarr_sparse_chunk_size,
                 sparse_shard_size=zarr_sparse_shard_size,
-                dense_chunk_obs=zarr_dense_chunk_obs,
-                dense_shard_obs=zarr_dense_shard_obs,
+                dense_chunk_size=zarr_dense_chunk_size,
+                dense_shard_size=zarr_dense_shard_size,
                 compressors=zarr_compressor,
             )
         elif output_format == "h5ad":
@@ -295,8 +328,8 @@ def add_to_collection(
     output_path: PathLike[str] | str,
     zarr_sparse_chunk_size: int = 32768,
     zarr_sparse_shard_size: int = 134_217_728,
-    zarr_dense_chunk_obs: int = 1024,
-    zarr_dense_shard_obs: int = 4194304,
+    zarr_dense_chunk_size: int = 1024,
+    zarr_dense_shard_size: int = 4_194_304,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     read_full_anndatas: bool = True,
     should_sparsify_output_in_memory: bool = False,
@@ -312,13 +345,13 @@ def add_to_collection(
         output_path
             Path to the output zarr store.
         zarr_sparse_chunk_size
-            Size of the chunks to use for the data in the zarr store.
+            Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
         zarr_sparse_shard_size
-            Size of the shards to use for the data in the zarr store.
+            Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
         zarr_dense_chunk_size
-            Number of observations per dense zarr chunk (all chunking happens along the first axis for `obsX` elements).
+            Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
         zarr_dense_shard_size
-            Number of observations per dense zarr shard (all sharding happens along the first axis for `obsX` elements).
+            Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         read_full_anndatas
@@ -352,7 +385,7 @@ def add_to_collection(
         adata_concat = _read_into_memory(adata_paths)
         chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
     else:
-        adata_concat = _lazy_load_with_obs_var_in_memory(adata_paths)
+        adata_concat = _lazy_load_anndatas(adata_paths)
         chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
     adata_concat.obs_names_make_unique()
     if encoding == "array":
@@ -373,7 +406,7 @@ def add_to_collection(
 
     for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards)):
         if should_sparsify_output_in_memory and encoding == "array":
-            adata_shard = _lazy_load_with_obs_var_in_memory([shard])
+            adata_shard = _lazy_load_anndatas([shard])
             adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
         else:
             adata_shard = ad.read_zarr(shard)
@@ -384,7 +417,7 @@ def add_to_collection(
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
         adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
         if should_sparsify_output_in_memory and encoding == "array":
-            adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.dtype)).compute()
+            adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.X.dtype)).compute()
 
         f = zarr.open_group(shard, mode="w")
         write_sharded(
@@ -392,7 +425,7 @@ def add_to_collection(
             adata,
             sparse_chunk_size=zarr_sparse_chunk_size,
             sparse_shard_size=zarr_sparse_shard_size,
-            dense_chunk_obs=zarr_dense_chunk_obs,
-            dense_shard_obs=zarr_dense_shard_obs,
+            dense_chunk_size=zarr_dense_chunk_size,
+            dense_shard_size=zarr_dense_shard_size,
             compressors=zarr_compressor,
         )
