@@ -34,10 +34,12 @@ def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expec
     assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_size`
 
 
-@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
+@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
 def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
     adata_1 = ad.AnnData(X=np.random.randn(10, 20))
-    extra_args = {elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20)}}
+    extra_args = {
+        elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else ["a"] * 10}
+    }
     adata_2 = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
     path_1 = tmp_path / "just_x.h5ad"
     path_2 = tmp_path / "with_extra_key.h5ad"
@@ -55,7 +57,7 @@ def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers",
         )
 
 
-@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
+@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
 @pytest.mark.parametrize("read_full_anndatas", [True, False])
 def test_store_addition_different_keys(
     elem_name: Literal["obsm", "layers", "raw"],
@@ -76,7 +78,9 @@ def test_store_addition_different_keys(
         zarr_dense_shard_size=20,
         n_obs_per_dataset=50,
     )
-    extra_args = {elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20)}}
+    extra_args = {
+        elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else ["a"] * 10}
+    }
     adata = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
