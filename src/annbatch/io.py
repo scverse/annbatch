@@ -213,6 +213,9 @@ def create_anndata_collection(
             adata_raw.X = adata_raw.X.persist()
             del adata_chunk.raw
             adata_chunk.raw = adata_raw
+        for k, elem in adata_chunk.obsm.items():
+            if isinstance(elem, DaskArray):
+                adata_chunk.obsm[k] = elem.persist()
         if shuffle:
             # shuffle adata in memory to break up individual chunks
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
