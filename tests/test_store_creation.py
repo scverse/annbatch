@@ -162,9 +162,7 @@ def test_heterogeneous_structure_store_creation(
 
     adatas_orig = []
     for file in h5_paths:
-        dataset = _read_lazy_x_and_obs_only(file)
-        dataset.X = dataset.X.compute()
-
+        dataset = ad.read_h5ad(file)
         adatas_orig.append(
             ad.AnnData(
                 X=dataset.X if dataset.raw is None else dataset.raw.X,
