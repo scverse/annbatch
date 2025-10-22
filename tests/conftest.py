@@ -55,6 +55,8 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
             adata,
             sparse_chunk_size=10,
             sparse_shard_size=20,
+            dense_chunk_size=10,
+            dense_shard_size=20,
         )
     yield (
         # need to match directory iteration order for correctness so can't just concatenate

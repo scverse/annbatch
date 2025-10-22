@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import glob
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import anndata as ad
 import numpy as np
@@ -10,10 +10,86 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import add_to_collection, create_anndata_collection
+from annbatch import add_to_collection, create_anndata_collection, write_sharded
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_write_sharded_bad_chunk_size(tmp_path: Path):
+    adata = ad.AnnData(np.random.randn(10, 20))
+    z = zarr.open(tmp_path / "foo.zarr")
+    with pytest.raises(ValueError, match=r"Choose a dense"):
+        write_sharded(z, adata, dense_chunk_size=20)
+
+
+@pytest.mark.parametrize(
+    ["chunk_size", "expected_shard_size"],
+    [pytest.param(3, 9, id="n_obs_not_divisible_by_chunk"), pytest.param(5, 10, id="n_obs_divisible_by_chunk")],
+)
+def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expected_shard_size: int):
+    adata = ad.AnnData(np.random.randn(10, 20))
+    z = zarr.open(tmp_path / "foo.zarr")
+    write_sharded(z, adata, dense_chunk_size=chunk_size, dense_shard_size=20)
+    assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_size`
+
+
+@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
+def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
+    adata_1 = ad.AnnData(X=np.random.randn(10, 20))
+    extra_args = {elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20)}}
+    adata_2 = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
+    path_1 = tmp_path / "just_x.h5ad"
+    path_2 = tmp_path / "with_extra_key.h5ad"
+    adata_1.write_h5ad(path_1)
+    adata_2.write_h5ad(path_2)
+    with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
+        create_anndata_collection(
+            [path_1, path_2],
+            tmp_path / "collection",
+            zarr_sparse_chunk_size=10,
+            zarr_sparse_shard_size=20,
+            zarr_dense_chunk_size=5,
+            zarr_dense_shard_size=10,
+            n_obs_per_dataset=10,
+        )
+
+
+@pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
+@pytest.mark.parametrize("read_full_anndatas", [True, False])
+def test_store_addition_different_keys(
+    elem_name: Literal["obsm", "layers", "raw"],
+    tmp_path: Path,
+    read_full_anndatas: bool,
+):
+    adata_orig = ad.AnnData(X=np.random.randn(100, 20))
+    orig_path = tmp_path / "orig.h5ad"
+    adata_orig.write_h5ad(orig_path)
+    output_path = tmp_path / "zarr_store_addition_different_keys"
+    output_path.mkdir(parents=True, exist_ok=True)
+    create_anndata_collection(
+        [orig_path],
+        output_path,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
+        n_obs_per_dataset=50,
+    )
+    extra_args = {elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20)}}
+    adata = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
+    additional_path = tmp_path / "with_extra_key.h5ad"
+    adata.write_h5ad(additional_path)
+    with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
+        add_to_collection(
+            [additional_path],
+            output_path,
+            read_full_anndatas=read_full_anndatas,
+            zarr_sparse_chunk_size=10,
+            zarr_sparse_shard_size=20,
+            zarr_dense_chunk_size=5,
+            zarr_dense_shard_size=10,
+        )
 
 
 def _read_lazy_x_and_obs_only(path) -> ad.AnnData:
@@ -70,7 +146,7 @@ def test_store_creation_drop_elem(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
-        load_function=_read_lazy_x_and_obs_only,
+        load_adata=_read_lazy_x_and_obs_only,
     )
     adata_output = ad.read_zarr(next(output_path.iterdir()))
     assert "arr" not in adata_output.obsm
@@ -156,7 +232,7 @@ def test_heterogeneous_structure_store_creation(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
-        load_function=_read_lazy_x_and_obs_only,
+        load_adata=_read_lazy_x_and_obs_only,
         shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
     )
 
