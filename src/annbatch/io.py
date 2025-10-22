@@ -74,12 +74,12 @@ def write_sharded(
             any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
         ):
             # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
-            shard_size = min(dense_shard_obs, _round_down(elem.shape[0], dense_chunk_obs))
-            chunk_size = min(dense_chunk_obs, _round_down(elem.shape[0], dense_chunk_obs))
+            shard_size = min(dense_shard_size, _round_down(elem.shape[0], dense_chunk_size))
+            chunk_size = min(dense_chunk_size, _round_down(elem.shape[0], dense_chunk_size))
             # If the shape is less than the computed size (impossible given rounds?) or the rounding caused created a 0-size chunk, then error
             if elem.shape[0] < chunk_size or chunk_size == 0:
                 raise ValueError(
-                    f"Choose a dense shard obs {dense_shard_obs} and chunk obs {dense_chunk_obs} with non-zero size less than the number of observations {elem.shape[0]}"
+                    f"Choose a dense shard obs {dense_shard_size} and chunk obs {dense_chunk_size} with non-zero size less than the number of observations {elem.shape[0]}"
                 )
             dataset_kwargs = {
                 **dataset_kwargs,

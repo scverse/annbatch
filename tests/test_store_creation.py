@@ -20,7 +20,7 @@ def test_write_sharded_bad_chunk_size(tmp_path: Path):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
     with pytest.raises(ValueError, match=r"Choose a dense"):
-        write_sharded(z, adata, dense_chunk_obs=20)
+        write_sharded(z, adata, dense_chunk_size=20)
 
 
 @pytest.mark.parametrize(
@@ -30,8 +30,8 @@ def test_write_sharded_bad_chunk_size(tmp_path: Path):
 def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expected_shard_size: int):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
-    write_sharded(z, adata, dense_chunk_obs=chunk_size, dense_shard_obs=20)
-    assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_obs`
+    write_sharded(z, adata, dense_chunk_size=chunk_size, dense_shard_size=20)
+    assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_size`
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw"])
@@ -51,8 +51,8 @@ def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers",
             tmp_path / "collection",
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
-            zarr_dense_chunk_obs=5,
-            zarr_dense_shard_obs=10,
+            zarr_dense_chunk_size=5,
+            zarr_dense_shard_size=10,
             n_obs_per_dataset=10,
         )
 
@@ -74,8 +74,8 @@ def test_store_addition_different_keys(
         output_path,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_obs=10,
-        zarr_dense_shard_obs=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
         n_obs_per_dataset=50,
     )
     extra_args = (
@@ -92,9 +92,11 @@ def test_store_addition_different_keys(
             read_full_anndatas=read_full_anndatas,
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
-            zarr_dense_chunk_obs=5,
-            zarr_dense_shard_obs=10,
+            zarr_dense_chunk_size=5,
+            zarr_dense_shard_size=10,
         )
+
+
 def _read_lazy_x_and_obs_only(path) -> ad.AnnData:
     adata_ = ad.experimental.read_lazy(path)
     if adata_.raw is not None:
