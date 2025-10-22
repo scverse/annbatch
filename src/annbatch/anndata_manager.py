@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections import OrderedDict, defaultdict
 from types import NoneType
-from typing import TYPE_CHECKING, Generic, cast
+from typing import TYPE_CHECKING, cast
 
 import anndata as ad
 import numpy as np
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 accepted_on_disk_types = OnDiskArray.__constraints__
 
 
-class AnnDataManager(Generic[OnDiskArray, InputInMemoryArray]):  # noqa: D101
+class AnnDataManager[OnDiskArray, InputInMemoryArray]:  # noqa: D101
     train_datasets: list[OnDiskArray] = []
     labels: list[np.ndarray] | None = None
     _return_index: bool = False
