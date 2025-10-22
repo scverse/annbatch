@@ -190,22 +190,14 @@ def create_anndata_collection(
         var_subset
             Subset of gene names to include in the store. If None, all genes are included.
             Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
-        zarr_sparse_chunk_size
-            Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            Chunking is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
-        zarr_sparse_shard_size
-            Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            Sharding is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
-        zarr_dense_chunk_size
-            Number of observations per dense zarr chunk (all chunking happens along the first axis for `obsX` elements).
-            Sharding is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
-        zarr_dense_shard_size
-            Number of observations per dense zarr shard (all sharding happens along the first axis for `obsX` elements).
-            Chunking is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
+       zarr_sparse_chunk_size
+           Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
+       zarr_sparse_shard_size
+           Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
+       zarr_dense_chunk_size
+           Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
+       zarr_dense_shard_size
+           Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         h5ad_compressor
