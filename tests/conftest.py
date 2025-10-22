@@ -53,8 +53,8 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
         write_sharded(
             f,
             adata,
-            chunk_size=10,
-            shard_size=20,
+            sparse_chunk_size=10,
+            sparse_shard_size=20,
         )
     yield (
         # need to match directory iteration order for correctness so can't just concatenate
@@ -80,6 +80,7 @@ def adata_with_h5_path_different_var_space(tmpdir_factory, n_adatas: int = 6) ->
                 index=np.arange(m).astype(str),
             ),
             var=pd.DataFrame(index=[f"gene_{i}" for i in range(n)]),
+            obsm={"arr": np.random.randn(m, 9)},
         )
 
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
