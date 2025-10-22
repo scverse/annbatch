@@ -151,7 +151,7 @@ def test_store_creation_drop_elem(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
-        load_function=_read_lazy_x_and_obs_only,
+        load_adata=_read_lazy_x_and_obs_only,
     )
     adata_output = ad.read_zarr(next(output_path.iterdir()))
     assert "arr" not in adata_output.obsm
@@ -237,7 +237,7 @@ def test_heterogeneous_structure_store_creation(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
-        load_function=_read_lazy_x_and_obs_only,
+        load_adata=_read_lazy_x_and_obs_only,
         shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
     )
 

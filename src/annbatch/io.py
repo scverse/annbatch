@@ -113,25 +113,25 @@ def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
             num_raw_in_adata += 1
     if num_raw_in_adata != len(paths):
         warnings.warn(
-            f"Found anndata at {path} that has raw and others do not (other paths: {paths}), consider deleting raw via `transform_input_adata`",
+            f"Found anndata at {path} that has raw and others do not (other paths: {paths}), consider deleting raw via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
         for key, count in key_count.items():
             if count > 0:
                 warnings.warn(
-                    f"Found anndata at {path} that has {elem_name} key {key} not present in the other paths' {elem_name} (other paths: {paths}), consider stopping and using the `transform_input_adata` argument to alter {elem_name} accordingly.",
+                    f"Found anndata at {path} that has {elem_name} key {key} not present in the other paths' {elem_name} (other paths: {paths}), consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                     stacklevel=2,
                 )
 
 
 def _lazy_load_anndatas(
     paths: Iterable[PathLike[str]] | Iterable[str],
-    load_function: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
 ):
     adatas = []
     for path in paths:
-        adata = load_function(path)
+        adata = load_adata(path)
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]
@@ -197,7 +197,7 @@ def create_anndata_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
     *,
-    load_function: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
     var_subset: Iterable[str] | None = None,
     zarr_sparse_chunk_size: int = 32768,
     zarr_sparse_shard_size: int = 134_217_728,
@@ -223,9 +223,9 @@ def create_anndata_collection(
             Paths to the AnnData files used to create the zarr store.
         output_path
             Path to the output zarr store.
-        load_function
-            Function to lazy-load anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
-            If you only need a subset of the input anndata files (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading.
+        load_adata
+            Function tocustomize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
+            If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
             The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
         var_subset
             Subset of gene names to include in the store. If None, all genes are included.
@@ -274,13 +274,13 @@ def create_anndata_collection(
         >>> create_anndata_collection(
         ...    datasets,
         ...    "path/to/output/zarr_store",
-        ...    load_function=read_lazy_x_and_obs_only,
+        ...    load_adata=read_lazy_x_and_obs_only,
         ...)
     """
     Path(output_path).mkdir(parents=True, exist_ok=True)
     ad.settings.zarr_write_format = 3
     _check_for_mismatched_keys(adata_paths)
-    adata_concat = _lazy_load_anndatas(adata_paths, load_function=load_function)
+    adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
     adata_concat.obs_names_make_unique()
     chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
 
