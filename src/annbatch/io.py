@@ -303,22 +303,14 @@ def add_to_collection(
             Paths to the anndata files to be appended to the collection of output chunks.
         output_path
             Path to the output zarr store.
-        zarr_sparse_chunk_size
-            Size of the chunks to use for the data in the zarr store.
-            Chunking is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
-        zarr_sparse_shard_size
-            Size of the shards to use for the data in the zarr store.
-            Sharding is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
-        zarr_dense_chunk_size
-            Number of observations per dense zarr chunk (all chunking happens along the first axis for `obsX` elements).
-            Chunking is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
-        zarr_dense_shard_size
-            Number of observations per dense zarr shard (all sharding happens along the first axis for `obsX` elements).
-            Sharding is only done along the first axis of the array.
-            For sparse data, the arrays are only one dimensional.
+       zarr_sparse_chunk_size
+           Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
+       zarr_sparse_shard_size
+           Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
+       zarr_dense_chunk_size
+           Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
+       zarr_dense_shard_size
+           Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
         read_full_anndatas
