@@ -121,6 +121,10 @@ for batch in ds:
     ...
 ```
 
+<!--TODO: proper intersphinx and/or migrate note-->
+
+For usage of our loader inside of `torch`, please see our [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `DataLoader`.
+
 <!--HEADER-->
 
 For a deeper dive into this example, please see the [in-depth section of our docs][]

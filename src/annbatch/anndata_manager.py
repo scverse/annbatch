@@ -22,7 +22,6 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     index_datasets,
-    is_in_torch_dataloader_on_linux,
     split_given_size,
     to_torch,
 )
@@ -275,10 +274,6 @@ class AnnDataManager[OnDiskArray, InputInMemoryArray]:  # noqa: D101
         ------
             A one-row sparse matrix.
         """
-        if is_in_torch_dataloader_on_linux() and self._used_anndata_adder:
-            raise NotImplementedError(
-                "See https://github.com/scverse/anndata/issues/2021 for why we can't load anndata from torch"
-            )
         check_lt_1(
             [len(self.train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
