@@ -136,6 +136,11 @@ def test_store_creation(
         assert z["X"].chunks[0] == 10, z["X"]
 
 
+@pytest.mark.parametrize(
+    "adata_with_h5_path_different_var_space",
+    [{"create_heterogeneous_adatas": True}],
+    indirect=True,
+)
 def test_heterogeneous_structure_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
 ):
@@ -158,6 +163,7 @@ def test_heterogeneous_structure_store_creation(
     adatas_orig = []
     for file in h5_paths:
         dataset = ad.read_h5ad(file)
+        print(dataset.raw)
         adatas_orig.append(
             ad.AnnData(
                 X=dataset.X if dataset.raw is None else dataset.raw.X,
@@ -173,7 +179,6 @@ def test_heterogeneous_structure_store_creation(
     pd.testing.assert_frame_equal(adata_orig.var, adata.var)
     pd.testing.assert_frame_equal(adata_orig.obs, adata.obs)
     np.testing.assert_array_equal(adata_orig.X.toarray(), adata.X.toarray())
-
 
 
 @pytest.mark.parametrize("densify", [True, False])

@@ -66,10 +66,13 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
 @pytest.fixture(scope="session")
 def adata_with_h5_path_different_var_space(
     tmpdir_factory,
-    n_adatas: int = 6,
-    create_heterogeneous_adatas: bool = False,
+    request,
 ) -> tuple[ad.AnnData, Path]:
     """Create mock anndata objects for testing."""
+    params = getattr(request, "param", {})
+    n_adatas = params.get("n_adatas", 6)
+    create_heterogeneous_adatas = params.get("create_heterogeneous_adatas", False)
+
     tmp_path = Path(tmpdir_factory.mktemp("raw_adatas"))
     tmp_path = tmp_path / "h5_files"
     tmp_path.mkdir()
