@@ -45,9 +45,9 @@ def write_sharded(
         sparse_shard_size
             Shard size i.e., number of elements in a single sparse `data` or `indices` file.
         dense_chunk_size
-           Number of obs elements per dense chunk along the first axis
+            Number of obs elements per dense chunk along the first axis
         dense_shard_size
-           Number of obs elements per dense shard along the first axis
+            Number of obs elements per dense shard along the first axis
         compressors
             The compressors to pass to `zarr`.
     """
