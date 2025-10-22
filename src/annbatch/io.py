@@ -383,7 +383,7 @@ def add_to_collection(
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
         adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
         if should_sparsify_output_in_memory and encoding == "array":
-            adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.dtype)).compute()
+            adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.X.dtype)).compute()
 
         f = zarr.open_group(shard, mode="w")
         write_sharded(
