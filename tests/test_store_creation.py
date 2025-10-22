@@ -94,8 +94,8 @@ def test_store_creation(
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
-        zarr_dense_chunk_size=10,
-        zarr_dense_shard_size=20,
+        zarr_dense_chunk_size=5,
+        zarr_dense_shard_size=10,
         n_obs_per_dataset=60,
         shuffle=shuffle,
         should_denseify=densify,
@@ -129,11 +129,11 @@ def test_store_creation(
         adata.obs.index = adata_orig.obs.index  # correct for concat
         pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
-    assert z["obsm"]["arr"].chunks[0] == 10, z["obsm"]["arr"]
+    assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
     if not densify:
         assert z["X"]["indices"].chunks[0] == 10
     else:
-        assert z["X"].chunks[0] == 10, z["X"]
+        assert z["X"].chunks[0] == 5, z["X"]
 
 
 @pytest.mark.parametrize(
@@ -162,8 +162,9 @@ def test_heterogeneous_structure_store_creation(
 
     adatas_orig = []
     for file in h5_paths:
-        dataset = ad.read_h5ad(file)
-        print(dataset.raw)
+        dataset = _read_lazy_x_and_obs_only(file)
+        dataset.X = dataset.X.compute()
+
         adatas_orig.append(
             ad.AnnData(
                 X=dataset.X if dataset.raw is None else dataset.raw.X,
