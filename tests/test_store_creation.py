@@ -81,7 +81,6 @@ def test_store_addition_different_keys(
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
     with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
-        # add h5ads to existing store
         add_to_collection(
             [additional_path],
             output_path,
