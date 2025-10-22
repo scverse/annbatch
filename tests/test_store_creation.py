@@ -138,7 +138,7 @@ def test_store_creation(
 
 @pytest.mark.parametrize(
     "adata_with_h5_path_different_var_space",
-    [{"create_heterogeneous_adatas": True}],
+    [{"all_adatas_have_raw": False}],
     indirect=True,
 )
 def test_heterogeneous_structure_store_creation(

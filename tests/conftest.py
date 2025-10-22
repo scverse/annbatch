@@ -71,7 +71,7 @@ def adata_with_h5_path_different_var_space(
     """Create mock anndata objects for testing."""
     params = getattr(request, "param", {})
     n_adatas = params.get("n_adatas", 6)
-    create_heterogeneous_adatas = params.get("create_heterogeneous_adatas", False)
+    all_adatas_have_raw = params.get("all_adatas_have_raw", True)
 
     tmp_path = Path(tmpdir_factory.mktemp("raw_adatas"))
     tmp_path = tmp_path / "h5_files"
@@ -91,7 +91,7 @@ def adata_with_h5_path_different_var_space(
             ),
             obsm={"arr": np.random.randn(m, 10)},
         )
-        if (not create_heterogeneous_adatas) or (i % 2 == 0):
+        if all_adatas_have_raw or (i % 2 == 0):
             adata_raw = adata[:, adata.var.index[: (n // 2)]].copy()
             adata_raw.obsm = None
             adata.raw = adata_raw
