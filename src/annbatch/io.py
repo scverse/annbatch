@@ -102,7 +102,11 @@ def write_sharded(
 
 def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
     num_raw_in_adata = 0
-    found_keys: dict[str, defaultdict[str, int]] = {"layers": defaultdict(lambda: 0), "obsm": defaultdict(lambda: 0)}
+    found_keys: dict[str, defaultdict[str, int]] = {
+        "layers": defaultdict(lambda: 0),
+        "obsm": defaultdict(lambda: 0),
+        "obs": defaultdict(lambda: 0),
+    }
     for path in paths:
         adata = ad.experimental.read_lazy(path)
         for elem_name, key_count in found_keys.items():
