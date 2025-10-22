@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import platform
 from dataclasses import dataclass
 from functools import cached_property
 from importlib.util import find_spec
@@ -281,22 +279,6 @@ def check_var_shapes(objs: list[SupportsShape]) -> None:
     """Small utility function to check that all objects have the same shape along the second axis"""
     if not all(objs[0].shape[1] == d.shape[1] for d in objs):
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
-
-
-def is_in_torch_dataloader_on_linux() -> bool:
-    """Check if the caller of this function is inside a torch DataLoader"""
-    stack = inspect.stack()
-    for frame_info in stack:
-        local_vars = frame_info.frame.f_locals
-        if "self" in local_vars:
-            instance = local_vars["self"]
-            if find_spec("torch"):
-                # TODO: Not sure how else to detect we are in a torch dataloader
-                from torch.utils.data._utils.fetch import _IterableDatasetFetcher
-
-                if isinstance(instance, _IterableDatasetFetcher) and platform.system() == "Linux":
-                    return True
-    return False
 
 
 def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
