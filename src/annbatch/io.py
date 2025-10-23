@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import scipy.sparse as sp
 import zarr
 from anndata.experimental.backed import Dataset2D
@@ -134,20 +135,15 @@ def _lazy_load_anndatas(
     load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
 ):
     adatas = []
-    for path in paths:
+    for i, path in enumerate(paths):
         adata = load_adata(path)
+        # Concatenating Dataset2D drops categoricals
+        if isinstance(adata.obs, Dataset2D):
+            adata.obs = adata.obs.to_memory()
+        adata.obs["src_path"] = pd.Categorical.from_codes([i] * adata.shape[0], categories=[str(p) for p in paths])
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]
-    return ad.concat(adatas, join="outer")
-
-
-def _read_into_memory(paths: Iterable[PathLike[str]] | Iterable[str]):
-    adatas = []
-    for path in paths:
-        adata = getattr(ad, f"read_{Path(path).suffix.split('.')[-1]}")(path)
-        adatas.append(adata)
-
     return ad.concat(adatas, join="outer")
 
 
@@ -220,6 +216,8 @@ def create_anndata_collection(
     The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
     However, this function can also output h5 datasets and also unshuffled datasets as well.
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
+    A key `src_path` is added to `obs` to indicate where individual row came from.
+    We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
 
     Parameters
     ----------
