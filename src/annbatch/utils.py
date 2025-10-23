@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from importlib.util import find_spec
@@ -288,12 +289,14 @@ def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):
-        tensor = torch.sparse_csr_tensor(
-            torch.from_numpy(input.indptr),
-            torch.from_numpy(input.indices),
-            torch.from_numpy(input.data),
-            input.shape,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
+            tensor = torch.sparse_csr_tensor(
+                torch.from_numpy(input.indptr),
+                torch.from_numpy(input.indices),
+                torch.from_numpy(input.data),
+                input.shape,
+            )
         if preload_to_gpu:
             return tensor.cuda(non_blocking=True)
         return tensor
@@ -305,10 +308,12 @@ def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, CupyArray):
         return torch.from_dlpack(input)
     if isinstance(input, CupyCSRMatrix):
-        return torch.sparse_csr_tensor(
-            torch.from_dlpack(input.indptr),
-            torch.from_dlpack(input.indices),
-            torch.from_dlpack(input.data),
-            input.shape,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
+            return torch.sparse_csr_tensor(
+                torch.from_dlpack(input.indptr),
+                torch.from_dlpack(input.indices),
+                torch.from_dlpack(input.data),
+                input.shape,
+            )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
