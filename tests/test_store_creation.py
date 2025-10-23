@@ -35,7 +35,7 @@ def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expec
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
-def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
+def test_store_creation_warngs_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
     adata_1 = ad.AnnData(X=np.random.randn(10, 20))
     extra_args = {
         elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else ["a"] * 10}
@@ -221,24 +221,25 @@ def test_store_creation(
     [{"all_adatas_have_raw": False}],
     indirect=True,
 )
-def test_heterogeneous_structure_store_creation(
+def test_mismatched_raw_concat(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
 ):
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous"
     output_path.mkdir(parents=True, exist_ok=True)
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
-    create_anndata_collection(
-        h5_paths,
-        output_path,
-        zarr_sparse_chunk_size=10,
-        zarr_sparse_shard_size=20,
-        zarr_dense_chunk_size=10,
-        zarr_dense_shard_size=20,
-        n_obs_per_dataset=60,
-        load_adata=_read_lazy_x_and_obs_only,
-        shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
-    )
+    with pytest.warns(UserWarning, match=r"Found raw keys not present in all anndatas"):
+        create_anndata_collection(
+            h5_paths,
+            output_path,
+            zarr_sparse_chunk_size=10,
+            zarr_sparse_shard_size=20,
+            zarr_dense_chunk_size=10,
+            zarr_dense_shard_size=20,
+            n_obs_per_dataset=60,
+            load_adata=_read_lazy_x_and_obs_only,
+            shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
+        )
 
     adatas_orig = []
     for file in h5_paths:

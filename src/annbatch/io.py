@@ -115,13 +115,13 @@ def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
                 key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != len(paths) or num_raw_in_adata != 0:
+    if num_raw_in_adata != len(paths) and num_raw_in_adata != 0:
         warnings.warn(
             "Found raw keys not present in all anndatas, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
-        elem_keys_mismatched = [key for key, count in key_count.items() if (count != len(paths) or count != 0)]
+        elem_keys_mismatched = [key for key, count in key_count.items() if (count != len(paths) and count != 0)]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
                 f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
