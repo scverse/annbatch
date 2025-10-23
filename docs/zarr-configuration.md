@@ -23,7 +23,7 @@ zarr.config.set({
 ```
 
 The `threading.max_workers` will control how many threads are used by `zarrs`, and by extension, our data loader.
-This parameter is global and controls both the rust parallelism and the python parallelism.
+This parameter is global and controls both the rust parallelism and the Python parallelism.
 If you notice thrashing or similar oversubscription behavior of threads, please open an issue.
 
 Some **linux** file systems' performance may suffer from the high level of parallelism combined with a full page cache in RAM.
