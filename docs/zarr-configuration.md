@@ -11,7 +11,7 @@ Otherwise normal use {mod}`zarr` without {doc}`zarrs-python <zarrs:index>` (wich
 
 ## `zarrs` Performance
 
-Please look at {doc}`zarrs-python <zarrs:index>`'s docs for more info but There are two important setting to consider:
+Please look at {doc}`zarrs-python <zarrs:index>`'s docs for more info but there are two important setting to consider:
 
 ```python
 zarr.config.set({
