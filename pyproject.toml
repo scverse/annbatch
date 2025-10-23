@@ -105,6 +105,7 @@ matrix.deps.env-vars = [
 matrix.deps.features = [
   { if = [ "torch" ], value = "torch" },
 ]
+matrix.deps.extra-args = { if = [ "minimal", "pre" ], value = [ "--strict-warnings" ] }
 
 [tool.ruff]
 line-length = 120

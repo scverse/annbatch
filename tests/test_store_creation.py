@@ -45,7 +45,7 @@ def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers",
     path_2 = tmp_path / "with_extra_key.h5ad"
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
-    with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
+    with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
         create_anndata_collection(
             [path_1, path_2],
             tmp_path / "collection",
@@ -84,7 +84,7 @@ def test_store_addition_different_keys(
     adata = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
-    with pytest.warns(UserWarning, match=rf"Found anndata at .* that has {elem_name}"):
+    with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
         add_to_collection(
             [additional_path],
             output_path,
