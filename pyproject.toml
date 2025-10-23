@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
   "anndata[lazy]",
   "dask",
+  "pandas",
   "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
