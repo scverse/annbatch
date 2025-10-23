@@ -13,6 +13,8 @@ import zarr
 from annbatch import add_to_collection, create_anndata_collection, write_sharded
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from os import PathLike
     from pathlib import Path
 
 
@@ -58,11 +60,11 @@ def test_store_creation_with_different_keys(elem_name: Literal["obsm", "layers",
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
-@pytest.mark.parametrize("read_full_anndatas", [True, False])
+@pytest.mark.parametrize("load_adata", [ad.read_h5ad, ad.experimental.read_lazy])
 def test_store_addition_different_keys(
     elem_name: Literal["obsm", "layers", "raw"],
     tmp_path: Path,
-    read_full_anndatas: bool,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData],
 ):
     adata_orig = ad.AnnData(X=np.random.randn(100, 20))
     orig_path = tmp_path / "orig.h5ad"
@@ -88,7 +90,7 @@ def test_store_addition_different_keys(
         add_to_collection(
             [additional_path],
             output_path,
-            read_full_anndatas=read_full_anndatas,
+            load_adata=load_adata,
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
             zarr_dense_chunk_size=5,
@@ -261,15 +263,15 @@ def test_heterogeneous_structure_store_creation(
 
 
 @pytest.mark.parametrize("densify", [True, False])
-@pytest.mark.parametrize("read_full_anndatas", [True, False])
+@pytest.mark.parametrize("load_adata", [ad.read_h5ad, ad.experimental.read_lazy])
 def test_store_extension(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     densify: bool,
-    read_full_anndatas: bool,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData],
 ):
     all_h5_paths = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     store_path = (
-        adata_with_h5_path_different_var_space[1].parent / f"zarr_store_extension_test_{densify}_{read_full_anndatas}"
+        adata_with_h5_path_different_var_space[1].parent / f"zarr_store_extension_test_{densify}_{load_adata.__name__}"
     )
     original = all_h5_paths
     additional = all_h5_paths[4:]  # don't add everything to get a "different" var space
@@ -289,7 +291,7 @@ def test_store_extension(
     add_to_collection(
         additional,
         store_path,
-        read_full_anndatas=read_full_anndatas,
+        load_adata=load_adata,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=5,
