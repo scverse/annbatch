@@ -113,6 +113,7 @@ However, once you have too much data to fit into memory, for whatever reason, th
 :maxdepth: 1
 
 api.md
+zarr-configuration.md
 changelog.md
 contributing.md
 references.md

@@ -104,7 +104,7 @@ intersphinx_mapping = {
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
     "scanpy": ("https://scanpy.readthedocs.io/en/stable/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
-    "zarr": ("https://zarr.readthedocs.io/en/stable/", None),
+    "zarr": ("https://zarr.readthedocs.io/en/latest/", None),
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "cupy": ("https://docs.cupy.dev/en/stable/", None),
