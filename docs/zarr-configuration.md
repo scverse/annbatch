@@ -39,4 +39,5 @@ Please see zarr python's {doc}`zarr:user-guide/config` for more info but likely 
 zarr.config.set({"async.concurrency": 64})
 ```
 
-which is 64 by default. See the [zarr page on concurrency](https://zarr.readthedocs.io/en/latest/user-guide/consolidated_metadata/#synchronization-and-concurrency) for more information.
+which is 64 by default.
+See the [zarr page on concurrency](https://zarr.readthedocs.io/en/latest/user-guide/consolidated_metadata/#synchronization-and-concurrency) for more information.
