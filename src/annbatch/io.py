@@ -115,18 +115,18 @@ def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
                 key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != len(paths):
+    if num_raw_in_adata != len(paths) and num_raw_in_adata != 0:
         warnings.warn(
-            f"Found anndata at {path} that has raw and others do not (other paths: {paths}), consider deleting raw via `load_adata`",
+            "Found raw keys not present in all anndatas, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
-        for key, count in key_count.items():
-            if count > 0:
-                warnings.warn(
-                    f"Found anndata at {path} that has {elem_name} key {key} not present in the other paths' {elem_name} (other paths: {paths}), consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
-                    stacklevel=2,
-                )
+        elem_keys_mismatched = [key for key, count in key_count.items() if (count != len(paths) and count != 0)]
+        if len(elem_keys_mismatched) > 0:
+            warnings.warn(
+                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
+                stacklevel=2,
+            )
 
 
 def _lazy_load_anndatas(

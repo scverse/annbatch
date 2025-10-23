@@ -154,6 +154,19 @@ xfail_strict = true
 # addopts = [
 #   "--import-mode=importlib", # allow using test files with same name
 # ]
+filterwarnings = [
+  "error",
+  # AnnData
+  "default:(Observation|Variable) names are not unique. To make them unique:UserWarning",
+  "default:Consolidated metadata is:UserWarning",
+  "default::anndata._warnings.ImplicitModificationWarning",
+  "default:Only some AnnData objects have `.raw` attribute:UserWarning",
+  # Zarr
+  "default:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "default:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
+  # scipy
+  "default::scipy.sparse.SparseEfficiencyWarning",
+]
 
 [tool.coverage.run]
 source = [ "annbatch" ]
