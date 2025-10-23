@@ -101,31 +101,36 @@ def write_sharded(
     zarr.consolidate_metadata(group.store)
 
 
-def _check_for_mismatched_keys(paths: Iterable[PathLike[str]] | Iterable[str]):
+def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.AnnData] | Iterable[str | ad.AnnData]):
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
         "layers": defaultdict(lambda: 0),
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path in paths:
-        adata = ad.experimental.read_lazy(path)
+    for path_or_anndata in paths_or_anndatas:
+        if not isinstance(path_or_anndata, ad.AnnData):
+            adata = ad.experimental.read_lazy(path_or_anndata)
+        else:
+            adata = path_or_anndata
         for elem_name, key_count in found_keys.items():
             curr_keys = set(getattr(adata, elem_name).keys())
             for key in curr_keys:
                 key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != len(paths) and num_raw_in_adata != 0:
+    if num_raw_in_adata != len(paths_or_anndatas) and num_raw_in_adata != 0:
         warnings.warn(
-            "Found raw keys not present in all anndatas, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
+            f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
-        elem_keys_mismatched = [key for key, count in key_count.items() if (count != len(paths) and count != 0)]
+        elem_keys_mismatched = [
+            key for key, count in key_count.items() if (count != len(paths_or_anndatas) and count != 0)
+        ]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
-                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
+                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
 
@@ -388,9 +393,12 @@ def add_to_collection(
     encoding = _get_array_encoding_type(output_path)
     if encoding == "array":
         print("Detected array encoding type. Will convert to dense format before writing.")
-    _check_for_mismatched_keys(list(adata_paths) + shards)
+    # Check for mismatched keys among the inputs.
+    _check_for_mismatched_keys(adata_paths)
 
     adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+    # Check for mismatched keys between shards and the inputs.
+    _check_for_mismatched_keys([adata_concat] + shards)
     if isinstance(adata_concat.X, DaskArray):
         chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
     else:

@@ -217,6 +217,7 @@ def test_store_creation(
         [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())],
         join="outer",
     )
+    del adata.obs["src_path"]
     assert adata.X.shape[0] == adata_orig.X.shape[0]
     assert adata.X.shape[1] == adata_orig.X.shape[1]
     assert np.array_equal(
@@ -283,7 +284,7 @@ def test_mismatched_raw_concat(
     adata_orig = ad.concat(adatas_orig, join="outer")
     adata_orig.obs_names_make_unique()
     adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())])
-    del adata.obs["path"]
+    del adata.obs["src_path"]
     pd.testing.assert_frame_equal(adata_orig.var, adata.var)
     pd.testing.assert_frame_equal(adata_orig.obs, adata.obs)
     np.testing.assert_array_equal(adata_orig.X.toarray(), adata.X.toarray())
