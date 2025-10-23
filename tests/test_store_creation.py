@@ -59,6 +59,32 @@ def test_store_creation_warngs_with_different_keys(elem_name: Literal["obsm", "l
         )
 
 
+def test_store_creation_path_added_to_obs(tmp_path: Path):
+    adata_1 = ad.AnnData(X=np.random.randn(10, 20))
+    adata_2 = adata_1.copy()
+    path_1 = tmp_path / "adata_1.h5ad"
+    path_2 = tmp_path / "adata_2.h5ad"
+    adata_1.write_h5ad(path_1)
+    adata_2.write_h5ad(path_2)
+    paths = [path_1, path_2]
+    output_dir = tmp_path / "path_src_collection"
+    create_anndata_collection(
+        paths,
+        output_dir,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=5,
+        zarr_dense_shard_size=10,
+        n_obs_per_dataset=10,
+        shuffle=False,
+    )
+    adata_result = ad.concat([ad.read_zarr(path) for path in sorted((output_dir).iterdir())], join="outer")
+    pd.testing.assert_extension_array_equal(
+        adata_result.obs["src_path"].array,
+        pd.Categorical(([str(path_1)] * 10) + ([str(path_2)] * 10), categories=[str(p) for p in paths]),
+    )
+
+
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
 @pytest.mark.parametrize("load_adata", [ad.read_h5ad, ad.experimental.read_lazy])
 def test_store_addition_different_keys(
@@ -191,6 +217,7 @@ def test_store_creation(
         [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())],
         join="outer",
     )
+    del adata.obs["src_path"]
     assert adata.X.shape[0] == adata_orig.X.shape[0]
     assert adata.X.shape[1] == adata_orig.X.shape[1]
     assert np.array_equal(
@@ -257,7 +284,7 @@ def test_mismatched_raw_concat(
     adata_orig = ad.concat(adatas_orig, join="outer")
     adata_orig.obs_names_make_unique()
     adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())])
-
+    del adata.obs["src_path"]
     pd.testing.assert_frame_equal(adata_orig.var, adata.var)
     pd.testing.assert_frame_equal(adata_orig.obs, adata.obs)
     np.testing.assert_array_equal(adata_orig.X.toarray(), adata.X.toarray())
