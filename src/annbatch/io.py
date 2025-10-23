@@ -330,12 +330,12 @@ def _get_array_encoding_type(path: PathLike[str] | str) -> str:
 def add_to_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
     zarr_sparse_chunk_size: int = 32768,
     zarr_sparse_shard_size: int = 134_217_728,
     zarr_dense_chunk_size: int = 1024,
     zarr_dense_shard_size: int = 4_194_304,
     zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
-    read_full_anndatas: bool = True,
     should_sparsify_output_in_memory: bool = False,
 ) -> None:
     """Add anndata files to an existing collection of sharded anndata zarr datasets.
@@ -348,6 +348,11 @@ def add_to_collection(
             Paths to the anndata files to be appended to the collection of output chunks.
         output_path
             Path to the output zarr store.
+        load_adata
+            Function to customize loading the invidiual input anndata files. By default, {func}`anndata.read_h5ad` is used.
+            If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
+            The input to the function is a path to an anndata file, and the output is an anndata object.
+            If the input data is too large to fit into memory, you should use `ad.experimental.read_lazy` instead.
         zarr_sparse_chunk_size
             Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
         zarr_sparse_shard_size
@@ -358,22 +363,24 @@ def add_to_collection(
             Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
         zarr_compressor
             Compressors to use to compress the data in the zarr store.
-        read_full_anndatas
-            Whether to read the full input anndata files into memory before writing them to the store.
-            Otherwise, reading will be done lazily.
         should_sparsify_output_in_memory
             This option is for testing only appending sparse files to dense stores.
             To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
 
     Examples
     --------
+        >>> import anndata as ad
         >>> from annbatch import add_to_collection
         >>> datasets = [
         ...     "path/to/first_adata.h5ad",
         ...     "path/to/second_adata.h5ad",
         ...     "path/to/third_adata.h5ad",
         ... ]
-        >>> add_to_collection(datasets, "path/to/output/zarr_store")
+        >>> add_to_collection(
+        ... datasets,
+        ... "path/to/output/zarr_store",
+        ...  load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
+        ...)
     """
     shards = list(Path(output_path).glob(f"{DATASET_PREFIX}_*.zarr"))
     if len(shards) == 0:
@@ -385,12 +392,12 @@ def add_to_collection(
         print("Detected array encoding type. Will convert to dense format before writing.")
     _check_for_mismatched_keys(list(adata_paths) + shards)
 
-    if read_full_anndatas:
-        adata_concat = _read_into_memory(adata_paths)
-        chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
-    else:
-        adata_concat = _lazy_load_anndatas(adata_paths)
+    adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+    if isinstance(adata_concat.X, DaskArray):
         chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
+    else:
+        chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
+
     adata_concat.obs_names_make_unique()
     if encoding == "array":
         if not should_sparsify_output_in_memory:
