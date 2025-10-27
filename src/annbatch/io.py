@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anndata as ad
+import dask.array as da
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -308,10 +309,12 @@ def create_anndata_collection(
             adata_chunk = adata_chunk[idxs]
         # convert to dense format before writing to disk
         if should_denseify:
-            if isinstance(adata_chunk.X, DaskArray):
-                adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
-            elif isinstance(adata_chunk.X, sp.csr_matrix | sp.csr_array):
-                adata_chunk.X = adata_chunk.X.toarray()
+            # Need to convert back to dask array to avoid memory issues when converting large sparse matrices to dense
+            adata_chunk = adata_chunk.copy()
+            adata_chunk.X = da.from_array(
+                adata_chunk.X, chunks=(zarr_dense_chunk_size, -1), meta=adata_chunk.X
+            ).map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
+
         if output_format == "zarr":
             f = zarr.open_group(Path(output_path) / f"{DATASET_PREFIX}_{i}.zarr", mode="w")
             write_sharded(
