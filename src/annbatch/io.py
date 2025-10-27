@@ -306,7 +306,7 @@ def create_anndata_collection(
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
             adata_chunk = adata_chunk[idxs]
         # convert to dense format before writing to disk
-        if should_denseify:
+        if should_denseify and isinstance(adata_chunk.X, DaskArray):
             adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
 
         if output_format == "zarr":
