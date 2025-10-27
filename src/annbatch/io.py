@@ -257,7 +257,7 @@ def create_anndata_collection(
         shuffle
             Whether to shuffle the data before writing it to the store.
         should_denseify
-            Whether to write as dense on disk.
+            Whether to write as dense on disk. There's no need to set this for sparse data, it is only for testing.
         output_format
             Format of the output store. Can be either "zarr" or "h5ad".
 
@@ -306,9 +306,11 @@ def create_anndata_collection(
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
             adata_chunk = adata_chunk[idxs]
         # convert to dense format before writing to disk
-        if should_denseify and isinstance(adata_chunk.X, DaskArray):
-            adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
-
+        if should_denseify:
+            if isinstance(adata_chunk.X, DaskArray):
+                adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
+            elif isinstance(adata_chunk.X, sp.csr_matrix | sp.csr_array):
+                adata_chunk.X = adata_chunk.X.toarray()
         if output_format == "zarr":
             f = zarr.open_group(Path(output_path) / f"{DATASET_PREFIX}_{i}.zarr", mode="w")
             write_sharded(
