@@ -224,6 +224,7 @@ def create_anndata_collection(
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
     A key `src_path` is added to `obs` to indicate where individual row came from.
     We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
+    Memory usage should be controlled by `n_obs_per_dataset` as so many rows will be read into memory before writing to disk.
 
     Parameters
     ----------
