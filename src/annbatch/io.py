@@ -172,7 +172,7 @@ def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
 
 
 def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
-    if isinstance(adata.X, DaskArray) and isinstance(adata.X._meta, sp.spmatrix):
+    if isinstance(adata.X, DaskArray) and isinstance(adata.X._meta, sp.csr_matrix | sp.csr_array):
         adata.X = _compute_blockwise(adata.X)
     if isinstance(adata.obs, Dataset2D):
         adata.obs = adata.obs.to_memory()
