@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import random
 import warnings
@@ -166,9 +167,13 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
     return idxs
 
 
+def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
+    return sp.vstack(da.compute(*list(x.blocks)))
+
+
 def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
-    if isinstance(adata.X, DaskArray):
-        adata.X = adata.X.compute()
+    if isinstance(adata.X, DaskArray) and isinstance(adata.X._meta, sp.spmatrix):
+        adata.X = _compute_blockwise(adata.X)
     if isinstance(adata.obs, Dataset2D):
         adata.obs = adata.obs.to_memory()
     if isinstance(adata.var, Dataset2D):
@@ -176,8 +181,8 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
 
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
-        if isinstance(adata_raw.X, DaskArray):
-            adata_raw.X = adata_raw.X.compute()
+        if isinstance(adata_raw.X, DaskArray) and isinstance(adata_raw.X._meta, sp.spmatrix):
+            adata_raw.X = _compute_blockwise(adata_raw.X)
         if isinstance(adata_raw.var, Dataset2D):
             adata_raw.var = adata_raw.var.to_memory()
         if isinstance(adata_raw.obs, Dataset2D):
@@ -330,6 +335,8 @@ def create_anndata_collection(
             adata_chunk.write_h5ad(Path(output_path) / f"{DATASET_PREFIX}_{i}.h5ad", compression=h5ad_compressor)
         else:
             raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
+
+        gc.collect()
 
 
 def _get_array_encoding_type(path: PathLike[str] | str) -> str:
