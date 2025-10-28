@@ -336,8 +336,6 @@ def create_anndata_collection(
         else:
             raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
 
-        gc.collect()
-
 
 def _get_array_encoding_type(path: PathLike[str] | str) -> str:
     shards = list(Path(path).glob(f"{DATASET_PREFIX}_*.zarr"))
