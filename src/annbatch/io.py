@@ -181,7 +181,7 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
 
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
-        if isinstance(adata_raw.X, DaskArray) and isinstance(adata_raw.X._meta, sp.spmatrix):
+        if isinstance(adata_raw.X, DaskArray) and isinstance(adata_raw.X._meta, sp.csr_array | sp.csr_matrix):
             adata_raw.X = _compute_blockwise(adata_raw.X)
         if isinstance(adata_raw.var, Dataset2D):
             adata_raw.var = adata_raw.var.to_memory()
