@@ -167,6 +167,7 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
 
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
+    """.compute() for large datasets is bad: https://github.com/scverse/annbatch/pull/75"""
     return sp.vstack(da.compute(*list(x.blocks)))
 
 
