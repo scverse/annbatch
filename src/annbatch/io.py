@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 import json
 import random
 import warnings
