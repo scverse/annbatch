@@ -32,6 +32,9 @@
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
+[![PyPI](https://img.shields.io/pypi/v/annbatch.svg)](https://pypi.org/project/annbatch)
+[![Downloads](https://static.pepy.tech/badge/annbatch/month)](https://pepy.tech/project/annbatch)
+[![Downloads](https://static.pepy.tech/badge/annbatch)](https://pepy.tech/project/annbatch)
 
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 
@@ -120,6 +123,10 @@ ds = ZarrSparseDataset(
 for batch in ds:
     ...
 ```
+
+<!--TODO: proper intersphinx and/or migrate note-->
+
+For usage of our loader inside of `torch`, please see our [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `DataLoader`.
 
 <!--HEADER-->
 

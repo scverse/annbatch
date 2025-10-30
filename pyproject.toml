@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
   "anndata[lazy]",
   "dask",
+  "pandas",
   "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
@@ -150,8 +151,22 @@ lint.pydocstyle.convention = "numpy"
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
 xfail_strict = true
-addopts = [
-  "--import-mode=importlib", # allow using test files with same name
+# https://github.com/pytest-dev/pytest/issues/10965
+# addopts = [
+#   "--import-mode=importlib", # allow using test files with same name
+# ]
+filterwarnings = [
+  "error",
+  # AnnData
+  "default:(Observation|Variable) names are not unique. To make them unique:UserWarning",
+  "default:Consolidated metadata is:UserWarning",
+  "default::anndata._warnings.ImplicitModificationWarning",
+  "default:Only some AnnData objects have `.raw` attribute:UserWarning",
+  # Zarr
+  "default:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "default:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
+  # scipy
+  "default::scipy.sparse.SparseEfficiencyWarning",
 ]
 
 [tool.coverage.run]
