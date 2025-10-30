@@ -88,14 +88,12 @@ The code to reproduce the above results can be found on LaminHub:
 
 ### Why data loading speed matters?
 
-Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer
-vision or natural language processing.
+Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer vision or natural language processing.
 This size differential puts significantly more pressure on the data loading pipeline to fully utilize a modern GPU.
 Intuitively, if the model is small, doing the actual computation is relatively fast.
 Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster.
 
-As an illustrative, example let's train a logistic regression
-model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
+As an illustrative, example let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
 Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with data loading speed:
 
 <img src="_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
