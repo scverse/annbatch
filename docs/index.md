@@ -112,8 +112,6 @@ To this end, please have a look at [this gist](https://gist.github.com/ilan-gold
 It highlights how [zarrs-python][] and sharding can help there as well.
 However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
 
-[zarrs-python]: https://zarrs-python.readthedocs.io/
-
 ```{include} ../README.md
 :start-after: <!--FOOTER-->
 ```
