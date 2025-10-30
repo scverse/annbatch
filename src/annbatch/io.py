@@ -166,9 +166,17 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
     return idxs
 
 
+def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
+    """.compute() for large datasets is bad: https://github.com/scverse/annbatch/pull/75"""
+    return sp.vstack(da.compute(*list(x.blocks)))
+
+
 def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     if isinstance(adata.X, DaskArray):
-        adata.X = adata.X.compute()
+        if isinstance(adata.X._meta, sp.csr_matrix | sp.csr_array):
+            adata.X = _compute_blockwise(adata.X)
+        else:
+            adata.X = adata.X.compute()
     if isinstance(adata.obs, Dataset2D):
         adata.obs = adata.obs.to_memory()
     if isinstance(adata.var, Dataset2D):
@@ -177,7 +185,10 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
         if isinstance(adata_raw.X, DaskArray):
-            adata_raw.X = adata_raw.X.compute()
+            if isinstance(adata_raw.X._meta, sp.csr_array | sp.csr_matrix):
+                adata_raw.X = _compute_blockwise(adata_raw.X)
+            else:
+                adata_raw.X = adata_raw.X.compute()
         if isinstance(adata_raw.var, Dataset2D):
             adata_raw.var = adata_raw.var.to_memory()
         if isinstance(adata_raw.obs, Dataset2D):
@@ -188,11 +199,17 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     for k, elem in adata.obsm.items():
         # TODO: handle `Dataset2D` in `obsm` and `varm` that are
         if isinstance(elem, DaskArray):
-            adata.obsm[k] = elem.compute()
+            if isinstance(elem, sp.csr_matrix | sp.csr_array):
+                adata.obsm[k] = _compute_blockwise(elem)
+            else:
+                adata.obsm[k] = elem.compute()
 
     for k, elem in adata.layers.items():
         if isinstance(elem, DaskArray):
-            adata.layers[k] = elem.compute()
+            if isinstance(elem, sp.csr_matrix | sp.csr_array):
+                adata.layers[k] = _compute_blockwise(elem)
+            else:
+                adata.layers[k] = elem.compute()
 
     return adata
 
