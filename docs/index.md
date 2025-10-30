@@ -69,7 +69,7 @@ With a pre-shuffled store and blocked access, your model fit should not be affec
 
 If you are interested in contributing this feature to the project or leaning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
-If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class} `~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class} `torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
+If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
 
 ### Speed comparison to other dataloaders
 
