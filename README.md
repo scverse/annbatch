@@ -40,7 +40,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
+Data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
@@ -133,9 +133,9 @@ for batch in ds:
 
 > [!IMPORTANT]
 > For usage of our loader inside of `torch`, please see
-> our [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the
+> [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the
 > minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the
-`DataLoader`.
+`torch.utils.data.DataLoader` class.
 
 ## Release notes
 
