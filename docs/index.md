@@ -14,7 +14,7 @@ create_anndata_collection(
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    output_path="path/to/output/store", # a directory containing `chunk_{i}.zarr`
+    output_path="path/to/output/store",  # a directory containing `chunk_{i}.zarr`
     shuffle=True,  # shuffling is needed if you want to use chunked access
 )
 ```
@@ -69,14 +69,22 @@ With a pre-shuffled store and blocked access, your model fit should not be affec
 
 If you are interested in contributing this feature to the project or leaning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
-If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.ZarrSparseDataset` with `batch_size=1` and `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
-
+If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class} `~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class} `torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
 
 ### Speed comparison to other dataloaders
 
-We provide a quickstart notebook that gives both some boilerplate code and provides a speed comparison to other comparable dataloaders:
+We provide a speed comparison to other comparable dataloaders below.
+Notably, our data loader comes with a significant speedup compared to other dataloaders:
 
-TODO: figure and notebook
+<img src="_static/speed_comparision.png" alt="speed_comparison" width="400">
+
+We've run the above benchmark on an AWS `ml.m5.8xlarge` instance.
+The code to reproduce the above results can be found on LaminHub:
+
+* [Benchmark results](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/e6Ry7noc4Y0d)
+* [annbatch code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/yl0iTPhJjkqW)
+* [MappedCollection code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/YfzHfoomTkfu)
+* [scDataset code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/L6CAf9w0qdQj)
 
 ### Why data loading speed matters?
 
@@ -96,7 +104,7 @@ This speedup is more than 100x and shows the significant impact data loading has
 
 ### When would you use this data laoder?
 
-As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "foundation model").
+As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a " foundation model").
 But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
 Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
 To accelerate reading the data into memory, you may still find [zarrs-python][] in conjunction with sharding still helpful in the same way it accelerates io here.
