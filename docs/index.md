@@ -96,7 +96,7 @@ Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster
 As an illustrative, example let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
 Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with data loading speed:
 
-<img src="_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
+<img src="docs/_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
 
 From the graph we can see that the fit time can be decreased substantially with faster data loading speeds (several orders of magnitude).
 E.g. we are able to reduce the fit time from ~280s for a data loading speed of ~1000 samples/sec to ~1.5s for a data loading speed of ~1.000.000 samples/sec.
