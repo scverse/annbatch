@@ -1,17 +1,43 @@
-# arrayloaders
+<!--Links at the top because this document is split for docs home page-->
+
+[uv]: https://github.com/astral-sh/uv
+
+[scverse discourse]: https://discourse.scverse.org/
+
+[issue tracker]: https://github.com/scverse/annbatch/issues
+
+[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
+
+[documentation]: https://annbatch.readthedocs.io
+
+[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
+
+[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
+
+[pypi]: https://pypi.org/project/annbatch
+
+[zarrs-python]: https://zarrs-python.readthedocs.io/
+
+[lamin]: https://lamin.ai/
+
+[scverse]: https://scverse.org/
+
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/#in-depth
+
+# annbatch
 
 > [!CAUTION]
-> This package does not have a stable API. However, we do not anticipate the on-disk format to change as it is simply an
-> anndata file.
+> This package does not have a stable API.
+  However, we do not anticipate the on-disk format to change in an incompatible manner.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/laminlabs/arrayloaders/test.yaml?branch=main
+[badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 
-[badge-docs]: https://img.shields.io/readthedocs/arrayloaders
+[badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A minibatch loader for anndata store
+A data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
 
 ## Getting started
 
@@ -20,68 +46,59 @@ in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.10 or newer installed on your system.
+You need to have Python 3.12 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
-There are several alternative options to install arrayloaders:
-
-<!--
-1) Install the latest release of `arrayloaders` from [PyPI][]:
+To install the latest release of `annbatch` from [PyPI][]:
 
 ```bash
-pip install arrayloaders
+pip install annbatch
 ```
--->
 
-1. Install the latest development version:
-
-```bash
-pip install git+https://github.com/laminlabs/arrayloaders.git@main
-```
+We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
+`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
+> [!IMPORTANT]
+> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
 
 ## Basic usage example
 
-First, you'll need to convert your existing `.h5ad` files into a zarr-backed anndata format.
-In the process, the data gets shuffled and is distributed across several anndata files.
-
-### Preprocessing
-
+Basic preprocessing:
 ```python
-from arrayloaders import create_store_from_h5ads
+from annbatch import create_anndata_collection
 
-create_store_from_h5ads(
-    adata_paths=[
-        "path/to/your/file1.h5ad",
-        "path/to/your/file2.h5ad"
-    ],
-    output_path="path/to/output/store",  # a directory containing `chunk_{i}.zarr`
-    shuffle=True,  # shuffling is needed if you want to use chunked access
-)
-```
-
-### Data loading
-
-You can use the the `arrayloaders` dataset iterator in two settings:
-
-* Chunked access: Better performance, no control oversampling strategy (only random access).
-* User configurable sampling strategy: Less performant (~4x slower), but full control over sampling strategy.
-
-#### Chunked access
-
-```python
+import zarr
 from pathlib import Path
 
-import anndata as ad
-import zarr
-import zarrs
-
+# Using zarrs is necessary for local filesystem perforamnce.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
-from arrayloaders import ZarrSparseDataset
+create_anndata_collection(
+    adata_paths=[
+        "path/to/your/file1.h5ad",
+        "path/to/your/file2.h5ad"
+    ],
+    output_path="path/to/output/collection", # a directory containing `dataset_{i}.zarr`
+    shuffle=True,  # shuffling is needed if you want to use chunked access
+)
+```
 
-PATH_TO_STORE = Path("path/to/output/store")
+Data loading:
+
+```python
+from pathlib import Path
+
+from annbatch import ZarrSparseDataset
+import anndata as ad
+import zarr
+
+# Using zarrs is necessary for local filesystem perforamnce.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
+zarr.config.set(
+    {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
+)
 
 ds = ZarrSparseDataset(
     batch_size=4096,
@@ -90,76 +107,29 @@ ds = ZarrSparseDataset(
 ).add_anndatas(
     [
         ad.AnnData(
+            # note that you can open an AnnData file using any type of zarr store
             X=ad.io.sparse_dataset(zarr.open(p)["X"]),
             obs=ad.io.read_elem(zarr.open(p)["obs"]),
         )
-        for p in PATH_TO_STORE.glob("*.zarr")
+        for p in Path("path/to/output/collection").glob("*.zarr")
     ],
     obs_keys="label_column",
 )
 
-# Iterate over dataloader
+# Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
     ...
 ```
 
-For performance reasons, you should use our dataloader directly without wrapping it into a {class}
-`torch.utils.data.dataloader`.
-Your code will work the same way as with a {class}`torch.utils.data.dataloader`, but you will get better performance.
+<!--TODO: proper intersphinx and/or migrate note-->
 
-#### User configurable sampling strategy
+For usage of our loader inside of `torch`, please see our [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `DataLoader`.
 
-At the moment we do not support user-configurable sampling strategies like weighting or sampling.
-With a pre-shuffled store and blocked access, your model fit should not be affected by using chunked access.
+<!--HEADER-->
 
-If you are interested in contributing this feature to the project or leaning more, please get in touch
-on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
+For a deeper dive into this example, please see the [in-depth section of our docs][]
 
-## Speed comparison to other dataloaders
-
-We provide a speed comparison to other comparable dataloaders below.
-Notably, our data loader comes with a significant speedup compared to other dataloaders:
-
-<img src="docs/_static/speed_comparision.png" alt="fit_time_vs_loading_speed" width="400">
-
-We've run the above benchmark on an AWS `ml.m5.8xlarge` instance.
-The code to reproduce the above results can be found on LaminHub:
-
-* [Benchmark results](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/e6Ry7noc4Y0d)
-* [Arrayloaders code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/yl0iTPhJjkqW)
-* [MappedCollection code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/YfzHfoomTkfu)
-* [scDataset code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/L6CAf9w0qdQj)
-
-## Why data loading speed matters?
-
-Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer
-vision or natural language processing.
-This size differential puts significantly more pressure on the data loading pipeline to fully utilize a modern GPU.
-Intuitively, if the model is small, doing the actual computation is relatively fast.
-Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster.
-
-As an illustrative, example let's train a logistic regression
-model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
-Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with
-data loading speed:
-
-<img src="docs/_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
-
-From the graph we can see that the fit time can be decreased substantially with faster data loading speeds (several
-orders of magnitude).
-E.g. we are able to reduce the fit time from ~280s for a data loading speed of ~1000 samples/sec to ~1.5s for a data
-loading speed of ~1.000.000 samples/sec.
-This speedup is more than 100x and shows the significant impact data loading has on total training time.
-
-## When would you use this data laoder?
-
-As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "
-foundation model").
-But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
-Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
-However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered
-here can provide significant speedups over state of the art out-of-core dataloaders.
-
+<!--FOOTER-->
 ## Release notes
 
 See the [changelog][].
@@ -168,23 +138,3 @@ See the [changelog][].
 
 For questions and help requests, you can reach out in the [scverse discourse][].
 If you found a bug, please use the [issue tracker][].
-
-## Citation
-
-> t.b.a
-
-[uv]: https://github.com/astral-sh/uv
-
-[scverse discourse]: https://discourse.scverse.org/
-
-[issue tracker]: https://github.com/laminlabs/arrayloaders/issues
-
-[tests]: https://github.com/laminlabs/arrayloaders/actions/workflows/test.yaml
-
-[documentation]: https://arrayloaders.readthedocs.io
-
-[changelog]: https://arrayloaders.readthedocs.io/en/latest/changelog.html
-
-[api documentation]: https://arrayloaders.readthedocs.io/en/latest/api.html
-
-[pypi]: https://pypi.org/project/arrayloaders

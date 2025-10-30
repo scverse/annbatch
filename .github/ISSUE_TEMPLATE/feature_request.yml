@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new feature for arrayloaders
+description: Propose a new feature for annbatch
 labels: enhancement
 body:
   - type: textarea

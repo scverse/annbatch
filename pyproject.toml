@@ -3,9 +3,9 @@ build-backend = "hatchling.build"
 requires = [ "hatchling" ]
 
 [project]
-name = "arrayloaders"
+name = "annbatch"
 version = "0.0.1"
-description = "A minibatch loader for anndata store"
+description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [
@@ -14,23 +14,29 @@ maintainers = [
 ]
 authors = [
   { name = "Ilan Gold" },
-  { name = "Felix Fishcer" },
+  { name = "Felix Fischer" },
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.14"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "anndata[dask]",
+  "anndata[lazy]",
   "dask",
+  "pandas",
   "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
   "tqdm",
   "zarr>=3",
+]
+optional-dependencies.cupy-cuda12 = [
+  "cupy-cuda12x",
+]
+optional-dependencies.cupy-cuda13 = [
+  "cupy-cuda13x",
 ]
 optional-dependencies.dev = [
   "pre-commit",
@@ -42,29 +48,31 @@ optional-dependencies.doc = [
   "ipython",
   "myst-nb>=1.1",
   "pandas",
-  # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
-  "setuptools",
+  "scanpydoc[theme,typehints]>=0.15.3",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",
+  "sphinx-issues>=5.0.1",
   "sphinx-tabs",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.gpu = [
-  "cupy-cuda12x",
-]
 optional-dependencies.test = [
+  "annbatch[zarrs]",
   "coverage",
   "pytest",
+]
+optional-dependencies.torch = [
   "torch",
-  "zarrs",
+]
+optional-dependencies.zarrs = [
+  "zarrs>=0.2.1",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://arrayloaders.readthedocs.io/"
-urls.Homepage = "https://github.com/laminlabs/arrayloaders"
-urls.Source = "https://github.com/laminlabs/arrayloaders"
+urls.Documentation = "https://annbatch.readthedocs.io/"
+urls.Homepage = "https://github.com/scverse/annbatch"
+urls.Source = "https://github.com/scverse/annbatch"
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -78,12 +86,12 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "stable" ]
-python = [ "3.11", "3.13" ]
+deps = [ "minimal" ]
+python = [ "3.12", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "pre" ]
+deps = [ "pre", "torch" ]
 python = [ "3.13" ]
 
 [tool.hatch.envs.hatch-test]
@@ -94,6 +102,9 @@ features = [ "test" ]
 # set the environment variable `UV_PRERELEASE` to "allow".
 matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
+]
+matrix.deps.features = [
+  { if = [ "torch" ], value = "torch" },
 ]
 
 [tool.ruff]
@@ -140,16 +151,30 @@ lint.pydocstyle.convention = "numpy"
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
 xfail_strict = true
-addopts = [
-  "--import-mode=importlib", # allow using test files with same name
+# https://github.com/pytest-dev/pytest/issues/10965
+# addopts = [
+#   "--import-mode=importlib", # allow using test files with same name
+# ]
+filterwarnings = [
+  "error",
+  # AnnData
+  "default:(Observation|Variable) names are not unique. To make them unique:UserWarning",
+  "default:Consolidated metadata is:UserWarning",
+  "default::anndata._warnings.ImplicitModificationWarning",
+  "default:Only some AnnData objects have `.raw` attribute:UserWarning",
+  # Zarr
+  "default:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "default:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
+  # scipy
+  "default::scipy.sparse.SparseEfficiencyWarning",
 ]
 
 [tool.coverage.run]
-source = [ "arrayloaders" ]
+source = [ "annbatch" ]
+patch = [ "subprocess" ]
 omit = [
   "**/test_*.py",
 ]
-concurrency = [ "multiprocessing" ]
 
 [tool.cruft]
 skip = [

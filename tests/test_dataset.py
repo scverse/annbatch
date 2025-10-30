@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import platform
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
@@ -12,10 +11,8 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-import zarrs  # noqa: F401
-from torch.utils.data import DataLoader
 
-from arrayloaders import ZarrDenseDataset, ZarrSparseDataset
+from annbatch import ZarrDenseDataset, ZarrSparseDataset
 
 try:
     from cupy import ndarray as CupyArray
@@ -25,6 +22,7 @@ except ImportError:
     CupyArray = NoneType
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -95,6 +93,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 return_index=True,
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
+                to_torch=False,
             ).add_anndatas(
                 [
                     (open_sparse if issubclass(dataset_class, ZarrSparseDataset) else open_dense)(
@@ -165,7 +164,9 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         ]
     ],
 )
-def test_store_load_dataset(adata_with_path: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs):
+def test_store_load_dataset(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs
+):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -173,8 +174,8 @@ def test_store_load_dataset(adata_with_path: tuple[ad.AnnData, Path], *, shuffle
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader = gen_loader(adata_with_path[1], shuffle, use_zarrs)
-    adata = adata_with_path[0]
+    loader = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
+    adata = adata_with_zarr_path_same_var_space[0]
     is_dense = isinstance(loader, ZarrDenseDataset)
     n_elems = 0
     batches = []
@@ -228,37 +229,97 @@ def test_store_load_dataset(adata_with_path: tuple[ad.AnnData, Path], *, shuffle
         for dataset_class in [ZarrSparseDataset, ZarrDenseDataset]
     ],
 )
-def test_zarr_store_errors_lt_1(gen_loader, adata_with_path: tuple[ad.AnnData, Path]):
+def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     with pytest.raises(ValueError, match="must be greater than 1"):
-        gen_loader(adata_with_path[1])
+        gen_loader(adata_with_zarr_path_same_var_space[1])
 
 
-def test_bad_adata_X_type(adata_with_path: tuple[ad.AnnData, Path]):
-    data = open_dense(next(adata_with_path[1].glob("*.zarr")))
+def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
     data["dataset"] = data["dataset"][...]
-    ds = ZarrDenseDataset(
-        shuffle=True,
-        chunk_size=10,
-        preload_nchunks=10,
-    )
+    ds = ZarrDenseDataset(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
     with pytest.raises(TypeError, match="Cannot create"):
         ds.add_dataset(**data)
 
 
-def test_bad_adata_X_hdf5(raw_adatas_with_h5: tuple[ad.AnnData, Path]):
-    with h5py.File(next(raw_adatas_with_h5[1].glob("*.h5ad"))) as f:
+@pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
+@pytest.mark.parametrize(
+    "preload_to_gpu",
+    [
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                find_spec("cupy") is None,
+                reason="need cupy installed",
+            ),
+        ),
+        False,
+    ],
+)
+@pytest.mark.parametrize(
+    ["dataset_class", "open_func"], [[ZarrSparseDataset, open_sparse], [ZarrDenseDataset, open_dense]]
+)
+def test_to_torch(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    dataset_class: type[ZarrDenseDataset] | type[ZarrSparseDataset],
+    open_func: Callable[[Path], Data],
+    preload_to_gpu: bool,
+):
+    import torch
+
+    # batch_size guaranteed to have leftovers to drop
+    ds = dataset_class(
+        shuffle=False,
+        chunk_size=5,
+        preload_nchunks=10,
+        batch_size=42,
+        preload_to_gpu=preload_to_gpu,
+        return_index=True,
+        to_torch=True,
+    )
+    ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
+    assert isinstance(next(iter(ds))[0], torch.Tensor)
+
+
+def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    # batch_size guaranteed to have leftovers to drop
+    ds = ZarrSparseDataset(
+        shuffle=False,
+        chunk_size=5,
+        preload_nchunks=10,
+        batch_size=42,
+        preload_to_gpu=False,
+        return_index=True,
+        drop_last=True,
+        to_torch=False,
+    )
+    ds.add_dataset(**open_sparse(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
+    adata = adata_with_zarr_path_same_var_space[0]
+    batches = []
+    indices = []
+    for x, _, idx in ds:
+        batches += [x]
+        indices += [idx]
+    X = sp.vstack(batches).toarray()
+    assert X.shape[0] < adata.shape[0]
+    X_expected = adata[np.concatenate(indices)].layers["sparse"].toarray()
+    np.testing.assert_allclose(X, X_expected)
+
+
+def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
-        ds = ZarrDenseDataset(
-            shuffle=True,
-            chunk_size=10,
-            preload_nchunks=10,
-        )
+        ds = ZarrDenseDataset(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
         with pytest.raises(TypeError, match="Cannot create"):
             ds.add_dataset(data)
 
 
 def _custom_collate_fn(elems):
-    if isinstance(elems[0][0], sp.csr_matrix):
+    import torch
+
+    if isinstance(elems[0][0], torch.Tensor):
+        x = torch.vstack([v[0].to_dense() for v in elems])
+    elif isinstance(elems[0][0], sp.csr_matrix):
         x = sp.vstack([v[0] for v in elems]).toarray()
     else:
         x = np.vstack([v[0] for v in elems])
@@ -271,59 +332,38 @@ def _custom_collate_fn(elems):
     return x, y
 
 
-@pytest.mark.skipif(
-    platform.system() != "Linux",
-    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
-)
-def test_dataloader_fails_linux_with_anndata(adata_with_path: tuple[ad.AnnData, Path]):
-    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-    ds.add_anndatas([open_sparse(p, use_zarrs=True, use_anndata=True) for p in adata_with_path[1].glob("*.zarr")])
-    dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
-    )
-    with pytest.raises(NotImplementedError, match=r"why we can't load anndata from torch"):
-        next(iter(dataloader))
-    ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-    ds.add_datasets(**concat([open_sparse(p) for p in adata_with_path[1].glob("*.zarr")]))
-    dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
-    )
-    next(iter(dataloader))
-
-
+@pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
 @pytest.mark.parametrize("loader", [ZarrDenseDataset, ZarrSparseDataset])
-@pytest.mark.skipif(
-    platform.system() == "Linux",
-    reason="See: https://github.com/scverse/anndata/issues/2021 potentially",
-)
-def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, Path], loader, use_zarrs):
+def test_torch_multiprocess_dataloading_zarr(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], loader, use_zarrs
+):
     """
     Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
     """
+    from torch.utils.data import DataLoader
 
     if issubclass(loader, ZarrSparseDataset):
-        ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-        ds.add_datasets(**concat([open_sparse(p, use_zarrs=use_zarrs) for p in adata_with_path[1].glob("*.zarr")]))
-        x_ref = adata_with_path[0].layers["sparse"].toarray()
+        ds = ZarrSparseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+        ds.add_datasets(
+            **concat(
+                [open_sparse(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]
+            )
+        )
+        x_ref = adata_with_zarr_path_same_var_space[0].layers["sparse"].toarray()
     elif issubclass(loader, ZarrDenseDataset):
-        ds = ZarrDenseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True)
-        ds.add_datasets(**concat([open_dense(p, use_zarrs=use_zarrs) for p in adata_with_path[1].glob("*.zarr")]))
-        x_ref = adata_with_path[0].X
+        ds = ZarrDenseDataset(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+        ds.add_datasets(
+            **concat(
+                [open_dense(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]
+            )
+        )
+        x_ref = adata_with_zarr_path_same_var_space[0].X
     else:
         raise ValueError("Unknown loader type")
 
     dataloader = DataLoader(
-        ds,
-        batch_size=32,
-        num_workers=4,
-        collate_fn=_custom_collate_fn,
+        ds, batch_size=32, num_workers=4, collate_fn=_custom_collate_fn, multiprocessing_context="spawn"
     )
     x_list, idx_list = [], []
     for batch in dataloader:
@@ -337,14 +377,29 @@ def test_torch_multiprocess_dataloading_zarr(adata_with_path: tuple[ad.AnnData, 
     assert np.array_equal(x[np.argsort(idxs)], x_ref)
 
 
-@pytest.mark.skipif(find_spec("cupy") is not None, reason="Can't test for no cupy if cupy is there")
-def test_no_cupy(adata_with_path: tuple[ad.AnnData, Path]):
+@pytest.mark.skipif(
+    find_spec("cupy") is not None, reason="Can't test for preload_to_gpu True ImportError with cupy installed"
+)
+def test_no_cupy():
+    with pytest.raises(ImportError, match=r"even though preload_to_gpu=True"):
+        ZarrDenseDataset(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
+
+
+@pytest.mark.skipif(
+    find_spec("torch") is not None, reason="Can't test for to_torch True ImportError with torch installed"
+)
+def test_no_torch():
+    with pytest.raises(ImportError, match=r"even though to_torch=True"):
+        ZarrDenseDataset(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
+
+
+def test_torch_default(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    if find_spec("torch"):
+        from torch import Tensor as expected_cls
+    else:
+        from numpy import ndarray as expected_cls
     ds = ZarrDenseDataset(
-        chunk_size=10,
-        preload_nchunks=4,
-        shuffle=True,
-        return_index=True,
-        preload_to_gpu=True,
-    ).add_dataset(**open_dense(list(adata_with_path[1].iterdir())[0]))
-    with pytest.raises(ImportError, match=r"even though `preload_to_gpu` argument"):
-        next(iter(ds))
+        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, preload_to_gpu=False
+    ).add_dataset(**open_dense(list(adata_with_zarr_path_same_var_space[1].iterdir())[0]))
+    for batch in ds:
+        assert isinstance(batch[0], expected_cls)

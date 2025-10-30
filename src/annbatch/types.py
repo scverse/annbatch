@@ -8,7 +8,7 @@ import numpy as np
 import zarr
 from scipy import sparse as sp
 
-from arrayloaders.utils import CSRContainer
+from annbatch.utils import CSRContainer
 
 try:
     from cupy import ndarray as CupyArray
@@ -17,9 +17,9 @@ except ImportError:
     CupyCSRMatrix = NoneType
     CupyArray = NoneType
 
+OutputInMemoryArray = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
 
 OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
 
 
-OutputInMemoryArray = TypeVar("OutputInMemoryArray", sp.csr_matrix, np.ndarray, CupyCSRMatrix, CupyArray)
 InputInMemoryArray = TypeVar("InputInMemoryArray", CSRContainer, np.ndarray)

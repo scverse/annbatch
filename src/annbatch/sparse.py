@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
 from typing import NamedTuple, cast
 
@@ -8,10 +9,24 @@ import anndata as ad
 import numpy as np
 import zarr
 import zarr.core.sync as zsync
-from torch.utils.data import IterableDataset
 
-from arrayloaders.abc import AbstractIterableDataset
-from arrayloaders.utils import CSRContainer, MultiBasicIndexer, __init_docstring__
+if find_spec("torch"):
+    from torch.utils.data import IterableDataset as _IterableDataset
+else:
+
+    class _IterableDataset:
+        pass
+
+
+from annbatch.abc import AbstractIterableDataset, _assign_methods_to_ensure_unique_docstrings
+from annbatch.utils import (
+    CSRContainer,
+    MultiBasicIndexer,
+    add_anndata_docstring,
+    add_anndatas_docstring,
+    add_dataset_docstring,
+    add_datasets_docstring,
+)
 
 
 class CSRDatasetElems(NamedTuple):
@@ -22,7 +37,9 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
+class ZarrSparseDataset(  # noqa: D101
+    AbstractIterableDataset[ad.abc.CSRDataset, CSRContainer], _IterableDataset
+):
     _dataset_elem_cache: dict[int, CSRDatasetElems] = {}
 
     def _cache_update_callback(self):
@@ -40,8 +57,10 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
     async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
 
-        Args:
-            idx: The index
+        Parameters
+        ----------
+            idx
+                The index
 
         Returns
         -------
@@ -76,8 +95,10 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
     async def _get_sparse_elems(self, dataset_idx: int) -> CSRDatasetElems:
         """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
 
-        Args:
-            dataset_idx: The index of the dataset whose arrays are sought.
+        Parameters
+        ----------
+            dataset_idx
+                The index of the dataset whose arrays are sought.
 
         Returns
         -------
@@ -114,13 +135,26 @@ class ZarrSparseDataset(AbstractIterableDataset, IterableDataset):  # noqa: D101
             return CSRContainer(
                 elems=(data_np, indices_np, start_indptr),
                 shape=(start_indptr.shape[0] - 1, self._dataset_manager.n_var),
+                dtype=data_np.dtype,
             )
         end_indptr = np.concatenate([s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)])
         indptr_np = np.concatenate([start_indptr, end_indptr])
         return CSRContainer(
             elems=(data_np, indices_np, indptr_np),
             shape=(indptr_np.shape[0] - 1, self._dataset_manager.n_var),
+            dtype=data_np.dtype,
         )
 
 
-ZarrSparseDataset.__init__.__doc__ = __init_docstring__.format(array_type="sparse")
+_assign_methods_to_ensure_unique_docstrings(ZarrSparseDataset)
+
+ZarrSparseDataset.__doc__ = AbstractIterableDataset.__init__.__doc__.format(
+    array_type="sparse", child_class="ZarrSparseDataset"
+)
+ZarrSparseDataset.add_datasets.__doc__ = add_datasets_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.add_dataset.__doc__ = add_dataset_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.add_anndatas.__doc__ = add_anndatas_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.add_anndata.__doc__ = add_anndata_docstring.format(on_disk_array_type="anndata.abc.CSRDataset")
+ZarrSparseDataset.__iter__.__doc__ = AbstractIterableDataset.__iter__.__doc__.format(
+    gpu_array="cupyx.scipy.sparse.spmatrix", cpu_array="scipy.sparse.csr_matrix"
+)

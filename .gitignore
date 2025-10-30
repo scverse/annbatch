@@ -4,6 +4,7 @@
 buck-out/
 
 # Compiled files
+venv/
 .venv/
 __pycache__/
 .*cache/
@@ -14,6 +15,7 @@ __pycache__/
 # Tests and coverage
 /data/
 /node_modules/
+/.coverage*
 
 # docs
 /docs/generated/
