@@ -69,7 +69,7 @@ With a pre-shuffled store and blocked access, your model fit should not be affec
 
 If you are interested in contributing this feature to the project or leaning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
-If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class} `~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class} `torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
+If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
 
 ### Speed comparison to other dataloaders
 
@@ -107,9 +107,9 @@ This speedup is more than 100x and shows the significant impact data loading has
 As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a " foundation model").
 But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
 Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
-To accelerate reading the data into memory, you may still find [zarrs-python][] in conjunction with sharding still helpful in the same way it accelerates io here.
+To accelerate reading the data into memory, you may still find {doc}`zarrs-python <zarrs:index>` in conjunction with sharding still helpful in the same way it accelerates io here.
 To this end, please have a look at [this gist](https://gist.github.com/ilan-gold/c73383def3798df2724405aa64e40c3d) comparing file loading speeds between {func}`anndata.io.read_zarr` and {func}`anndata.io.read_h5ad`.
-It highlights how [zarrs-python][] and sharding can help there as well.
+It highlights how {doc}`zarrs-python <zarrs:index>` and sharding can help there as well.
 However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
 
 ```{include} ../README.md
