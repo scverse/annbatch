@@ -67,14 +67,13 @@ Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of n
 At the moment we do not support user-configurable sampling strategies like weighting or sampling.
 With a pre-shuffled store and blocked access, your model fit should not be affected by using chunked access.
 
-If you are interested in contributing this feature to the project or leaning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
+If you are interested in contributing this feature to the project or learning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
 If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class} `~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class} `torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
 
 ### Speed comparison to other dataloaders
 
-We provide a speed comparison to other comparable dataloaders below.
-Notably, our data loader comes with a significant speedup compared to other dataloaders:
+We provide a speed comparison to other comparable dataloaders below:
 
 <img src="_static/speed_comparision.png" alt="speed_comparison" width="400">
 
@@ -94,7 +93,8 @@ Intuitively, if the model is small, doing the actual computation is relatively f
 Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster.
 
 As an illustrative, example let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
-Our example model has 20.000 input features and 100 output classes. We can now look how the total fit time changes with data loading speed:
+Our example model has 20.000 input features and 100 output classes.
+We can now look how the total fit time changes with data loading speed:
 
 <img src="_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
 

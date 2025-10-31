@@ -18,7 +18,7 @@
 
 [zarrs-python]: https://zarrs-python.readthedocs.io/
 
-[lamin]: https://lamin.ai/
+[Lamin Labs]: https://lamin.ai/
 
 [scverse]: https://scverse.org/
 
@@ -40,12 +40,11 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
+A data loader and io utilities for minibatching on-disk AnnData, co-developed by [Lamin Labs][] and [scverse][]
 
 ## Getting started
 
-Please refer to the [documentation][],
-in particular, the [API documentation][].
+Please refer to the [documentation][], in particular, the [API documentation][].
 
 ## Installation
 
@@ -58,7 +57,7 @@ To install the latest release of `annbatch` from [PyPI][]:
 pip install annbatch
 ```
 
-We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
+We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
 > [!IMPORTANT]
 > [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
