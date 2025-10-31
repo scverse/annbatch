@@ -1,5 +1,5 @@
 ```{include} ../README.md
-:end-before: <!--HEADER-->
+:end-before: <!--FOOTER-->
 ```
 
 ## In Depth
