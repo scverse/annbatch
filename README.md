@@ -76,7 +76,7 @@ from annbatch import create_anndata_collection
 import zarr
 from pathlib import Path
 
-# Using zarrs is necessary for local filesystem perforamnce.
+# Using zarrs is necessary for local filesystem performance.
 # Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
@@ -101,7 +101,7 @@ from annbatch import ZarrSparseDataset
 import anndata as ad
 import zarr
 
-# Using zarrs is necessary for local filesystem perforamnce.
+# Using zarrs is necessary for local filesystem performance.
 # Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
