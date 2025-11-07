@@ -119,7 +119,7 @@ class AbstractIterableDataset[OnDiskArray, InputInMemoryArray](metaclass=ABCMeta
                 "cupy",
                 preload_to_gpu,
                 f"{preload_to_gpu=}",
-                "Follow the directions at https://docs.cupy.dev/en/stable/install.html.",
+                "Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.",
             ),
         ]:
             if arg and not find_spec(package):
