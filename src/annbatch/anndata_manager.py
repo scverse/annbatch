@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import OrderedDict, defaultdict
+from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, cast
 
@@ -58,9 +59,9 @@ class AnnDataManager[OnDiskArray, InputInMemoryArray]:  # noqa: D101
         on_add: Callable | None = None,
         return_index: bool = False,
         batch_size: int = 1,
-        preload_to_gpu: bool = True,
+        preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool = False,
-        to_torch: bool = True,
+        to_torch: bool = find_spec("torch") is not None,
     ):
         self._on_add = on_add
         self._return_index = return_index

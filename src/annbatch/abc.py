@@ -41,7 +41,7 @@ class AbstractIterableDataset[OnDiskArray, InputInMemoryArray](metaclass=ABCMeta
         shuffle: bool = True,
         return_index: bool = False,
         batch_size: int = 1,
-        preload_to_gpu: bool = True,
+        preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool = False,
         to_torch: bool = find_spec("torch") is not None,
     ):
@@ -78,6 +78,7 @@ class AbstractIterableDataset[OnDiskArray, InputInMemoryArray](metaclass=ABCMeta
                 :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
                 Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
                 For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to denseify.
+                Defaults to True if `cupy` is installed.
             drop_last
                 Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
                 If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
@@ -112,14 +113,17 @@ class AbstractIterableDataset[OnDiskArray, InputInMemoryArray](metaclass=ABCMeta
                 "Cannot yield batches bigger than the iterated in-memory size i.e., batch_size > (chunk_size * preload_nchunks)."
             )
 
-        for package, arg, arg_name in [
-            ("torch", to_torch, f"{to_torch=}"),
-            ("cupy", preload_to_gpu, f"{preload_to_gpu=}"),
+        for package, arg, arg_name, install_msg in [
+            ("torch", to_torch, f"{to_torch=}", "Try `pip install torch`."),
+            (
+                "cupy",
+                preload_to_gpu,
+                f"{preload_to_gpu=}",
+                "Follow the directions at https://docs.cupy.dev/en/stable/install.html.",
+            ),
         ]:
             if arg and not find_spec(package):
-                raise ImportError(
-                    f"Could not find {package} dependency even though {arg_name}.  Try `pip install {package}`"
-                )
+                raise ImportError(f"Could not find {package} dependency even though {arg_name}.  {install_msg}")
         self._dataset_manager = AnnDataManager(
             # TODO: https://github.com/scverse/anndata/issues/2021
             # on_add=self._cache_update_callback,
