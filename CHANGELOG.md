@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning][].
 
 ## [Unreleased]
 
+### Changed
+
+- `preload_to_gpu` now depends on whether `cupy` is installed instead of defaulting to `True`
+
+## [0.0.1]
+
 ### Added
 
-- Basic tool, preprocessing and plotting functions
+- First release
