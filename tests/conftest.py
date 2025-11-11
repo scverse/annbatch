@@ -18,12 +18,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 
-@pytest.fixture(autouse=True)
-def anndata_settings():
-    with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
-        yield
-
-
 @pytest.fixture(params=[False, True], ids=["zarr-python", "zarrs"])
 def use_zarrs(request):
     return request.param
