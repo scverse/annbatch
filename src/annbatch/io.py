@@ -109,7 +109,7 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path_or_anndata in paths_or_anndatas:
+    for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
             adata = ad.experimental.read_lazy(path_or_anndata)
         else:
