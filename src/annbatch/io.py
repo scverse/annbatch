@@ -141,16 +141,37 @@ def _lazy_load_anndatas(
     load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
 ):
     adatas = []
+    categoricals_in_all_adatas = {}
     for i, path in enumerate(paths):
         adata = load_adata(path)
-        # Concatenating Dataset2D drops categoricals
+        # Track the source file for this given anndata object
+        adata.obs["src_path"] = pd.Categorical.from_codes(
+            np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
+        )
+        # Concatenating Dataset2D drops categoricals so we need to track them otherwise
         if isinstance(adata.obs, Dataset2D):
-            adata.obs = adata.obs.to_memory()
-        adata.obs["src_path"] = pd.Categorical.from_codes([i] * adata.shape[0], categories=[str(p) for p in paths])
+            categorical_cols_in_this_adata = {
+                col: set(adata.obs[col].dtype.categories)
+                for col in adata.obs.columns
+                if adata.obs[col].dtype == "category"
+            }
+            if not categoricals_in_all_adatas:
+                categoricals_in_all_adatas = {
+                    **categorical_cols_in_this_adata,
+                    "src_path": set(adata.obs["src_path"].dtype.categories),
+                }
+            else:
+                for k in categoricals_in_all_adatas.keys() & categorical_cols_in_this_adata.keys():
+                    categoricals_in_all_adatas[k] = set(categoricals_in_all_adatas[k]).union(
+                        set(categorical_cols_in_this_adata[k])
+                    )
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]
-    return ad.concat(adatas, join="outer")
+    adata = ad.concat(adatas, join="outer")
+    if len(categoricals_in_all_adatas) > 0:
+        adata.uns["categoricals_to_convert"] = categoricals_in_all_adatas
+    return adata
 
 
 def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle: bool = True):
@@ -168,27 +189,33 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
     """.compute() for large datasets is bad: https://github.com/scverse/annbatch/pull/75"""
-    return sp.vstack(da.compute(*list(x.blocks)))
+    if isinstance(x._meta, sp.csr_matrix | sp.csr_array):
+        return sp.vstack(da.compute(*list(x.blocks)))
+    return x.compute()
+
+
+def _to_categorical_obs(adata: ad.AnnData) -> ad.AnnData:
+    """Convert columns marked as categorical in `uns` to categories, accounting for `concat` on `Dataset2D` lost dtypes"""
+    if "categoricals_to_convert" in adata.uns:
+        for col, categories in adata.uns["categoricals_to_convert"].items():
+            adata.obs[col] = pd.Categorical(np.array(adata.obs[col]), categories=categories)
+        del adata.uns["categoricals_to_convert"]
+    return adata
 
 
 def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     if isinstance(adata.X, DaskArray):
-        if isinstance(adata.X._meta, sp.csr_matrix | sp.csr_array):
-            adata.X = _compute_blockwise(adata.X)
-        else:
-            adata.X = adata.X.compute()
+        adata.X = _compute_blockwise(adata.X)
     if isinstance(adata.obs, Dataset2D):
         adata.obs = adata.obs.to_memory()
+    adata = _to_categorical_obs(adata)
     if isinstance(adata.var, Dataset2D):
         adata.var = adata.var.to_memory()
 
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
         if isinstance(adata_raw.X, DaskArray):
-            if isinstance(adata_raw.X._meta, sp.csr_array | sp.csr_matrix):
-                adata_raw.X = _compute_blockwise(adata_raw.X)
-            else:
-                adata_raw.X = adata_raw.X.compute()
+            adata_raw.X = _compute_blockwise(adata_raw.X)
         if isinstance(adata_raw.var, Dataset2D):
             adata_raw.var = adata_raw.var.to_memory()
         if isinstance(adata_raw.obs, Dataset2D):
@@ -199,17 +226,11 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     for k, elem in adata.obsm.items():
         # TODO: handle `Dataset2D` in `obsm` and `varm` that are
         if isinstance(elem, DaskArray):
-            if isinstance(elem, sp.csr_matrix | sp.csr_array):
-                adata.obsm[k] = _compute_blockwise(elem)
-            else:
-                adata.obsm[k] = elem.compute()
+            adata.obsm[k] = _compute_blockwise(elem)
 
     for k, elem in adata.layers.items():
         if isinstance(elem, DaskArray):
-            if isinstance(elem, sp.csr_matrix | sp.csr_array):
-                adata.layers[k] = _compute_blockwise(elem)
-            else:
-                adata.layers[k] = elem.compute()
+            adata.obsm[k] = _compute_blockwise(elem)
 
     return adata
 
@@ -453,10 +474,10 @@ def add_to_collection(
             adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
         else:
             adata_shard = ad.read_zarr(shard)
-
-        adata = ad.concat(
-            [adata_shard, adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]], join="outer"
+        subset_adata = _to_categorical_obs(
+            adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]
         )
+        adata = ad.concat([adata_shard, subset_adata], join="outer")
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
         adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
         if should_sparsify_output_in_memory and encoding == "array":

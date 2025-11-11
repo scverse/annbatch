@@ -235,7 +235,11 @@ def test_store_creation(
             adata_orig.raw.X if isinstance(adata_orig.raw.X, np.ndarray) else adata_orig.raw.X.toarray(),
         )
         np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
-        adata.obs.index = adata_orig.obs.index  # correct for concat
+
+        # correct for concat behavior
+        adata.obs.index = adata_orig.obs.index
+        adata.obs["label"] = adata.obs["label"].cat.reorder_categories(adata_orig.obs["label"].dtype.categories)
+
         pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
@@ -326,11 +330,15 @@ def test_store_extension(
         zarr_dense_shard_size=10,
     )
 
-    adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])
+    adatas_on_disk = [ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())]
+    adata = ad.concat(adatas_on_disk)
     adata_orig = adata_with_h5_path_different_var_space[0]
     expected_adata = ad.concat([adata_orig, adata_orig[adata_orig.obs["store_id"] >= 4]], join="outer")
     assert adata.X.shape[1] == expected_adata.X.shape[1]
     assert adata.X.shape[0] == expected_adata.X.shape[0]
+    # check categoricals
+    for a in [*adatas_on_disk, adata]:
+        assert set(a.obs["label"].dtype.categories) == set(expected_adata.obs["label"].dtype.categories)
     assert "arr" in adata.obsm
     z = zarr.open(store_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])

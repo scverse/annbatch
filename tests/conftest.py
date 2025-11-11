@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def anndata_settings():
-    ad.settings.zarr_write_format = 3  # Needed to support sharding in Zarr
+    with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
+        yield
 
 
 @pytest.fixture(params=[False, True], ids=["zarr-python", "zarrs"])
@@ -85,7 +86,11 @@ def adata_with_h5_path_different_var_space(
         adata = ad.AnnData(
             X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
             obs=pd.DataFrame(
-                {"label": np.random.default_rng().integers(0, 5, size=m), "store_id": [i] * m},
+                {
+                    "label": pd.Categorical([str(m), str(m), *(["a"] * (m - 2))]),
+                    "store_id": [i] * m,
+                    "numeric": np.arange(m),
+                },
                 index=np.arange(m).astype(str),
             ),
             var=pd.DataFrame(
