@@ -142,7 +142,7 @@ def _lazy_load_anndatas(
 ):
     adatas = []
     categoricals_in_all_adatas = {}
-    for i, path in enumerate(paths):
+    for i, path in tqdm(enumerate(paths), desc="loading"):
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
@@ -335,7 +335,7 @@ def create_anndata_collection(
     if var_subset is None:
         var_subset = adata_concat.var_names
 
-    for i, chunk in enumerate(tqdm(chunks)):
+    for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
         var_mask = adata_concat.var_names.isin(var_subset)
         # np.sort: It's more efficient to access elements sequentially from dask arrays
         # The data will be shuffled later on, we just want the elements at this point
@@ -468,7 +468,7 @@ def add_to_collection(
                 sp.csr_matrix, meta=sp.csr_matrix(np.array([0], dtype=adata_concat.X.dtype))
             )
 
-    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards)):
+    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards), desc="processing chunks"):
         if should_sparsify_output_in_memory and encoding == "array":
             adata_shard = _lazy_load_anndatas([shard])
             adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
