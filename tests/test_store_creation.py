@@ -336,9 +336,9 @@ def test_store_extension(
     expected_adata = ad.concat([adata_orig, adata_orig[adata_orig.obs["store_id"] >= 4]], join="outer")
     assert adata.X.shape[1] == expected_adata.X.shape[1]
     assert adata.X.shape[0] == expected_adata.X.shape[0]
-    # check categoricals
+    # check categoricals to make sure the dtypes match
     for a in [*adatas_on_disk, adata]:
-        assert set(a.obs["label"].dtype.categories) == set(expected_adata.obs["label"].dtype.categories)
+        assert a.obs["label"].dtype == expected_adata.obs["label"].dtype
     assert "arr" in adata.obsm
     z = zarr.open(store_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])
