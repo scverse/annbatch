@@ -107,21 +107,23 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
-ds = ZarrSparseDataset(
-    batch_size=4096,
-    chunk_size=32,
-    preload_nchunks=256,
-).add_anndatas(
-    [
-        ad.AnnData(
-            # note that you can open an AnnData file using any type of zarr store
-            X=ad.io.sparse_dataset(zarr.open(p)["X"]),
-            obs=ad.io.read_elem(zarr.open(p)["obs"]),
-        )
-        for p in Path("path/to/output/collection").glob("*.zarr")
-    ],
-    obs_keys=["label_column", "batch_column"],
-)
+# This settings override ensures that you don't lose/alter your categorical codes when reading the data in!
+with ad.settings.override(remove_unused_categories=False):
+    ds = ZarrSparseDataset(
+        batch_size=4096,
+        chunk_size=32,
+        preload_nchunks=256,
+    ).add_anndatas(
+        [
+            ad.AnnData(
+                # note that you can open an AnnData file using any type of zarr store
+                X=ad.io.sparse_dataset(zarr.open(p)["X"]),
+                obs=ad.io.read_elem(zarr.open(p)["obs"]),
+            )
+            for p in Path("path/to/output/collection").glob("*.zarr")
+        ],
+        obs_keys=["label_column", "batch_column"],
+    )
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
