@@ -148,7 +148,7 @@ def _lazy_load_anndatas(
         adata.obs["src_path"] = pd.Categorical.from_codes(
             np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
         )
-        # Concatenating Dataset2D drops categoricals so we need to track them otherwise
+        # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
             categorical_cols_in_this_adata = {
                 col: set(adata.obs[col].dtype.categories)
