@@ -170,7 +170,7 @@ def _lazy_load_anndatas(
         return adatas[0]
     adata = ad.concat(adatas, join="outer")
     if len(categoricals_in_all_adatas) > 0:
-        adata.uns["categoricals_to_convert"] = categoricals_in_all_adatas
+        adata.uns["dataset2d_categoricals_to_convert"] = categoricals_in_all_adatas
     return adata
 
 
@@ -196,10 +196,10 @@ def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
 
 def _to_categorical_obs(adata: ad.AnnData) -> ad.AnnData:
     """Convert columns marked as categorical in `uns` to categories, accounting for `concat` on `Dataset2D` lost dtypes"""
-    if "categoricals_to_convert" in adata.uns:
-        for col, categories in adata.uns["categoricals_to_convert"].items():
+    if "dataset2d_categoricals_to_convert" in adata.uns:
+        for col, categories in adata.uns["dataset2d_categoricals_to_convert"].items():
             adata.obs[col] = pd.Categorical(np.array(adata.obs[col]), categories=categories)
-        del adata.uns["categoricals_to_convert"]
+        del adata.uns["dataset2d_categoricals_to_convert"]
     return adata
 
 
