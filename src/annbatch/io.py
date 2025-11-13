@@ -4,6 +4,7 @@ import json
 import random
 import warnings
 from collections import defaultdict
+from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -238,6 +239,16 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
 DATASET_PREFIX = "dataset"
 
 
+def _with_settings(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
+@_with_settings
 def create_anndata_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
@@ -326,48 +337,47 @@ def create_anndata_collection(
         ...)
     """
     Path(output_path).mkdir(parents=True, exist_ok=True)
-    with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
-        _check_for_mismatched_keys(adata_paths)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
-        adata_concat.obs_names_make_unique()
-        chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
+    _check_for_mismatched_keys(adata_paths)
+    adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+    adata_concat.obs_names_make_unique()
+    chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
 
-        if var_subset is None:
-            var_subset = adata_concat.var_names
+    if var_subset is None:
+        var_subset = adata_concat.var_names
 
-        for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
-            var_mask = adata_concat.var_names.isin(var_subset)
-            # np.sort: It's more efficient to access elements sequentially from dask arrays
-            # The data will be shuffled later on, we just want the elements at this point
-            adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
-            adata_chunk = _persist_adata_in_memory(adata_chunk)
-            if shuffle:
-                # shuffle adata in memory to break up individual chunks
-                idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-                adata_chunk = adata_chunk[idxs]
-            # convert to dense format before writing to disk
-            if should_denseify:
-                # Need to convert back to dask array to avoid memory issues when converting large sparse matrices to dense
-                adata_chunk = adata_chunk.copy()
-                adata_chunk.X = da.from_array(
-                    adata_chunk.X, chunks=(zarr_dense_chunk_size, -1), meta=adata_chunk.X
-                ).map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
+    for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
+        var_mask = adata_concat.var_names.isin(var_subset)
+        # np.sort: It's more efficient to access elements sequentially from dask arrays
+        # The data will be shuffled later on, we just want the elements at this point
+        adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
+        adata_chunk = _persist_adata_in_memory(adata_chunk)
+        if shuffle:
+            # shuffle adata in memory to break up individual chunks
+            idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
+            adata_chunk = adata_chunk[idxs]
+        # convert to dense format before writing to disk
+        if should_denseify:
+            # Need to convert back to dask array to avoid memory issues when converting large sparse matrices to dense
+            adata_chunk = adata_chunk.copy()
+            adata_chunk.X = da.from_array(
+                adata_chunk.X, chunks=(zarr_dense_chunk_size, -1), meta=adata_chunk.X
+            ).map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
 
-            if output_format == "zarr":
-                f = zarr.open_group(Path(output_path) / f"{DATASET_PREFIX}_{i}.zarr", mode="w")
-                write_sharded(
-                    f,
-                    adata_chunk,
-                    sparse_chunk_size=zarr_sparse_chunk_size,
-                    sparse_shard_size=zarr_sparse_shard_size,
-                    dense_chunk_size=zarr_dense_chunk_size,
-                    dense_shard_size=zarr_dense_shard_size,
-                    compressors=zarr_compressor,
-                )
-            elif output_format == "h5ad":
-                adata_chunk.write_h5ad(Path(output_path) / f"{DATASET_PREFIX}_{i}.h5ad", compression=h5ad_compressor)
-            else:
-                raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
+        if output_format == "zarr":
+            f = zarr.open_group(Path(output_path) / f"{DATASET_PREFIX}_{i}.zarr", mode="w")
+            write_sharded(
+                f,
+                adata_chunk,
+                sparse_chunk_size=zarr_sparse_chunk_size,
+                sparse_shard_size=zarr_sparse_shard_size,
+                dense_chunk_size=zarr_dense_chunk_size,
+                dense_shard_size=zarr_dense_shard_size,
+                compressors=zarr_compressor,
+            )
+        elif output_format == "h5ad":
+            adata_chunk.write_h5ad(Path(output_path) / f"{DATASET_PREFIX}_{i}.h5ad", compression=h5ad_compressor)
+        else:
+            raise ValueError(f"Unrecognized output_format: {output_format}. Only 'zarr' and 'h5ad' are supported.")
 
 
 def _get_array_encoding_type(path: PathLike[str] | str) -> str:
@@ -377,6 +387,7 @@ def _get_array_encoding_type(path: PathLike[str] | str) -> str:
     return encoding["attributes"]["encoding-type"]
 
 
+@_with_settings
 def add_to_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
@@ -432,65 +443,64 @@ def add_to_collection(
         ...  load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
         ...)
     """
-    with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
-        shards = list(Path(output_path).glob(f"{DATASET_PREFIX}_*.zarr"))
-        if len(shards) == 0:
-            raise ValueError(
-                "Store at `output_path` does not exist or is empty. Please run `create_anndata_collection` first."
-            )
-        encoding = _get_array_encoding_type(output_path)
-        if encoding == "array":
-            print("Detected array encoding type. Will convert to dense format before writing.")
-        # Check for mismatched keys among the inputs.
-        _check_for_mismatched_keys(adata_paths)
+    shards = list(Path(output_path).glob(f"{DATASET_PREFIX}_*.zarr"))
+    if len(shards) == 0:
+        raise ValueError(
+            "Store at `output_path` does not exist or is empty. Please run `create_anndata_collection` first."
+        )
+    encoding = _get_array_encoding_type(output_path)
+    if encoding == "array":
+        print("Detected array encoding type. Will convert to dense format before writing.")
+    # Check for mismatched keys among the inputs.
+    _check_for_mismatched_keys(adata_paths)
 
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
-        # Check for mismatched keys between shards and the inputs.
-        _check_for_mismatched_keys([adata_concat] + shards)
-        if isinstance(adata_concat.X, DaskArray):
-            chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
-        else:
-            chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
+    adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+    # Check for mismatched keys between shards and the inputs.
+    _check_for_mismatched_keys([adata_concat] + shards)
+    if isinstance(adata_concat.X, DaskArray):
+        chunks = _create_chunks_for_shuffling(adata_concat, np.ceil(len(adata_concat) / len(shards)), shuffle=True)
+    else:
+        chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(shards))
 
-        adata_concat.obs_names_make_unique()
-        if encoding == "array":
-            if not should_sparsify_output_in_memory:
-                if isinstance(adata_concat.X, sp.spmatrix):
-                    adata_concat.X = adata_concat.X.toarray()
-                elif isinstance(adata_concat.X, DaskArray) and isinstance(adata_concat.X._meta, sp.spmatrix):
-                    adata_concat.X = adata_concat.X.map_blocks(
-                        lambda x: x.toarray(), meta=np.ndarray, dtype=adata_concat.X.dtype
-                    )
-        elif encoding == "csr_matrix":
-            if isinstance(adata_concat.X, np.ndarray):
-                adata_concat.X = sp.csr_matrix(adata_concat.X)
-            elif isinstance(adata_concat.X, DaskArray) and isinstance(adata_concat.X._meta, np.ndarray):
+    adata_concat.obs_names_make_unique()
+    if encoding == "array":
+        if not should_sparsify_output_in_memory:
+            if isinstance(adata_concat.X, sp.spmatrix):
+                adata_concat.X = adata_concat.X.toarray()
+            elif isinstance(adata_concat.X, DaskArray) and isinstance(adata_concat.X._meta, sp.spmatrix):
                 adata_concat.X = adata_concat.X.map_blocks(
-                    sp.csr_matrix, meta=sp.csr_matrix(np.array([0], dtype=adata_concat.X.dtype))
+                    lambda x: x.toarray(), meta=np.ndarray, dtype=adata_concat.X.dtype
                 )
-
-        for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards), desc="processing chunks"):
-            if should_sparsify_output_in_memory and encoding == "array":
-                adata_shard = _lazy_load_anndatas([shard])
-                adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
-            else:
-                adata_shard = ad.read_zarr(shard)
-            subset_adata = _to_categorical_obs(
-                adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]
+    elif encoding == "csr_matrix":
+        if isinstance(adata_concat.X, np.ndarray):
+            adata_concat.X = sp.csr_matrix(adata_concat.X)
+        elif isinstance(adata_concat.X, DaskArray) and isinstance(adata_concat.X._meta, np.ndarray):
+            adata_concat.X = adata_concat.X.map_blocks(
+                sp.csr_matrix, meta=sp.csr_matrix(np.array([0], dtype=adata_concat.X.dtype))
             )
-            adata = ad.concat([adata_shard, subset_adata], join="outer")
-            idxs_shuffled = np.random.default_rng().permutation(len(adata))
-            adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
-            if should_sparsify_output_in_memory and encoding == "array":
-                adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.X.dtype)).compute()
 
-            f = zarr.open_group(shard, mode="w")
-            write_sharded(
-                f,
-                adata,
-                sparse_chunk_size=zarr_sparse_chunk_size,
-                sparse_shard_size=zarr_sparse_shard_size,
-                dense_chunk_size=zarr_dense_chunk_size,
-                dense_shard_size=zarr_dense_shard_size,
-                compressors=zarr_compressor,
-            )
+    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards), desc="processing chunks"):
+        if should_sparsify_output_in_memory and encoding == "array":
+            adata_shard = _lazy_load_anndatas([shard])
+            adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
+        else:
+            adata_shard = ad.read_zarr(shard)
+        subset_adata = _to_categorical_obs(
+            adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]
+        )
+        adata = ad.concat([adata_shard, subset_adata], join="outer")
+        idxs_shuffled = np.random.default_rng().permutation(len(adata))
+        adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
+        if should_sparsify_output_in_memory and encoding == "array":
+            adata.X = adata.X.map_blocks(lambda x: x.toarray(), meta=np.array([0], dtype=adata.X.dtype)).compute()
+
+        f = zarr.open_group(shard, mode="w")
+        write_sharded(
+            f,
+            adata,
+            sparse_chunk_size=zarr_sparse_chunk_size,
+            sparse_shard_size=zarr_sparse_shard_size,
+            dense_chunk_size=zarr_dense_chunk_size,
+            dense_shard_size=zarr_dense_shard_size,
+            compressors=zarr_compressor,
+        )
