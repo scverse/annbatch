@@ -185,8 +185,8 @@ def test_store_creation_drop_elem(
     assert adata_output.raw is None
 
 
-@pytest.mark.parametrize("shuffle", [True, False])
-@pytest.mark.parametrize("densify", [True, False])
+@pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
+@pytest.mark.parametrize("densify", [pytest.param(True, id="densify"), pytest.param(False, id="no_densify")])
 def test_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     shuffle: bool,
@@ -225,22 +225,22 @@ def test_store_creation(
         sorted(adata_orig.var.index),
     )
     assert "arr" in adata.obsm
-    if not shuffle:
-        np.testing.assert_array_equal(
-            adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
-            adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
-        )
-        np.testing.assert_array_equal(
-            adata.raw.X if isinstance(adata.raw.X, np.ndarray) else adata.raw.X.toarray(),
-            adata_orig.raw.X if isinstance(adata_orig.raw.X, np.ndarray) else adata_orig.raw.X.toarray(),
-        )
-        np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
+    if shuffle:
+        adata = adata[adata_orig.obs_names].copy()
+    np.testing.assert_array_equal(
+        adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
+        adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
+    )
+    np.testing.assert_array_equal(
+        adata.raw.X if isinstance(adata.raw.X, np.ndarray) else adata.raw.X.toarray(),
+        adata_orig.raw.X if isinstance(adata_orig.raw.X, np.ndarray) else adata_orig.raw.X.toarray(),
+    )
+    np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
 
-        # correct for concat behavior
-        adata.obs.index = adata_orig.obs.index
-        adata.obs["label"] = adata.obs["label"].cat.reorder_categories(adata_orig.obs["label"].dtype.categories)
+    # correct for concat misordering the categories
+    adata.obs["label"] = adata.obs["label"].cat.reorder_categories(adata_orig.obs["label"].dtype.categories)
 
-        pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
+    pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
     if not densify:
