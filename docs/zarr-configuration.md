@@ -33,7 +33,7 @@ If this setting is set on a system that does not support `direct_io`, file readi
 ## `zarr-python` performance
 
 In this case, likely the store of interest is in the cloud.
-Please see zarr python's {doc}`zarr:user-guide/config` for more info but likely of most interest aside from the above mentioned `threading.max_workers` is
+Please see [zarr python's config docs][] for more info but likely of most interest aside from the above mentioned `threading.max_workers` is
 
 ```python
 zarr.config.set({"async.concurrency": 64})
@@ -44,3 +44,4 @@ See the [zarr page on concurrency][] for more information.
 
 [performance may suffer]: https://gist.github.com/ilan-gold/705bd36329b0e19542286385b09b421b
 [zarr page on concurrency]: https://zarr.readthedocs.io/en/latest/user-guide/consolidated_metadata/#synchronization-and-concurrency
+[zarr python's config docs]: https://zarr.readthedocs.io/en/latest/user-guide/config/
