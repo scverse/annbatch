@@ -30,7 +30,7 @@ dependencies = [
   # for debug logging (referenced from the issue template)
   "session-info2",
   "tqdm",
-  "zarr>=3",
+  "zarr>=3.1.4",
 ]
 optional-dependencies.cupy-cuda12 = [
   "cupy-cuda12x",
