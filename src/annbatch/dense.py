@@ -39,7 +39,7 @@ class ZarrDenseDataset(AbstractIterableDataset[zarr.Array, np.ndarray], _Iterabl
         )
         res = cast(
             "np.ndarray",
-            await dataset._async_array._get_selection(indexer, prototype=zarr.core.buffer.default_buffer_prototype()),
+            await dataset.async_array._get_selection(indexer, prototype=zarr.core.buffer.default_buffer_prototype()),
         )
         return res
 

@@ -23,7 +23,10 @@ First, you converted your existing `.h5ad` files into a zarr-backed anndata form
 In the process, the data gets shuffled and is distributed across several anndata files.
 Shuffling is important to ensure model convergence, especially because of our contiguous data fetching scheme which is not perfectly random.
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
-See the {ref}`zarr docs on sharding <zarr:user-guide-sharding>` for more information.
+See the [zarr docs on sharding][] for more information.
+
+[zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
+
 
 ### Data loading
 
