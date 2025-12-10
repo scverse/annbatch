@@ -154,7 +154,10 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             raise NotImplementedError(
                 "Cannot yield batches bigger than the iterated in-memory size i.e., batch_size > (chunk_size * preload_nchunks)."
             )
-
+        if to_torch and not find_spec("torch"):
+            raise ImportError("Could not find torch dependeny. Try `pip install torch`.")
+        if preload_to_gpu and not find_spec("cupy"):
+            raise ImportError("Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.")
         for package, arg, arg_name in [
             ("torch", to_torch, f"{to_torch=}"),
             ("cupy", preload_to_gpu, f"{preload_to_gpu=}"),
