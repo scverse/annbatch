@@ -158,14 +158,6 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             raise ImportError("Could not find torch dependeny. Try `pip install torch`.")
         if preload_to_gpu and not find_spec("cupy"):
             raise ImportError("Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.")
-        for package, arg, arg_name in [
-            ("torch", to_torch, f"{to_torch=}"),
-            ("cupy", preload_to_gpu, f"{preload_to_gpu=}"),
-        ]:
-            if arg and not find_spec(package):
-                raise ImportError(
-                    f"Could not find {package} dependency even though {arg_name}.  Try `pip install {package}`"
-                )
         self._return_index = return_index
         self._batch_size = batch_size
         self._preload_to_gpu = preload_to_gpu
