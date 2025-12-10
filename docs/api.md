@@ -12,10 +12,8 @@
 .. autosummary::
    :toctree: generated/
 
-    ZarrSparseDataset
-    ZarrSparseDataset.__iter__
-    ZarrDenseDataset
-    ZarrDenseDataset.__iter__
+    Batcher
+    Batcher.__iter__
 ```
 
 (io-helpers)=
