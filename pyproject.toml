@@ -26,7 +26,7 @@ dependencies = [
   "anndata[lazy]>=0.12.6",
   "dask>=2025.9.0",
   "pandas>=2.2.2,<3",
-  "scipy>1.15",
+  "scipy>1.15,<1.17",
   # for debug logging (referenced from the issue template)
   "session-info2",
   "tqdm",
