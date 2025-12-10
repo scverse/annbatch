@@ -435,6 +435,24 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
 
     @singledispatchmethod
     async def _fetch_data(self, dataset: ZarrArray | CSRDatasetElems, slices: list[slice]) -> InputInMemoryArray:
+        """Fetch data from an on-disk store.
+
+        Parameters
+        ----------
+        dataset
+            The underlying store.
+        slices
+            The slices to fetch
+
+        Returns
+        -------
+            The sparse or dense fetched data.
+
+        Raises
+        ------
+        NotImplementedError
+            If the dataset is not recognized.
+        """
         raise NotImplementedError(f"Cannot fetch data for type {type(dataset)}")
 
     @_fetch_data.register
