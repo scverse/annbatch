@@ -1,7 +1,7 @@
 # Notebooks
 
 ```{toctree}
-:hidden: true
+:hidden: false
 :maxdepth: 1
 
 example

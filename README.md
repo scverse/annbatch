@@ -18,31 +18,33 @@
 
 [zarrs-python]: https://zarrs-python.readthedocs.io/
 
-[lamin]: https://lamin.ai/
+[Lamin Labs]: https://lamin.ai/
 
 [scverse]: https://scverse.org/
 
-[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/#in-depth
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/notebooks/example.html
 
 # annbatch
 
 > [!CAUTION]
 > This package does not have a stable API.
-  However, we do not anticipate the on-disk format to change in an incompatible manner.
+> However, we do not anticipate the on-disk format to change in an incompatible manner.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
+[![PyPI](https://img.shields.io/pypi/v/annbatch.svg)](https://pypi.org/project/annbatch)
+[![Downloads](https://static.pepy.tech/badge/annbatch/month)](https://pepy.tech/project/annbatch)
+[![Downloads](https://static.pepy.tech/badge/annbatch)](https://pepy.tech/project/annbatch)
 
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader and io utilities for minibatching on-disk AnnData, co-developed by [lamin][] and [scverse][]
+A data loader and io utilities for minibatching on-disk AnnData, co-developed by [Lamin Labs][] and [scverse][]
 
 ## Getting started
 
-Please refer to the [documentation][],
-in particular, the [API documentation][].
+Please refer to the [documentation][], in particular, the [API documentation][].
 
 ## Installation
 
@@ -55,21 +57,26 @@ To install the latest release of `annbatch` from [PyPI][]:
 pip install annbatch
 ```
 
-We provide extras in the `pyproject.toml` for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
+We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
 > [!IMPORTANT]
 > [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
 
+## Detailed tutorial
+
+For a detailed tutorial, please see the [in-depth section of our docs][]
+
 ## Basic usage example
 
 Basic preprocessing:
+
 ```python
 from annbatch import create_anndata_collection
 
 import zarr
 from pathlib import Path
 
-# Using zarrs is necessary for local filesystem perforamnce.
+# Using zarrs is necessary for local filesystem performance.
 # Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
@@ -80,7 +87,7 @@ create_anndata_collection(
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    output_path="path/to/output/collection", # a directory containing `dataset_{i}.zarr`
+    output_path="path/to/output/collection",  # a directory containing `dataset_{i}.zarr`
     shuffle=True,  # shuffling is needed if you want to use chunked access
 )
 ```
@@ -94,7 +101,7 @@ from annbatch import Batcher
 import anndata as ad
 import zarr
 
-# Using zarrs is necessary for local filesystem perforamnce.
+# Using zarrs is necessary for local filesystem performance.
 # Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
@@ -113,7 +120,7 @@ ds = Batcher(
         )
         for p in Path("path/to/output/collection").glob("*.zarr")
     ],
-    obs_keys="label_column",
+    obs_keys=["label_column", "batch_column"],
 )
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
@@ -121,15 +128,12 @@ for batch in ds:
     ...
 ```
 
-<!--TODO: proper intersphinx and/or migrate note-->
-
-For usage of our loader inside of `torch`, please see our [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info. At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `DataLoader`.
-
-<!--HEADER-->
-
-For a deeper dive into this example, please see the [in-depth section of our docs][]
+> [!IMPORTANT]
+> For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info.
+> At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `torch.utils.data.DataLoader` class.
 
 <!--FOOTER-->
+
 ## Release notes
 
 See the [changelog][].

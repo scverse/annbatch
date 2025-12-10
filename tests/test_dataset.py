@@ -359,7 +359,9 @@ def test_torch_multiprocess_dataloading_zarr(
     find_spec("cupy") is not None, reason="Can't test for preload_to_gpu True ImportError with cupy installed"
 )
 def test_no_cupy():
-    with pytest.raises(ImportError, match=r"even though preload_to_gpu=True"):
+    with pytest.raises(
+        ImportError, match=r"Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy."
+    ):
         Batcher(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
 
 
@@ -367,17 +369,44 @@ def test_no_cupy():
     find_spec("torch") is not None, reason="Can't test for to_torch True ImportError with torch installed"
 )
 def test_no_torch():
-    with pytest.raises(ImportError, match=r"even though to_torch=True"):
+    with pytest.raises(ImportError, match=r"Try `pip install torch`."):
         Batcher(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
 
 
-def test_torch_default(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def get_default_dense() -> type:
     if find_spec("torch"):
-        from torch import Tensor as expected_cls
+        from torch import Tensor as expected_dense
     else:
-        from numpy import ndarray as expected_cls
+        from numpy import ndarray as expected_dense
+    return expected_dense
+
+
+def get_default_sparse() -> type:
+    if find_spec("cupy"):
+        from cupyx.scipy.sparse import csr_matrix as expected_sparse
+    else:
+        from scipy.sparse import csr_matrix as expected_sparse
+
+    return expected_sparse
+
+
+@pytest.mark.parametrize(
+    ("expected_cls", "kwargs"),
+    (
+        pytest.param(get_default_dense(), {"preload_to_gpu": False}, id="torch"),
+        pytest.param(get_default_sparse(), {"to_torch": False}, id="cupy"),
+    ),
+)
+def test_default_data_structures(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], expected_cls: type, kwargs: dict
+):
+    # format is a smoke test for sparse
     ds = Batcher(
-        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, preload_to_gpu=False
-    ).add_dataset(**open_dense(list(adata_with_zarr_path_same_var_space[1].iterdir())[0]))
+        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, **kwargs
+    ).add_dataset(
+        **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
+            list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
+        )
+    )
     for batch in ds:
         assert isinstance(batch[0], expected_cls)

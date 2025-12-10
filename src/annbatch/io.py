@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anndata as ad
+import dask.array as da
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -165,17 +166,29 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
     return idxs
 
 
-def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
-    adata.X = adata.X.persist()
+def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
+    """.compute() for large datasets is bad: https://github.com/scverse/annbatch/pull/75"""
+    return sp.vstack(da.compute(*list(x.blocks)))
 
+
+def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
+    if isinstance(adata.X, DaskArray):
+        if isinstance(adata.X._meta, sp.csr_matrix | sp.csr_array):
+            adata.X = _compute_blockwise(adata.X)
+        else:
+            adata.X = adata.X.compute()
     if isinstance(adata.obs, Dataset2D):
         adata.obs = adata.obs.to_memory()
     if isinstance(adata.var, Dataset2D):
         adata.var = adata.var.to_memory()
+
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
         if isinstance(adata_raw.X, DaskArray):
-            adata_raw.X = adata_raw.X.persist()
+            if isinstance(adata_raw.X._meta, sp.csr_array | sp.csr_matrix):
+                adata_raw.X = _compute_blockwise(adata_raw.X)
+            else:
+                adata_raw.X = adata_raw.X.compute()
         if isinstance(adata_raw.var, Dataset2D):
             adata_raw.var = adata_raw.var.to_memory()
         if isinstance(adata_raw.obs, Dataset2D):
@@ -186,11 +199,17 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     for k, elem in adata.obsm.items():
         # TODO: handle `Dataset2D` in `obsm` and `varm` that are
         if isinstance(elem, DaskArray):
-            adata.obsm[k] = elem.persist()
+            if isinstance(elem, sp.csr_matrix | sp.csr_array):
+                adata.obsm[k] = _compute_blockwise(elem)
+            else:
+                adata.obsm[k] = elem.compute()
 
     for k, elem in adata.layers.items():
         if isinstance(elem, DaskArray):
-            adata.layers[k] = elem.persist()
+            if isinstance(elem, sp.csr_matrix | sp.csr_array):
+                adata.layers[k] = _compute_blockwise(elem)
+            else:
+                adata.layers[k] = elem.compute()
 
     return adata
 
@@ -223,6 +242,7 @@ def create_anndata_collection(
     The var space is by default outer-joined, but can be subsetted by `var_subset`.
     A key `src_path` is added to `obs` to indicate where individual row came from.
     We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
+    Memory usage should be controlled by `n_obs_per_dataset` as so many rows will be read into memory before writing to disk.
 
     Parameters
     ----------
@@ -256,7 +276,7 @@ def create_anndata_collection(
         shuffle
             Whether to shuffle the data before writing it to the store.
         should_denseify
-            Whether to write as dense on disk.
+            Whether to write as dense on disk. There's no need to set this for sparse data, it is only for testing.
         output_format
             Format of the output store. Can be either "zarr" or "h5ad".
 
@@ -296,15 +316,21 @@ def create_anndata_collection(
 
     for i, chunk in enumerate(tqdm(chunks)):
         var_mask = adata_concat.var_names.isin(var_subset)
-        adata_chunk = adata_concat[chunk, :][:, var_mask].copy()
+        # np.sort: It's more efficient to access elements sequentially from dask arrays
+        # The data will be shuffled later on, we just want the elements at this point
+        adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
         adata_chunk = _persist_adata_in_memory(adata_chunk)
         if shuffle:
             # shuffle adata in memory to break up individual chunks
             idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-            adata_chunk = adata_chunk[idxs].copy()
+            adata_chunk = adata_chunk[idxs]
         # convert to dense format before writing to disk
         if should_denseify:
-            adata_chunk.X = adata_chunk.X.map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
+            # Need to convert back to dask array to avoid memory issues when converting large sparse matrices to dense
+            adata_chunk = adata_chunk.copy()
+            adata_chunk.X = da.from_array(
+                adata_chunk.X, chunks=(zarr_dense_chunk_size, -1), meta=adata_chunk.X
+            ).map_blocks(lambda xx: xx.toarray(), dtype=adata_chunk.X.dtype)
 
         if output_format == "zarr":
             f = zarr.open_group(Path(output_path) / f"{DATASET_PREFIX}_{i}.zarr", mode="w")
