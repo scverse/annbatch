@@ -23,12 +23,6 @@ def use_zarrs(request):
     return request.param
 
 
-@pytest.fixture(autouse=True)
-def _ad_default_settings(request):
-    with ad.settings.override(allow_write_nullable_strings=True):
-        yield
-
-
 @pytest.fixture(scope="session")
 def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.AnnData, Path]]:
     """Create a mock Zarr store for testing."""
