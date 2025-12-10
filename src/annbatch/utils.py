@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import warnings
 from dataclasses import dataclass
 from functools import cached_property
@@ -20,12 +19,11 @@ except ImportError:
     CupyCSRMatrix = None
 
 if TYPE_CHECKING:
-    from collections import OrderedDict
-    from collections.abc import Awaitable, Callable, Generator, Iterable
+    from collections.abc import Generator, Iterable
 
     from torch import Tensor
 
-    from annbatch.types import InputInMemoryArray, OutputInMemoryArray
+    from annbatch.types import OutputInMemoryArray
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -48,80 +46,6 @@ def _batched[T](iterable: Iterable[T], n: int) -> Generator[list[T], None, None]
     it = iter(iterable)
     while batch := list(islice(it, n)):
         yield batch
-
-
-async def index_datasets(
-    dataset_index_to_slices: OrderedDict[int, list[slice]],
-    fetch_data: Callable[[list[slice], int], Awaitable[CSRContainer | np.ndarray]],
-) -> list[InputInMemoryArray]:
-    """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
-
-    Parameters
-    ----------
-        dataset_index_to_slices
-            A lookup of the list-placement index of a dataset to the request slices.
-        fetch_data
-            The function to do the fetching for a given slice-dataset index pair.
-    """
-    tasks = []
-    for dataset_idx in dataset_index_to_slices.keys():
-        tasks.append(
-            fetch_data(
-                dataset_index_to_slices[dataset_idx],
-                dataset_idx,
-            )
-        )
-    return await asyncio.gather(*tasks)
-
-
-add_datasets_docstring = """\
-Append datasets to this dataset.
-
-Parameters
-----------
-    datasets
-        List of :class:`{on_disk_array_type}` objects, generally from :attr:`anndata.AnnData.X`.
-    obs
-        List of :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
-"""
-
-add_dataset_docstring = """\
-Append a dataset to this dataset.
-
-Parameters
-----------
-    dataset
-        :class:`{on_disk_array_type}` object, generally from :attr:`anndata.AnnData.X`.
-    obs
-        :class:`numpy.ndarray` labels for the anndata, generally from :attr:`anndata.AnnData.obs`.
-"""
-
-
-add_anndatas_docstring = """\
-Append anndatas to this dataset.
-
-Parameters
-----------
-    anndatas
-        List of :class:`anndata.AnnData` objects, with :class:`{on_disk_array_type}` as the data matrix.
-    obs_keys
-        List of :attr:`anndata.AnnData.obs` column labels.
-    layer_keys
-        List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
-"""
-
-add_anndata_docstring = """\
-Append a anndata to this dataset.
-
-Parameters
-----------
-    anndata
-        :class:`anndata.AnnData` object, with :class:`{on_disk_array_type}` as the data matrix.
-    obs_key
-        :attr:`anndata.AnnData.obs` column labels.
-    layer_key
-        :attr:`anndata.AnnData.layers` key, and if None, :attr:`anndata.AnnData.X` will be used.
-"""
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
