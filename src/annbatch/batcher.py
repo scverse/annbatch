@@ -116,8 +116,8 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
                 do_fit(batch)
     """
 
-    train_datasets: list[BackingArray]
-    labels: list[np.ndarray] | None = None
+    _train_datasets: list[BackingArray]
+    _labels: list[np.ndarray] | None = None
     _return_index: bool = False
     _batch_size: int = 1
     _shapes: list[tuple[int, int]]
@@ -172,7 +172,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
         self._preload_nchunks = preload_nchunks
         self._shuffle = shuffle
         self._worker_handle = WorkerHandle()
-        self.train_datasets = []
+        self._train_datasets = []
         self._shapes = []
         self._dataset_elem_cache = {}
 
@@ -214,7 +214,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
         -------
             The type used.
         """
-        return type(self.train_datasets[0])
+        return type(self._train_datasets[0])
 
     @property
     def n_obs(self) -> int:
@@ -324,12 +324,12 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             obs
                 :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
         """
-        if len(self.train_datasets) > 0:
-            if self.labels is None and obs is not None:
+        if len(self._train_datasets) > 0:
+            if self._labels is None and obs is not None:
                 raise ValueError(
                     f"Cannot add a dataset with obs label {obs} when training datasets have already been added without labels"
                 )
-            if self.labels is not None and obs is None:
+            if self._labels is not None and obs is None:
                 raise ValueError(
                     "Cannot add a dataset with no obs label when training datasets have already been added without labels"
                 )
@@ -343,14 +343,14 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             raise TypeError(
                 "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
             )
-        datasets = self.train_datasets + [dataset]
+        datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
         self._shapes = self._shapes + [dataset.shape]
-        self.train_datasets = datasets
-        if self.labels is not None:  # labels exist
-            self.labels += [obs]
+        self._train_datasets = datasets
+        if self._labels is not None:  # labels exist
+            self._labels += [obs]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
-            self.labels = [obs]
+            self._labels = [obs]
         return self
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
@@ -467,8 +467,8 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
         -------
             The constituent elems of the CSR dataset.
         """
-        if isinstance(ds := self.train_datasets[idx], ZarrArray):
-            raise ValueError(f"Requested sparse dataset at idx {idx} of {self.train_datasets} but found dense array")
+        if isinstance(ds := self._train_datasets[idx], ZarrArray):
+            raise ValueError(f"Requested sparse dataset at idx {idx} of {self._train_datasets} but found dense array")
         indptr = await ds.group._async_group.getitem("indptr")
         return CSRDatasetElems(
             *(
@@ -482,11 +482,11 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
 
     async def _ensure_sparse_cache(self) -> None:
         """Build up the cache of datasets i.e., in-memory indptr, and backed indices and data."""
-        arr_idxs = [idx for idx in range(len(self.train_datasets)) if idx not in self._dataset_elem_cache]
+        arr_idxs = [idx for idx in range(len(self._train_datasets)) if idx not in self._dataset_elem_cache]
         all_elems: list[CSRDatasetElems] = await asyncio.gather(
             *(
                 self._create_sparse_elems(idx)
-                for idx in range(len(self.train_datasets))
+                for idx in range(len(self._train_datasets))
                 if idx not in self._dataset_elem_cache
             )
         )
@@ -566,7 +566,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
         for dataset_idx in dataset_index_to_slices.keys():
             tasks.append(
                 self._fetch_data(
-                    self._get_elem_from_cache(dataset_idx) if is_sparse else self.train_datasets[dataset_idx],
+                    self._get_elem_from_cache(dataset_idx) if is_sparse else self._train_datasets[dataset_idx],
                     dataset_index_to_slices[dataset_idx],
                 )
             )
@@ -584,7 +584,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             A one-row sparse matrix.
         """
         check_lt_1(
-            [len(self.train_datasets), self.n_obs],
+            [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
         # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
@@ -617,11 +617,11 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
                 chunks_converted = [self._np_module.asarray(c) for c in chunks]
             # Accumulate labels
             labels: None | list[np.ndarray] = None
-            if self.labels is not None:
+            if self._labels is not None:
                 labels = []
                 for dataset_idx in dataset_index_to_slices.keys():
                     labels += [
-                        self.labels[dataset_idx][
+                        self._labels[dataset_idx][
                             np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[dataset_idx]])
                         ]
                     ]
@@ -648,7 +648,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
                 if in_memory_data is None
                 else mod.vstack([in_memory_data, *chunks_converted])
             )
-            if self.labels is not None:
+            if self._labels is not None:
                 in_memory_labels = (
                     np.concatenate(labels) if in_memory_labels is None else np.concatenate([in_memory_labels, *labels])
                 )
@@ -669,7 +669,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
                 if s.shape[0] == self._batch_size:
                     res = [
                         in_memory_data[s],
-                        in_memory_labels[s] if self.labels is not None else None,
+                        in_memory_labels[s] if self._labels is not None else None,
                     ]
                     if self._return_index:
                         res += [in_memory_indices[s]]
@@ -690,7 +690,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
         if in_memory_data is not None and not self._drop_last:  # handle any leftover data
             res = [
                 in_memory_data,
-                in_memory_labels if self.labels is not None else None,
+                in_memory_labels if self._labels is not None else None,
             ]
             if self._return_index:
                 res += [in_memory_indices]
