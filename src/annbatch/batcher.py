@@ -55,7 +55,7 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArray_T](_IterableDataset):
+class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArray_T](_IterableDataset):
     """A loader for on-disk data anndata stores.
 
     This loader batches together slice requests to the underlying stores to achieve higher performance.
@@ -100,8 +100,8 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
 
     Examples
     --------
-        >>> from annbatch import Batcher
-        >>> ds = Batcher(
+        >>> from annbatch import Loader
+        >>> ds = Loader(
                 batch_size=4096,
                 chunk_size=32,
                 preload_nchunks=512,

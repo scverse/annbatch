@@ -12,7 +12,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Batcher
+from annbatch import Loader
 
 try:
     from cupy import ndarray as CupyArray
@@ -86,7 +86,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
             open_func=open_func,
             batch_size=batch_size,
             preload_to_gpu=preload_to_gpu,
-            obs_keys=obs_keys: Batcher(
+            obs_keys=obs_keys: Loader(
                 shuffle=shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -169,7 +169,7 @@ def test_store_load_dataset(
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader: Batcher = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
+    loader: Loader = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
     adata = adata_with_zarr_path_same_var_space[0]
     is_dense = loader.dataset_type is zarr.Array
     n_elems = 0
@@ -211,7 +211,7 @@ def test_store_load_dataset(
     "gen_loader",
     [
         (
-            lambda path, chunk_size=chunk_size, preload_nchunks=preload_nchunks: Batcher(
+            lambda path, chunk_size=chunk_size, preload_nchunks=preload_nchunks: Loader(
                 shuffle=True,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -228,7 +228,7 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
     data["dataset"] = data["dataset"][...]
-    ds = Batcher(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+    ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
     with pytest.raises(TypeError, match="Cannot add"):
         ds.add_dataset(**data)
 
@@ -256,7 +256,7 @@ def test_to_torch(
     import torch
 
     # batch_size guaranteed to have leftovers to drop
-    ds = Batcher(
+    ds = Loader(
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
@@ -271,7 +271,7 @@ def test_to_torch(
 
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     # batch_size guaranteed to have leftovers to drop
-    ds = Batcher(
+    ds = Loader(
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
@@ -297,7 +297,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path])
 def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
-        ds = Batcher(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+        ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
         with pytest.raises(TypeError, match="Cannot add"):
             ds.add_dataset(data)
 
@@ -331,7 +331,7 @@ def test_torch_multiprocess_dataloading_zarr(
     """
     from torch.utils.data import DataLoader
 
-    ds = Batcher(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
     ds.add_datasets(
         **concat([open_func(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
     )
@@ -362,7 +362,7 @@ def test_no_cupy():
     with pytest.raises(
         ImportError, match=r"Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy."
     ):
-        Batcher(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
+        Loader(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
 
 
 @pytest.mark.skipif(
@@ -370,7 +370,7 @@ def test_no_cupy():
 )
 def test_no_torch():
     with pytest.raises(ImportError, match=r"Try `pip install torch`."):
-        Batcher(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
+        Loader(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
 
 
 def get_default_dense() -> type:
@@ -401,7 +401,7 @@ def test_default_data_structures(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], expected_cls: type, kwargs: dict
 ):
     # format is a smoke test for sparse
-    ds = Batcher(
+    ds = Loader(
         chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, **kwargs
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(

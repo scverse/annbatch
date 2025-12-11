@@ -12,8 +12,8 @@
 .. autosummary::
    :toctree: generated/
 
-    Batcher
-    Batcher.__iter__
+    Loader
+    Loader.__iter__
 ```
 
 (io-helpers)=

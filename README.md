@@ -97,7 +97,7 @@ Data loading:
 ```python
 from pathlib import Path
 
-from annbatch import Batcher
+from annbatch import Loader
 import anndata as ad
 import zarr
 
@@ -107,7 +107,7 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
-ds = Batcher(
+ds = Loader(
     batch_size=4096,
     chunk_size=32,
     preload_nchunks=256,

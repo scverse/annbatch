@@ -1,9 +1,9 @@
 from importlib.metadata import version
 
 from . import types
-from .batcher import Batcher
 from .io import add_to_collection, create_anndata_collection, write_sharded
+from .Loader import Loader
 
 __version__ = version("annbatch")
 
-__all__ = ["Batcher", "write_sharded", "add_to_collection", "create_anndata_collection", "types"]
+__all__ = ["Loader", "write_sharded", "add_to_collection", "create_anndata_collection", "types"]
