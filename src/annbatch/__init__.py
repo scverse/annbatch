@@ -2,7 +2,7 @@ from importlib.metadata import version
 
 from . import types
 from .io import add_to_collection, create_anndata_collection, write_sharded
-from .Loader import Loader
+from .loader import Loader
 
 __version__ = version("annbatch")
 
