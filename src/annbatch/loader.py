@@ -46,6 +46,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import ModuleType
 
+    # TODO: remove after sphinx 9 - myst compat
+    BackingArray = BackingArray_T
+
 
 class CSRDatasetElems(NamedTuple):
     """Container for cached objects that will be indexed into to generate CSR matrices"""
