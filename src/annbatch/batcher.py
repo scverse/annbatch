@@ -241,7 +241,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
 
         Parameters
         ----------
-            anndatas
+            adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
             obs_keys
                 List of :attr:`anndata.AnnData.obs` column labels.
@@ -277,11 +277,11 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
 
         Parameters
         ----------
-            anndatas
+            adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
-            obs_keys
+            obs_key
                 :attr:`anndata.AnnData.obs` column labels.
-            layer_keys
+            layer_key
                 :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
         """
         self._used_anndata_adder = True
@@ -363,7 +363,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             index
                 The queried slice.
             use_original_space
-                Whether or not the slices should be reindexed against the anndata objects.
+                Whether the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -399,7 +399,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             slices
                 Slices to relative to the on-disk datasets.
             use_original_space
-                Whether or not the slices should be reindexed against the anndata objects.
+                Whether the slices should be reindexed against the anndata objects.
 
         Returns
         -------
