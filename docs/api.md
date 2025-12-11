@@ -28,3 +28,13 @@
     add_to_collection
     create_anndata_collection
 ```
+
+(types)=
+## types
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    types.BackingArray
+```

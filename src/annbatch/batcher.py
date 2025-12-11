@@ -16,6 +16,7 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
+from annbatch.types import BackingArray_T, InputInMemoryArray_T, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
     MultiBasicIndexer,
@@ -44,11 +45,6 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import ModuleType
-
-
-type BackingArray_T = ad.abc.CSRDataset | ZarrArray
-type InputInMemoryArray_T = CSRContainer | np.ndarray
-type OutputInMemoryArray = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
 
 
 class CSRDatasetElems(NamedTuple):
@@ -588,7 +584,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
     def __iter__(
         self,
     ) -> Iterator[
-        tuple[OutputInMemoryArray, None | np.ndarray] | tuple[OutputInMemoryArray, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray_T, None | np.ndarray] | tuple[OutputInMemoryArray_T, None | np.ndarray, np.ndarray]
     ]:
         """Iterate over the on-disk csr datasets.
 
@@ -618,7 +614,7 @@ class Batcher[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArr
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
             if any(isinstance(c, CSRContainer) for c in chunks):
-                chunks_converted: list[OutputInMemoryArray] = [
+                chunks_converted: list[OutputInMemoryArray_T] = [
                     self._sp_module.csr_matrix(
                         tuple(self._np_module.asarray(e) for e in c.elems),
                         shape=c.shape,

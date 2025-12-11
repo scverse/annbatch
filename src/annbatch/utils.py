@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from torch import Tensor
 
-    from annbatch.types import OutputInMemoryArray
+    from annbatch.types import OutputInMemoryArray_T
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -206,7 +206,7 @@ def check_var_shapes(objs: list[SupportsShape]) -> None:
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
-def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
+def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     """Send the input data to a torch.Tensor"""
     import torch
 
