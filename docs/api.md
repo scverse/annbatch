@@ -12,10 +12,8 @@
 .. autosummary::
    :toctree: generated/
 
-    ZarrSparseDataset
-    ZarrSparseDataset.__iter__
-    ZarrDenseDataset
-    ZarrDenseDataset.__iter__
+    Loader
+    Loader.__iter__
 ```
 
 (io-helpers)=
@@ -29,4 +27,14 @@
     write_sharded
     add_to_collection
     create_anndata_collection
+```
+
+(types)=
+## types
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    types.BackingArray_T
 ```
