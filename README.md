@@ -97,7 +97,7 @@ Data loading:
 ```python
 from pathlib import Path
 
-from annbatch import ZarrSparseDataset
+from annbatch import Loader
 import anndata as ad
 import zarr
 
@@ -109,7 +109,7 @@ zarr.config.set(
 
 # This settings override ensures that you don't lose/alter your categorical codes when reading the data in!
 with ad.settings.override(remove_unused_categories=False):
-    ds = ZarrSparseDataset(
+    ds = Loader(
         batch_size=4096,
         chunk_size=32,
         preload_nchunks=256,
