@@ -211,13 +211,14 @@ def test_store_creation(
 
     adata_orig = adata_with_h5_path_different_var_space[0]
     # make sure all category dtypes match
-    for path in output_path.iterdir():
-        assert ad.read_zarr(path).obs["label"].dtype == adata_orig.obs["label"].dtype
+    adatas_shuffled = [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())]
+    for adata in adatas_shuffled:
+        assert adata.obs["label"].dtype == adata_orig.obs["label"].dtype
     # subset to var_subset
     adata_orig = adata_orig[:, adata_orig.var.index.isin(var_subset)]
     adata_orig.obs_names_make_unique()
     adata = ad.concat(
-        [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())],
+        adatas_shuffled,
         join="outer",
     )
     del adata.obs["src_path"]
