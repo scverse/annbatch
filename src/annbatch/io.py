@@ -13,10 +13,10 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+import tqdm
 import zarr
 from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
-from tqdm import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
+    for path_or_anndata in tqdm.auto.tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
             adata = ad.experimental.read_lazy(path_or_anndata)
         else:
@@ -143,7 +143,7 @@ def _lazy_load_anndatas(
 ):
     adatas = []
     categoricals_in_all_adatas = {}
-    for i, path in tqdm(enumerate(paths), desc="loading"):
+    for i, path in tqdm.auto.tqdm(enumerate(paths), desc="loading"):
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
@@ -345,7 +345,7 @@ def create_anndata_collection(
     if var_subset is None:
         var_subset = adata_concat.var_names
 
-    for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
+    for i, chunk in enumerate(tqdm.auto.tqdm(chunks, desc="processing chunks")):
         var_mask = adata_concat.var_names.isin(var_subset)
         # np.sort: It's more efficient to access elements sequentially from dask arrays
         # The data will be shuffled later on, we just want the elements at this point
@@ -479,7 +479,7 @@ def add_to_collection(
                 sp.csr_matrix, meta=sp.csr_matrix(np.array([0], dtype=adata_concat.X.dtype))
             )
 
-    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards), desc="processing chunks"):
+    for shard, chunk in tqdm.auto.tqdm(zip(shards, chunks, strict=False), total=len(shards), desc="processing chunks"):
         if should_sparsify_output_in_memory and encoding == "array":
             adata_shard = _lazy_load_anndatas([shard])
             adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
