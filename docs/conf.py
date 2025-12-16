@@ -64,6 +64,7 @@ extensions = [
     "IPython.sphinxext.ipython_console_highlighting",
     "sphinxext.opengraph",
     "sphinx_issues",
+    "sphinx_toolbox.more_autodoc.autotypeddict",
     "scanpydoc",  # needs to be before linkcode
     *[p.stem for p in (HERE / "extensions").glob("*.py")],
 ]
