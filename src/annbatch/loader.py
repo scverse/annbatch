@@ -11,12 +11,13 @@ from typing import TYPE_CHECKING, NamedTuple, Self, cast
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import zarr
 import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from annbatch.types import BackingArray_T, InputInMemoryArray_T, OutputInMemoryArray_T
+from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOuput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
     MultiBasicIndexer,
@@ -116,14 +117,13 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
     """
 
     _train_datasets: list[BackingArray]
-    _labels: list[np.ndarray] | None = None
+    _obs: list[pd.DataFrame] | None = None
     _return_index: bool = False
     _batch_size: int = 1
     _shapes: list[tuple[int, int]]
     _preload_to_gpu: bool = True
     _drop_last: bool = False
     _to_torch: bool = True
-    _used_anndata_adder: bool = False
     _shuffle: bool
     _preload_nchunks: int
     _worker_handle: WorkerHandle
@@ -233,8 +233,6 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
     def add_anndatas(
         self,
         adatas: list[ad.AnnData],
-        layer_keys: list[str | None] | str | None = None,
-        obs_keys: list[str] | str | None = None,
     ) -> Self:
         """Append anndatas to this dataset.
 
@@ -242,56 +240,28 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
-            obs_keys
-                List of :attr:`anndata.AnnData.obs` column labels.
-            layer_keys
-                List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
         """
-        self._used_anndata_adder = True
-        if isinstance(layer_keys, str | None):
-            layer_keys = [layer_keys] * len(adatas)
-        if isinstance(obs_keys, str | None):
-            obs_keys = [obs_keys] * len(adatas)
-        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
-        check_lt_1(
-            [len(adatas)] + sum((([len(k)] if k is not None else []) for k in elem_to_keys.values()), []),
-            ["Number of anndatas"]
-            + sum(
-                ([f"Number of {label} keys"] if keys is not None else [] for keys, label in elem_to_keys.items()),
-                [],
-            ),
-        )
-        for adata, obs_key, layer_key in zip(adatas, obs_keys, layer_keys, strict=True):
-            kwargs = {"obs_key": obs_key, "layer_key": layer_key}
-            self.add_anndata(adata, **kwargs)
+        check_lt_1([len(adatas)], ["Number of anndatas"])
+        for adata in adatas:
+            self.add_anndata(adata)
         return self
 
-    def add_anndata(
-        self,
-        adata: ad.AnnData,
-        layer_key: str | None = None,
-        obs_key: str | None = None,
-    ) -> Self:
+    def add_anndata(self, adata: ad.AnnData) -> Self:
         """Append an anndata to this dataset.
 
         Parameters
         ----------
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
-            obs_key
-                :attr:`anndata.AnnData.obs` column labels.
-            layer_key
-                :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
         """
-        self._used_anndata_adder = True
-        dataset = adata.X if layer_key is None else adata.layers[layer_key]
+        dataset = adata.X
+        labels = adata.obs
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
-        obs = adata.obs[obs_key].to_numpy() if obs_key is not None else None
-        self.add_dataset(cast("BackingArray", dataset), obs)
+        self.add_dataset(cast("BackingArray", dataset), labels)
         return self
 
-    def add_datasets(self, datasets: list[BackingArray], obs: list[np.ndarray] | None = None) -> Self:
+    def add_datasets(self, datasets: list[BackingArray], obs: list[pd.DataFrame] | None = None) -> Self:
         """Append datasets to this dataset.
 
         Parameters
@@ -308,7 +278,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             self.add_dataset(ds, o)
         return self
 
-    def add_dataset(self, dataset: BackingArray, obs: np.ndarray | None = None) -> Self:
+    def add_dataset(self, dataset: BackingArray, obs: pd.DataFrame | None = None) -> Self:
         """Append a dataset to this dataset.
 
         Parameters
@@ -319,11 +289,11 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
         """
         if len(self._train_datasets) > 0:
-            if self._labels is None and obs is not None:
+            if self._obs is None and obs is not None:
                 raise ValueError(
                     f"Cannot add a dataset with obs label {obs} when training datasets have already been added without labels"
                 )
-            if self._labels is not None and obs is None:
+            if self._obs is not None and obs is None:
                 raise ValueError(
                     "Cannot add a dataset with no obs label when training datasets have already been added without labels"
                 )
@@ -337,14 +307,16 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             raise TypeError(
                 "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
             )
+        if not isinstance(obs, pd.DataFrame):
+            raise TypeError("obs must be a pandas DataFrame")
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
         self._shapes = self._shapes + [dataset.shape]
         self._train_datasets = datasets
-        if self._labels is not None:  # labels exist
-            self._labels += [obs]
+        if self._obs is not None:  # labels exist
+            self._obs += [obs]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
-            self._labels = [obs]
+            self._obs = [obs]
         return self
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
@@ -586,9 +558,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
 
     def __iter__(
         self,
-    ) -> Iterator[
-        tuple[OutputInMemoryArray_T, None | np.ndarray] | tuple[OutputInMemoryArray_T, None | np.ndarray, np.ndarray]
-    ]:
+    ) -> Iterator[LoaderOuput]:
         """Iterate over the on-disk csr datasets.
 
         Yields
@@ -602,7 +572,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
         # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
         # we must keep track of the leftover data.
         in_memory_data = None
-        in_memory_labels = None
+        concatenated_obs = None
         in_memory_indices = None
         mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
         for chunk_indices in _batched(self._get_chunks(self._chunk_size), self._preload_nchunks):
@@ -628,12 +598,12 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             else:
                 chunks_converted = [self._np_module.asarray(c) for c in chunks]
             # Accumulate labels
-            labels: None | list[np.ndarray] = None
-            if self._labels is not None:
-                labels = []
+            obs: None | list[pd.DataFrame] = None
+            if self._obs is not None:
+                obs = []
                 for dataset_idx in dataset_index_to_slices.keys():
-                    labels += [
-                        self._labels[dataset_idx][
+                    obs += [
+                        self._obs[dataset_idx].iloc[
                             np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[dataset_idx]])
                         ]
                     ]
@@ -660,10 +630,8 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 if in_memory_data is None
                 else mod.vstack([in_memory_data, *chunks_converted])
             )
-            if self._labels is not None:
-                in_memory_labels = (
-                    np.concatenate(labels) if in_memory_labels is None else np.concatenate([in_memory_labels, *labels])
-                )
+            if self._obs is not None:
+                concatenated_obs = pd.concat(obs) if concatenated_obs is None else pd.concat([concatenated_obs, *obs])
             if self._return_index:
                 in_memory_indices = (
                     np.concatenate(indices)
@@ -679,33 +647,29 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             splits = split_given_size(batch_indices, self._batch_size)
             for i, s in enumerate(splits):
                 if s.shape[0] == self._batch_size:
-                    res = [
-                        in_memory_data[s],
-                        in_memory_labels[s] if self._labels is not None else None,
-                    ]
-                    if self._return_index:
-                        res += [in_memory_indices[s]]
-                    if self._to_torch:
-                        res[0] = to_torch(res[0], self._preload_to_gpu)
-                    yield tuple(res)
+                    output: LoaderOuput = {
+                        "data": to_torch(in_memory_data[s], self._preload_to_gpu)
+                        if self._to_torch
+                        else in_memory_data[s],
+                        "labels": concatenated_obs.iloc[s] if self._obs is not None else None,
+                        "index": in_memory_indices[s] if self._return_index else None,
+                    }
+                    yield output
                 if i == (len(splits) - 1):  # end of iteration, leftover data needs be kept
                     if (s.shape[0] % self._batch_size) != 0:
                         in_memory_data = in_memory_data[s]
-                        if in_memory_labels is not None:
-                            in_memory_labels = in_memory_labels[s]
+                        if concatenated_obs is not None:
+                            concatenated_obs = concatenated_obs.iloc[s]
                         if in_memory_indices is not None:
                             in_memory_indices = in_memory_indices[s]
                     else:
                         in_memory_data = None
-                        in_memory_labels = None
+                        concatenated_obs = None
                         in_memory_indices = None
         if in_memory_data is not None and not self._drop_last:  # handle any leftover data
-            res = [
-                in_memory_data,
-                in_memory_labels if self._labels is not None else None,
-            ]
-            if self._return_index:
-                res += [in_memory_indices]
-            if self._to_torch:
-                res[0] = to_torch(res[0], self._preload_to_gpu)
-            yield tuple(res)
+            output: LoaderOuput = {
+                "data": to_torch(in_memory_data, self._preload_to_gpu) if self._to_torch else in_memory_data,
+                "labels": concatenated_obs if self._obs is not None else None,
+                "index": in_memory_indices if self._return_index else None,
+            }
+            yield output

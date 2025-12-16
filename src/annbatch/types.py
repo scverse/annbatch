@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import NoneType
+from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
 import numpy as np
@@ -16,6 +17,17 @@ except ImportError:
     CupyArray = NoneType
 from zarr import Array as ZarrArray
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 type BackingArray_T = ad.abc.CSRDataset | ZarrArray
 type InputInMemoryArray_T = CSRContainer | np.ndarray
 type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
+
+
+class LoaderOuput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
+    """The output of the loader, the "data matrix" with its labels, optional, and index, also optional"""
+
+    data: OutputInMemoryArray
+    labels: pd.DataFrame | None
+    index: np.ndarray | None
