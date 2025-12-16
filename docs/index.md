@@ -45,13 +45,12 @@ ds = Loader(
             obs=ad.io.read_elem(zarr.open(p)["obs"]),
         )
         for p in PATH_TO_STORE.glob("*.zarr")
-    ],
-    obs_keys="label_column",
+    ]
 )
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
-    ...
+    x, df, index = batch["data"], batch["labels"], batch["index"]
 ```
 
 The data loader implements a chunked fetching strategy where `preload_nchunks` number of continguous-chunks of size `chunk_size` are loaded.
