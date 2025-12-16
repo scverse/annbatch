@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import NoneType
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 import anndata as ad
 import numpy as np
@@ -18,8 +18,10 @@ except ImportError:
 import pandas as pd  # noqa: TC002
 from zarr import Array as ZarrArray
 
-if TYPE_CHECKING:
+try:
     from torch import Tensor
+except ImportError:
+    Tensor = NoneType
 
 type BackingArray_T = ad.abc.CSRDataset | ZarrArray
 type InputInMemoryArray_T = CSRContainer | np.ndarray
