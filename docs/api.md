@@ -37,5 +37,5 @@
    :toctree: generated/
 
     types.BackingArray_T
-    types.LoaderOuput
+    types.LoaderOutput
 ```
