@@ -559,11 +559,11 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
     def __iter__(
         self,
     ) -> Iterator[LoaderOutput]:
-        """Iterate over the on-disk csr datasets.
+        """Iterate over the on-disk datasets.
 
         Yields
         ------
-            A one-row sparse matrix.
+            A batch of data along with its labels and index (both optional).
         """
         check_lt_1(
             [len(self._train_datasets), self.n_obs],
