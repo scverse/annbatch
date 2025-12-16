@@ -25,7 +25,7 @@ type InputInMemoryArray_T = CSRContainer | np.ndarray
 type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
 
 
-class LoaderOuput(TypedDict):
+class LoaderOutput(TypedDict):
     """The output of the loader, the "data matrix" with its labels, optional, and index, also optional"""
 
     data: OutputInMemoryArray_T

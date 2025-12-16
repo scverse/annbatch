@@ -17,7 +17,7 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOuput, OutputInMemoryArray_T
+from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
     MultiBasicIndexer,
@@ -558,7 +558,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
 
     def __iter__(
         self,
-    ) -> Iterator[LoaderOuput]:
+    ) -> Iterator[LoaderOutput]:
         """Iterate over the on-disk csr datasets.
 
         Yields
@@ -647,7 +647,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             splits = split_given_size(batch_indices, self._batch_size)
             for i, s in enumerate(splits):
                 if s.shape[0] == self._batch_size:
-                    output: LoaderOuput = {
+                    output: LoaderOutput = {
                         "data": to_torch(in_memory_data[s], self._preload_to_gpu)
                         if self._to_torch
                         else in_memory_data[s],
@@ -667,7 +667,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                         concatenated_obs = None
                         in_memory_indices = None
         if in_memory_data is not None and not self._drop_last:  # handle any leftover data
-            output: LoaderOuput = {
+            output: LoaderOutput = {
                 "data": to_torch(in_memory_data, self._preload_to_gpu) if self._to_torch else in_memory_data,
                 "labels": concatenated_obs if self._obs is not None else None,
                 "index": in_memory_indices if self._return_index else None,
