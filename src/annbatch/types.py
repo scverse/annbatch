@@ -25,9 +25,9 @@ type InputInMemoryArray_T = CSRContainer | np.ndarray
 type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
 
 
-class LoaderOuput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
+class LoaderOuput(TypedDict):
     """The output of the loader, the "data matrix" with its labels, optional, and index, also optional"""
 
-    data: OutputInMemoryArray
+    data: OutputInMemoryArray_T
     labels: pd.DataFrame | None
     index: np.ndarray | None
