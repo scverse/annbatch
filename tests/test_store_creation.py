@@ -185,8 +185,8 @@ def test_store_creation_drop_elem(
     assert adata_output.raw is None
 
 
-@pytest.mark.parametrize("shuffle", [True, False])
-@pytest.mark.parametrize("densify", [True, False])
+@pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
+@pytest.mark.parametrize("densify", [pytest.param(True, id="densify"), pytest.param(False, id="no_densify")])
 def test_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     shuffle: bool,
@@ -210,11 +210,15 @@ def test_store_creation(
     )
 
     adata_orig = adata_with_h5_path_different_var_space[0]
+    # make sure all category dtypes match
+    adatas_shuffled = [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())]
+    for adata in adatas_shuffled:
+        assert adata.obs["label"].dtype == adata_orig.obs["label"].dtype
     # subset to var_subset
     adata_orig = adata_orig[:, adata_orig.var.index.isin(var_subset)]
     adata_orig.obs_names_make_unique()
     adata = ad.concat(
-        [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir())],
+        adatas_shuffled,
         join="outer",
     )
     del adata.obs["src_path"]
@@ -225,18 +229,22 @@ def test_store_creation(
         sorted(adata_orig.var.index),
     )
     assert "arr" in adata.obsm
-    if not shuffle:
-        np.testing.assert_array_equal(
-            adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
-            adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
-        )
-        np.testing.assert_array_equal(
-            adata.raw.X if isinstance(adata.raw.X, np.ndarray) else adata.raw.X.toarray(),
-            adata_orig.raw.X if isinstance(adata_orig.raw.X, np.ndarray) else adata_orig.raw.X.toarray(),
-        )
-        np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
-        adata.obs.index = adata_orig.obs.index  # correct for concat
-        pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
+    if shuffle:
+        adata = adata[adata_orig.obs_names].copy()
+    np.testing.assert_array_equal(
+        adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
+        adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
+    )
+    np.testing.assert_array_equal(
+        adata.raw.X if isinstance(adata.raw.X, np.ndarray) else adata.raw.X.toarray(),
+        adata_orig.raw.X if isinstance(adata_orig.raw.X, np.ndarray) else adata_orig.raw.X.toarray(),
+    )
+    np.testing.assert_array_equal(adata.obsm["arr"], adata_orig.obsm["arr"])
+
+    # correct for concat misordering the categories
+    adata.obs["label"] = adata.obs["label"].cat.reorder_categories(adata_orig.obs["label"].dtype.categories)
+
+    pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
     if not densify:
@@ -326,11 +334,15 @@ def test_store_extension(
         zarr_dense_shard_size=10,
     )
 
-    adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())])
+    adatas_on_disk = [ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir())]
+    adata = ad.concat(adatas_on_disk)
     adata_orig = adata_with_h5_path_different_var_space[0]
     expected_adata = ad.concat([adata_orig, adata_orig[adata_orig.obs["store_id"] >= 4]], join="outer")
     assert adata.X.shape[1] == expected_adata.X.shape[1]
     assert adata.X.shape[0] == expected_adata.X.shape[0]
+    # check categoricals to make sure the dtypes match
+    for a in [*adatas_on_disk, adata]:
+        assert a.obs["label"].dtype == expected_adata.obs["label"].dtype
     assert "arr" in adata.obsm
     z = zarr.open(store_path / "dataset_0.zarr")
     assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])

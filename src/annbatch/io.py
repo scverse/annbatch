@@ -4,6 +4,7 @@ import json
 import random
 import warnings
 from collections import defaultdict
+from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,7 +16,7 @@ import scipy.sparse as sp
 import zarr
 from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
 if TYPE_CHECKING:
@@ -109,7 +110,7 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path_or_anndata in paths_or_anndatas:
+    for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
             adata = ad.experimental.read_lazy(path_or_anndata)
         else:
@@ -141,16 +142,37 @@ def _lazy_load_anndatas(
     load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
 ):
     adatas = []
-    for i, path in enumerate(paths):
+    categoricals_in_all_adatas = {}
+    for i, path in tqdm(enumerate(paths), desc="loading"):
         adata = load_adata(path)
-        # Concatenating Dataset2D drops categoricals
+        # Track the source file for this given anndata object
+        adata.obs["src_path"] = pd.Categorical.from_codes(
+            np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
+        )
+        # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
-            adata.obs = adata.obs.to_memory()
-        adata.obs["src_path"] = pd.Categorical.from_codes([i] * adata.shape[0], categories=[str(p) for p in paths])
+            categorical_cols_in_this_adata = {
+                col: set(adata.obs[col].dtype.categories)
+                for col in adata.obs.columns
+                if adata.obs[col].dtype == "category"
+            }
+            if not categoricals_in_all_adatas:
+                categoricals_in_all_adatas = {
+                    **categorical_cols_in_this_adata,
+                    "src_path": set(adata.obs["src_path"].dtype.categories),
+                }
+            else:
+                for k in categoricals_in_all_adatas.keys() & categorical_cols_in_this_adata.keys():
+                    categoricals_in_all_adatas[k] = set(categoricals_in_all_adatas[k]).union(
+                        set(categorical_cols_in_this_adata[k])
+                    )
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]
-    return ad.concat(adatas, join="outer")
+    adata = ad.concat(adatas, join="outer")
+    if len(categoricals_in_all_adatas) > 0:
+        adata.uns["dataset2d_categoricals_to_convert"] = categoricals_in_all_adatas
+    return adata
 
 
 def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle: bool = True):
@@ -168,27 +190,33 @@ def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: i
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
     """.compute() for large datasets is bad: https://github.com/scverse/annbatch/pull/75"""
-    return sp.vstack(da.compute(*list(x.blocks)))
+    if isinstance(x._meta, sp.csr_matrix | sp.csr_array):
+        return sp.vstack(da.compute(*list(x.blocks)))
+    return x.compute()
+
+
+def _to_categorical_obs(adata: ad.AnnData) -> ad.AnnData:
+    """Convert columns marked as categorical in `uns` to categories, accounting for `concat` on `Dataset2D` lost dtypes"""
+    if "dataset2d_categoricals_to_convert" in adata.uns:
+        for col, categories in adata.uns["dataset2d_categoricals_to_convert"].items():
+            adata.obs[col] = pd.Categorical(np.array(adata.obs[col]), categories=categories)
+        del adata.uns["dataset2d_categoricals_to_convert"]
+    return adata
 
 
 def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     if isinstance(adata.X, DaskArray):
-        if isinstance(adata.X._meta, sp.csr_matrix | sp.csr_array):
-            adata.X = _compute_blockwise(adata.X)
-        else:
-            adata.X = adata.X.compute()
+        adata.X = _compute_blockwise(adata.X)
     if isinstance(adata.obs, Dataset2D):
         adata.obs = adata.obs.to_memory()
+    adata = _to_categorical_obs(adata)
     if isinstance(adata.var, Dataset2D):
         adata.var = adata.var.to_memory()
 
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
         if isinstance(adata_raw.X, DaskArray):
-            if isinstance(adata_raw.X._meta, sp.csr_array | sp.csr_matrix):
-                adata_raw.X = _compute_blockwise(adata_raw.X)
-            else:
-                adata_raw.X = adata_raw.X.compute()
+            adata_raw.X = _compute_blockwise(adata_raw.X)
         if isinstance(adata_raw.var, Dataset2D):
             adata_raw.var = adata_raw.var.to_memory()
         if isinstance(adata_raw.obs, Dataset2D):
@@ -199,17 +227,11 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     for k, elem in adata.obsm.items():
         # TODO: handle `Dataset2D` in `obsm` and `varm` that are
         if isinstance(elem, DaskArray):
-            if isinstance(elem, sp.csr_matrix | sp.csr_array):
-                adata.obsm[k] = _compute_blockwise(elem)
-            else:
-                adata.obsm[k] = elem.compute()
+            adata.obsm[k] = _compute_blockwise(elem)
 
     for k, elem in adata.layers.items():
         if isinstance(elem, DaskArray):
-            if isinstance(elem, sp.csr_matrix | sp.csr_array):
-                adata.layers[k] = _compute_blockwise(elem)
-            else:
-                adata.layers[k] = elem.compute()
+            adata.obsm[k] = _compute_blockwise(elem)
 
     return adata
 
@@ -217,6 +239,16 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
 DATASET_PREFIX = "dataset"
 
 
+def _with_settings(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
+@_with_settings
 def create_anndata_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
@@ -305,7 +337,6 @@ def create_anndata_collection(
         ...)
     """
     Path(output_path).mkdir(parents=True, exist_ok=True)
-    ad.settings.zarr_write_format = 3
     _check_for_mismatched_keys(adata_paths)
     adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
     adata_concat.obs_names_make_unique()
@@ -314,7 +345,7 @@ def create_anndata_collection(
     if var_subset is None:
         var_subset = adata_concat.var_names
 
-    for i, chunk in enumerate(tqdm(chunks)):
+    for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
         var_mask = adata_concat.var_names.isin(var_subset)
         # np.sort: It's more efficient to access elements sequentially from dask arrays
         # The data will be shuffled later on, we just want the elements at this point
@@ -356,6 +387,7 @@ def _get_array_encoding_type(path: PathLike[str] | str) -> str:
     return encoding["attributes"]["encoding-type"]
 
 
+@_with_settings
 def add_to_collection(
     adata_paths: Iterable[PathLike[str]] | Iterable[str],
     output_path: PathLike[str] | str,
@@ -447,16 +479,16 @@ def add_to_collection(
                 sp.csr_matrix, meta=sp.csr_matrix(np.array([0], dtype=adata_concat.X.dtype))
             )
 
-    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards)):
+    for shard, chunk in tqdm(zip(shards, chunks, strict=False), total=len(shards), desc="processing chunks"):
         if should_sparsify_output_in_memory and encoding == "array":
             adata_shard = _lazy_load_anndatas([shard])
             adata_shard.X = adata_shard.X.map_blocks(sp.csr_matrix).compute()
         else:
             adata_shard = ad.read_zarr(shard)
-
-        adata = ad.concat(
-            [adata_shard, adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]], join="outer"
+        subset_adata = _to_categorical_obs(
+            adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_shard.var.index)]
         )
+        adata = ad.concat([adata_shard, subset_adata], join="outer")
         idxs_shuffled = np.random.default_rng().permutation(len(adata))
         adata = adata[idxs_shuffled, :].copy()  # this significantly speeds up writing to disk
         if should_sparsify_output_in_memory and encoding == "array":
