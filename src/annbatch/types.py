@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import NoneType
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
 import numpy as np
@@ -18,13 +18,16 @@ except ImportError:
 import pandas as pd  # noqa: TC002
 from zarr import Array as ZarrArray
 
+if TYPE_CHECKING:
+    from torch import Tensor
+
 type BackingArray_T = ad.abc.CSRDataset | ZarrArray
 type InputInMemoryArray_T = CSRContainer | np.ndarray
-type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
+type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray | Tensor
 
 
 class LoaderOutput(TypedDict):
-    """The output of the loader, the "data matrix" with its labels, optional, and index, also optional"""
+    """The output of the loader, the "data matrix" with its labels, optional, and index, also optional."""
 
     data: OutputInMemoryArray_T.__value__
     labels: pd.DataFrame | None
