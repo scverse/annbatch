@@ -34,7 +34,10 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
         adata = ad.AnnData(
             X=np.random.random((n_cells_per_shard, feature_dim)).astype("f4"),
             obs=pd.DataFrame(
-                {"label": np.random.default_rng().integers(0, 5, size=n_cells_per_shard)},
+                {
+                    "label": np.random.default_rng().integers(0, 5, size=n_cells_per_shard),
+                    "batch": np.full((n_cells_per_shard,), shard, dtype=np.int32),
+                },
                 index=np.arange(n_cells_per_shard).astype(str),
             ),
             layers={

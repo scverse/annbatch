@@ -33,6 +33,8 @@ See the [zarr docs on sharding][] for more information.
 #### Chunked access
 
 ```python
+from annbatch import AnnDataField, Loader
+
 ds = Loader(
     batch_size=4096,
     chunk_size=32,
@@ -46,7 +48,9 @@ ds = Loader(
         )
         for p in PATH_TO_STORE.glob("*.zarr")
     ],
-    obs_keys="label_column",
+    adata_fields={
+        "label": AnnDataField(attr="obs", key="label_column"),
+    },
 )
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)

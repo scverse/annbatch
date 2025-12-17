@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 from types import NoneType
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import anndata as ad
 import h5py
@@ -12,7 +12,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Loader
+from annbatch import AnnDataField, Loader
 
 try:
     from cupy import ndarray as CupyArray
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 class Data(TypedDict):
     dataset: ad.abc.CSRDataset | zarr.Array
-    obs: np.ndarray
+    obs: dict[str, np.ndarray]
 
 
 class ListData:
@@ -40,36 +40,39 @@ def open_sparse(path: Path, *, use_zarrs: bool = False, use_anndata: bool = Fals
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        obs_df = cast("pd.DataFrame", ad.io.read_elem(zarr.open(path)["obs"]))
         data = {
             "dataset": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
-            "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
+            "obs": {"label": obs_df["label"].to_numpy()},
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=pd.DataFrame({"label": data["obs"]}))
-    return data
+        return ad.AnnData(X=data["dataset"], obs=obs_df)
+    return cast("Data", data)
 
 
 def open_dense(path: Path, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        obs_df = cast("pd.DataFrame", ad.io.read_elem(zarr.open(path)["obs"]))
         data = {
             "dataset": zarr.open(path)["X"],
-            "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
+            "obs": {"label": obs_df["label"].to_numpy()},
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=pd.DataFrame({"label": data["obs"]}))
-    return data
+        return ad.AnnData(X=data["dataset"], obs=obs_df)
+    return cast("Data", data)
 
 
 def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
-    return (
+    return cast(
+        "ListData | list[ad.AnnData]",
         {
             "datasets": [d["dataset"] for d in datas],
             "obs": [d["obs"] for d in datas],
         }
         if all(isinstance(d, dict) for d in datas)
-        else datas
+        else datas,
     )
 
 
@@ -86,7 +89,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
             open_func=open_func,
             batch_size=batch_size,
             preload_to_gpu=preload_to_gpu,
-            obs_keys=obs_keys: Loader(
+            adata_fields=adata_fields: Loader(
                 shuffle=shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -96,64 +99,68 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 to_torch=False,
             ).add_anndatas(
                 [open_func(p, use_zarrs=use_zarrs, use_anndata=True) for p in path.glob("*.zarr")],
-                obs_keys=obs_keys,
+                adata_fields=adata_fields,
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_type={open_func.__name__[5:]}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-adata_fields={list(adata_fields.keys()) if adata_fields else None}-dataset_type={open_func.__name__[5:]}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=pytest.mark.skipif(
                 find_spec("cupy") is None and preload_to_gpu,
                 reason="need cupy installed",
             ),
         )
-        for chunk_size, preload_nchunks, obs_keys, open_func, layer_keys, batch_size, preload_to_gpu in [
+        for chunk_size, preload_nchunks, open_func, layer_keys, batch_size, preload_to_gpu, adata_fields in [
             elem
             for preload_to_gpu in [True, False]
-            for obs_keys in [None, "label"]
             for open_func in [open_sparse, open_dense]
+            for adata_fields in [
+                None,
+                {"label": AnnDataField(attr="obs", key="label")},
+                {"label": AnnDataField(attr="obs", key="label"), "batch": AnnDataField(attr="obs", key="batch")},
+            ]
             for elem in [
                 [
                     1,
                     5,
-                    obs_keys,
                     open_func,
                     None,
                     1,
                     preload_to_gpu,
+                    adata_fields,
                 ],  # singleton chunk size
                 [
                     5,
                     1,
-                    obs_keys,
                     open_func,
                     None,
                     1,
                     preload_to_gpu,
+                    adata_fields,
                 ],  # singleton preload
                 [
                     10,
                     5,
-                    obs_keys,
                     open_func,
                     None,
                     5,
                     preload_to_gpu,
+                    adata_fields,
                 ],  # batch size divides total in memory size evenly
                 [
                     10,
                     5,
-                    obs_keys,
                     open_func,
                     None,
                     50,
                     preload_to_gpu,
+                    adata_fields,
                 ],  # batch size equal to in-memory size loading
                 [
                     10,
                     5,
-                    obs_keys,
                     open_func,
                     None,
                     14,
                     preload_to_gpu,
+                    adata_fields,
                 ],  # batch size does not divide in memory size evenly
             ]
         ]
@@ -178,6 +185,7 @@ def test_store_load_dataset(
     indices = []
     expected_data = adata.X if is_dense else adata.layers["sparse"].toarray()
     for batch in loader:
+        assert len(batch) == 3
         x, label, index = batch
         n_elems += x.shape[0]
         # Check feature dimension
@@ -195,16 +203,57 @@ def test_store_load_dataset(
     if not shuffle:
         np.testing.assert_allclose(stacked, expected_data)
         if len(labels) > 0:
-            expected_labels = adata.obs["label"]
-            np.testing.assert_allclose(
-                np.concatenate(labels).ravel(),
-                expected_labels,
-            )
+            # labels are dict[str, np.ndarray]
+            labels_by_key = {k: np.concatenate([d[k] for d in labels]).ravel() for k in labels[0].keys()}
+            for k, got in labels_by_key.items():
+                np.testing.assert_allclose(got, adata.obs[k].to_numpy())
     else:
         if len(indices) > 0:
             indices = np.concatenate(indices).ravel()
             np.testing.assert_allclose(stacked, expected_data[indices])
+            if len(labels) > 0:
+                for k in labels[0].keys():
+                    got = np.concatenate([d[k] for d in labels]).ravel()
+                    np.testing.assert_allclose(got, adata.obs[k].to_numpy()[indices])
         assert n_elems == adata.shape[0]
+
+
+def test_adata_fields_convert_fn(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool):
+    # Smoke test that adata_fields controls output key name and applies convert_fn.
+    path = adata_with_zarr_path_same_var_space[1]
+    old_pipeline = zarr.config.get("codec_pipeline.path")
+    with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        adatas = [
+            ad.AnnData(
+                X=zarr.open(p)["X"],
+                obs=ad.io.read_elem(zarr.open(p)["obs"]),
+            )
+            for p in path.glob("*.zarr")
+        ]
+
+    ds = Loader(
+        shuffle=False,
+        chunk_size=10,
+        preload_nchunks=2,
+        return_index=True,
+        batch_size=7,
+        preload_to_gpu=False,
+        to_torch=False,
+    ).add_anndatas(
+        adatas,
+        adata_fields={
+            "y": AnnDataField(attr="obs", key="label", convert_fn=lambda s: s.to_numpy(dtype=np.int64) + 1),
+            "b": AnnDataField(attr="obs", key="batch"),
+        },
+    )
+
+    batch = next(iter(ds))
+    assert len(batch) == 3
+    x, labels, idx = batch
+    assert isinstance(labels, dict)
+    assert set(labels.keys()) == {"y", "b"}
+    # spot-check transform applied
+    np.testing.assert_allclose(labels["y"], adata_with_zarr_path_same_var_space[0].obs["label"].to_numpy()[idx] + 1)
 
 
 @pytest.mark.parametrize(
