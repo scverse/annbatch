@@ -13,9 +13,11 @@ import zarr
 
 if find_spec("cupy") or TYPE_CHECKING:
     from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
 else:
     CupyArray = None
+if find_spec("cupyx") or TYPE_CHECKING:
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
+else:
     CupyCSRMatrix = None
 
 if TYPE_CHECKING:

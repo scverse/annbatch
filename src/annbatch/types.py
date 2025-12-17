@@ -11,11 +11,15 @@ from annbatch.utils import CSRContainer
 
 if find_spec("cupy") or TYPE_CHECKING:
     from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
 else:
 
     class CupyArray:  # noqa: D101
         pass
+
+
+if find_spec("cupyx") or TYPE_CHECKING:
+    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
+else:
 
     class CupyCSRMatrix:  # noqa: D101
         pass
