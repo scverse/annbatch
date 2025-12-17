@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from torch import Tensor
 
     from annbatch.types import OutputInMemoryArray_T
+if TYPE_CHECKING or find_spec("torch"):
+    pass
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:

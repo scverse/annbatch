@@ -6,7 +6,6 @@ from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
 from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
-from types import NoneType
 from typing import TYPE_CHECKING, NamedTuple, Self, cast
 
 import anndata as ad
@@ -29,15 +28,9 @@ from annbatch.utils import (
     to_torch,
 )
 
-try:
-    from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
-except ImportError:
-    CupyCSRMatrix = NoneType
-    CupyArray = NoneType
-try:
+if find_spec("torch") or TYPE_CHECKING:
     from torch.utils.data import IterableDataset as _IterableDataset
-except ImportError:
+else:
 
     class _IterableDataset:
         pass

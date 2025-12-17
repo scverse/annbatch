@@ -1,23 +1,14 @@
-# Configuration file for the Sphinx documentation builder.
+from __future__ import annotations
 
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
-# -- Path setup --------------------------------------------------------------
 import sys
 from datetime import datetime
 from importlib.metadata import metadata
-from pathlib import Path
 
-# For some reason doing this prevents autodoc_mock_import = ["torch"] from not being able to find the module i.e., it's not in sys.modules.
-# TODO: Bug report
-import annbatch  # noqa: F401
+# -- Path setup --------------------------------------------------------------
+from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "extensions"))
-
-
 # -- Project information -----------------------------------------------------
 
 # NOTE: If you installed your project in editable mode, this might be stale.
@@ -70,8 +61,8 @@ extensions = [
 ]
 
 autosummary_generate = True
-autodoc_member_order = "groupwise"
-autodoc_mock_imports = ["torch"]
+autodoc_member_order = "bysource"
+autodoc_mock_imports = ["torch", "cupy", "cupyx"]
 default_role = "literal"
 napoleon_google_docstring = False
 napoleon_numpy_docstring = True

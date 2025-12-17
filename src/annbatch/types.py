@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from types import NoneType
-from typing import TypedDict
+from importlib.util import find_spec
+from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
 import numpy as np
@@ -9,19 +9,28 @@ from scipy import sparse as sp
 
 from annbatch.utils import CSRContainer
 
-try:
+if find_spec("torch") or TYPE_CHECKING:
     from cupy import ndarray as CupyArray
     from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
-except ImportError:
-    CupyCSRMatrix = NoneType
-    CupyArray = NoneType
+else:
+
+    class CupyArray:  # noqa: D101
+        pass
+
+    class CupyCSRMatrix:  # noqa: D101
+        pass
+
+
 import pandas as pd  # noqa: TC002
 from zarr import Array as ZarrArray
 
-try:
+if find_spec("torch") or TYPE_CHECKING:
     from torch import Tensor
-except ImportError:
-    Tensor = NoneType
+else:
+
+    class Tensor:  # noqa: D101
+        pass
+
 
 type BackingArray_T = ad.abc.CSRDataset | ZarrArray
 type InputInMemoryArray_T = CSRContainer | np.ndarray
