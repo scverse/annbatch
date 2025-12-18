@@ -28,13 +28,7 @@ from annbatch.utils import (
     to_torch,
 )
 
-if find_spec("torch") or TYPE_CHECKING:
-    from torch.utils.data import IterableDataset as _IterableDataset
-else:
-
-    class _IterableDataset:
-        pass
-
+from .compat import IterableDataset
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -42,6 +36,8 @@ if TYPE_CHECKING:
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
+    OutputInMemoryArray = OutputInMemoryArray_T
+    InputInMemoryArray = InputInMemoryArray_T
 
 
 class CSRDatasetElems(NamedTuple):
@@ -52,7 +48,11 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArray_T](_IterableDataset):
+class Loader[
+    BackingArray: BackingArray_T,
+    InputInMemoryArray: InputInMemoryArray_T,
+    OutputInMemoryArray: OutputInMemoryArray_T,
+](IterableDataset):
     """A loader for on-disk data anndata stores.
 
     This loader batches together slice requests to the underlying stores to achieve higher performance.
@@ -61,8 +61,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
 
     The dataset class on its own is quite performant for "chunked loading" i.e., `chunk_size > 1`.
     When `chunk_size == 1`, a :class:`torch.utils.data.DataLoader` should wrap the dataset object.
-    In this case, do not use the `add_anndata` or `add_anndatas` option due to https://github.com/scverse/anndata/issues/2021.
-    Instead use :func:`anndata.io.sparse_dataset` or :func:`zarr.open` to only get the array you need.
+    In this case, be sure to use `spawn` multiprocessing int he wrapping loader.
 
     If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
@@ -551,7 +550,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
 
     def __iter__(
         self,
-    ) -> Iterator[LoaderOutput]:
+    ) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
         """Iterate over the on-disk datasets.
 
         Yields
@@ -580,7 +579,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
             if any(isinstance(c, CSRContainer) for c in chunks):
-                chunks_converted: list[OutputInMemoryArray_T] = [
+                chunks_converted: list[OutputInMemoryArray] = [
                     self._sp_module.csr_matrix(
                         tuple(self._np_module.asarray(e) for e in c.elems),
                         shape=c.shape,

@@ -11,21 +11,12 @@ import numpy as np
 import scipy as sp
 import zarr
 
-if find_spec("cupy") or TYPE_CHECKING:
-    from cupy import ndarray as CupyArray
-else:
-    CupyArray = None
-if find_spec("cupyx") or TYPE_CHECKING:
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
-else:
-    CupyCSRMatrix = None
+from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable
 
     from annbatch.types import OutputInMemoryArray_T
-if TYPE_CHECKING or find_spec("torch"):
-    from torch import Tensor  # noqa: TC002
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
