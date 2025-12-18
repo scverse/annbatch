@@ -36,5 +36,5 @@
 .. autosummary::
    :toctree: generated/
 
-    types.BackingArray_T
+    types.LoaderOutput
 ```

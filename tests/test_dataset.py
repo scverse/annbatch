@@ -42,10 +42,10 @@ def open_sparse(path: Path, *, use_zarrs: bool = False, use_anndata: bool = Fals
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
         data = {
             "dataset": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
-            "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
+            "obs": ad.io.read_elem(zarr.open(path)["obs"]),
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=pd.DataFrame({"label": data["obs"]}))
+        return ad.AnnData(X=data["dataset"], obs=data["obs"])
     return data
 
 
@@ -55,10 +55,11 @@ def open_dense(path: Path, *, use_zarrs: bool = False, use_anndata: bool = False
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
         data = {
             "dataset": zarr.open(path)["X"],
-            "obs": ad.io.read_elem(zarr.open(path)["obs"])["label"].to_numpy(),
+            "obs": ad.io.read_elem(zarr.open(path)["obs"]),
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=pd.DataFrame({"label": data["obs"]}))
+        return ad.AnnData(X=data["dataset"], obs=data["obs"])
+    return data
     return data
 
 
@@ -85,8 +86,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
             preload_nchunks=preload_nchunks,
             open_func=open_func,
             batch_size=batch_size,
-            preload_to_gpu=preload_to_gpu,
-            obs_keys=obs_keys: Loader(
+            preload_to_gpu=preload_to_gpu: Loader(
                 shuffle=shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -96,62 +96,50 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 to_torch=False,
             ).add_anndatas(
                 [open_func(p, use_zarrs=use_zarrs, use_anndata=True) for p in path.glob("*.zarr")],
-                obs_keys=obs_keys,
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-obs_keys={obs_keys}-dataset_type={open_func.__name__[5:]}-layer_keys={layer_keys}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-dataset_type={open_func.__name__[5:]}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=pytest.mark.skipif(
                 find_spec("cupy") is None and preload_to_gpu,
                 reason="need cupy installed",
             ),
         )
-        for chunk_size, preload_nchunks, obs_keys, open_func, layer_keys, batch_size, preload_to_gpu in [
+        for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
             for preload_to_gpu in [True, False]
-            for obs_keys in [None, "label"]
             for open_func in [open_sparse, open_dense]
             for elem in [
                 [
                     1,
                     5,
-                    obs_keys,
                     open_func,
-                    None,
                     1,
                     preload_to_gpu,
                 ],  # singleton chunk size
                 [
                     5,
                     1,
-                    obs_keys,
                     open_func,
-                    None,
                     1,
                     preload_to_gpu,
                 ],  # singleton preload
                 [
                     10,
                     5,
-                    obs_keys,
                     open_func,
-                    None,
                     5,
                     preload_to_gpu,
                 ],  # batch size divides total in memory size evenly
                 [
                     10,
                     5,
-                    obs_keys,
                     open_func,
-                    None,
                     50,
                     preload_to_gpu,
                 ],  # batch size equal to in-memory size loading
                 [
                     10,
                     5,
-                    obs_keys,
                     open_func,
-                    None,
                     14,
                     preload_to_gpu,
                 ],  # batch size does not divide in memory size evenly
@@ -178,7 +166,7 @@ def test_store_load_dataset(
     indices = []
     expected_data = adata.X if is_dense else adata.layers["sparse"].toarray()
     for batch in loader:
-        x, label, index = batch
+        x, label, index = batch["data"], batch["labels"], batch["index"]
         n_elems += x.shape[0]
         # Check feature dimension
         assert x.shape[1] == 100
@@ -195,9 +183,9 @@ def test_store_load_dataset(
     if not shuffle:
         np.testing.assert_allclose(stacked, expected_data)
         if len(labels) > 0:
-            expected_labels = adata.obs["label"]
-            np.testing.assert_allclose(
-                np.concatenate(labels).ravel(),
+            expected_labels = adata.obs
+            pd.testing.assert_frame_equal(
+                pd.concat(labels),
                 expected_labels,
             )
     else:
@@ -266,7 +254,7 @@ def test_to_torch(
         to_torch=True,
     )
     ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
-    assert isinstance(next(iter(ds))[0], torch.Tensor)
+    assert isinstance(next(iter(ds))["data"], torch.Tensor)
 
 
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
@@ -285,9 +273,9 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path])
     adata = adata_with_zarr_path_same_var_space[0]
     batches = []
     indices = []
-    for x, _, idx in ds:
-        batches += [x]
-        indices += [idx]
+    for batch in ds:
+        batches += [batch["data"]]
+        indices += [batch["index"]]
     X = sp.vstack(batches).toarray()
     assert X.shape[0] < adata.shape[0]
     X_expected = adata[np.concatenate(indices)].layers["sparse"].toarray()
@@ -305,17 +293,14 @@ def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnDa
 def _custom_collate_fn(elems):
     import torch
 
-    if isinstance(elems[0][0], torch.Tensor):
-        x = torch.vstack([v[0].to_dense() for v in elems])
-    elif isinstance(elems[0][0], sp.csr_matrix):
-        x = sp.vstack([v[0] for v in elems]).toarray()
+    if isinstance(elems[0]["data"], torch.Tensor):
+        x = torch.vstack([v["data"].to_dense() for v in elems])
+    elif isinstance(elems[0]["data"], sp.csr_matrix):
+        x = sp.vstack([v["data"] for v in elems]).toarray()
     else:
-        x = np.vstack([v[0] for v in elems])
+        x = np.vstack([v["data"] for v in elems])
 
-    if len(elems[0]) == 2:
-        y = np.array([v[1] for v in elems])
-    else:
-        y = np.array([v[2] for v in elems])
+    y = np.array([v["index"] for v in elems])
 
     return x, y
 
@@ -409,4 +394,4 @@ def test_default_data_structures(
         )
     )
     for batch in ds:
-        assert isinstance(batch[0], expected_cls)
+        assert isinstance(batch["data"], expected_cls)

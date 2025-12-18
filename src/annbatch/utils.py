@@ -11,17 +11,10 @@ import numpy as np
 import scipy as sp
 import zarr
 
-try:
-    from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
-except ImportError:
-    CupyArray = None
-    CupyCSRMatrix = None
+from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable
-
-    from torch import Tensor
 
     from annbatch.types import OutputInMemoryArray_T
 

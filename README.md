@@ -121,8 +121,7 @@ with ad.settings.override(remove_unused_categories=False):
                 obs=ad.io.read_elem(zarr.open(p)["obs"]),
             )
             for p in Path("path/to/output/collection").glob("*.zarr")
-        ],
-        obs_keys=["label_column", "batch_column"],
+        ]
     )
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
