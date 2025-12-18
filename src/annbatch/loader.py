@@ -35,8 +35,18 @@ except ImportError:
     CupyCSRMatrix = NoneType
     CupyArray = NoneType
 try:
-    from torch.utils.data import IterableDataset as _IterableDataset
-except ImportError:
+    import warnings
+
+    with warnings.catch_warnings():
+        # Some environments emit a FutureWarning from an optional NVML shim during torch import.
+        # We don't want `annbatch` imports to fail under test runners that treat warnings as errors.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The pynvml package is deprecated\..*",
+            category=FutureWarning,
+        )
+        from torch.utils.data import IterableDataset as _IterableDataset
+except (ImportError, Warning):
 
     class _IterableDataset:
         pass
@@ -45,6 +55,8 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import ModuleType
+
+    from annbatch.fields import AnnDataField
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -116,7 +128,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
     """
 
     _train_datasets: list[BackingArray]
-    _labels: list[np.ndarray] | None = None
+    _labels: list[dict[str, np.ndarray]] | None = None
     _return_index: bool = False
     _batch_size: int = 1
     _shapes: list[tuple[int, int]]
@@ -234,7 +246,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
         self,
         adatas: list[ad.AnnData],
         layer_keys: list[str | None] | str | None = None,
-        obs_keys: list[str] | str | None = None,
+        adata_fields: dict[str, AnnDataField] | None = None,
     ) -> Self:
         """Append anndatas to this dataset.
 
@@ -242,17 +254,16 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
-            obs_keys
-                List of :attr:`anndata.AnnData.obs` column labels.
             layer_keys
                 List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
+            adata_fields
+                Mapping from output key to an :class:`~annbatch.AnnDataField` describing how to extract labels.
         """
         self._used_anndata_adder = True
         if isinstance(layer_keys, str | None):
             layer_keys = [layer_keys] * len(adatas)
-        if isinstance(obs_keys, str | None):
-            obs_keys = [obs_keys] * len(adatas)
-        elem_to_keys = dict(zip(["layer", "obs"], [layer_keys, obs_keys], strict=True))
+
+        elem_to_keys = dict(zip(["layer"], [layer_keys], strict=True))
         check_lt_1(
             [len(adatas)] + sum((([len(k)] if k is not None else []) for k in elem_to_keys.values()), []),
             ["Number of anndatas"]
@@ -261,16 +272,15 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 [],
             ),
         )
-        for adata, obs_key, layer_key in zip(adatas, obs_keys, layer_keys, strict=True):
-            kwargs = {"obs_key": obs_key, "layer_key": layer_key}
-            self.add_anndata(adata, **kwargs)
+        for adata, layer_key in zip(adatas, layer_keys, strict=True):
+            self.add_anndata(adata, layer_key=layer_key, adata_fields=adata_fields)
         return self
 
     def add_anndata(
         self,
         adata: ad.AnnData,
         layer_key: str | None = None,
-        obs_key: str | None = None,
+        adata_fields: dict[str, AnnDataField] | None = None,
     ) -> Self:
         """Append an anndata to this dataset.
 
@@ -278,20 +288,25 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
         ----------
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
-            obs_key
-                :attr:`anndata.AnnData.obs` column labels.
             layer_key
                 :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
+            adata_fields
+                Mapping from output key to an :class:`~annbatch.AnnDataField` describing how to extract labels.
         """
         self._used_anndata_adder = True
         dataset = adata.X if layer_key is None else adata.layers[layer_key]
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
-        obs = adata.obs[obs_key].to_numpy() if obs_key is not None else None
+        obs: dict[str, np.ndarray] | None
+        if adata_fields is not None:
+            obs = {out_key: field(adata) for out_key, field in adata_fields.items()}
+        else:
+            obs = None
+        # `dataset` is runtime-validated above; keep mypy/pyright happy without `cast()`.
         self.add_dataset(cast("BackingArray", dataset), obs)
         return self
 
-    def add_datasets(self, datasets: list[BackingArray], obs: list[np.ndarray] | None = None) -> Self:
+    def add_datasets(self, datasets: list[BackingArray], obs: list[dict[str, np.ndarray] | None] | None = None) -> Self:
         """Append datasets to this dataset.
 
         Parameters
@@ -300,15 +315,18 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
+                List of label dictionaries, generally derived from :attr:`anndata.AnnData.obs`.
         """
+        obs_list: list[dict[str, np.ndarray] | None]
         if obs is None:
-            obs = [None] * len(datasets)
-        for ds, o in zip(datasets, obs, strict=True):
+            obs_list = [None] * len(datasets)
+        else:
+            obs_list = obs
+        for ds, o in zip(datasets, obs_list, strict=True):
             self.add_dataset(ds, o)
         return self
 
-    def add_dataset(self, dataset: BackingArray, obs: np.ndarray | None = None) -> Self:
+    def add_dataset(self, dataset: BackingArray, obs: dict[str, np.ndarray] | None = None) -> Self:
         """Append a dataset to this dataset.
 
         Parameters
@@ -316,7 +334,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             dataset
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
-                :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
+                Label dictionary, generally derived from :attr:`anndata.AnnData.obs`.
         """
         if len(self._train_datasets) > 0:
             if self._labels is None and obs is not None:
@@ -331,6 +349,22 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 raise ValueError(
                     f"All datasets on a given loader must be of the same type {self.dataset_type} but got {type(dataset)}"
                 )
+        if obs is not None:
+            if len(obs) == 0:
+                raise ValueError("If `obs` is provided it must be a non-empty label dictionary.")
+            # Ensure all keys are present and lengths match.
+            for k, v in obs.items():
+                if len(v) != dataset.shape[0]:
+                    raise ValueError(
+                        f"Label field {k!r} must have length equal to n_obs ({dataset.shape[0]}), got {len(v)}."
+                    )
+            if self._labels is not None:
+                expected_keys = set(self._labels[0].keys())
+                found_keys = set(obs.keys())
+                if found_keys != expected_keys:
+                    raise ValueError(
+                        f"All datasets must have the same label keys. Expected {sorted(expected_keys)}, got {sorted(found_keys)}."
+                    )
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Cannot add dataset of type {type(dataset)}")
         if isinstance(dataset, ad.abc.CSRDataset) and not dataset.backend == "zarr":
@@ -342,7 +376,8 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
         self._shapes = self._shapes + [dataset.shape]
         self._train_datasets = datasets
         if self._labels is not None:  # labels exist
-            self._labels += [obs]
+            # `obs` cannot be None here due to earlier invariants.
+            self._labels += [cast("dict[str, np.ndarray]", obs)]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
             self._labels = [obs]
         return self
@@ -587,7 +622,8 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
     def __iter__(
         self,
     ) -> Iterator[
-        tuple[OutputInMemoryArray_T, None | np.ndarray] | tuple[OutputInMemoryArray_T, None | np.ndarray, np.ndarray]
+        tuple[OutputInMemoryArray_T, None | dict[str, np.ndarray]]
+        | tuple[OutputInMemoryArray_T, None | dict[str, np.ndarray], np.ndarray]
     ]:
         """Iterate over the on-disk csr datasets.
 
@@ -628,15 +664,12 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
             else:
                 chunks_converted = [self._np_module.asarray(c) for c in chunks]
             # Accumulate labels
-            labels: None | list[np.ndarray] = None
+            labels: None | list[dict[str, np.ndarray]] = None
             if self._labels is not None:
                 labels = []
                 for dataset_idx in dataset_index_to_slices.keys():
-                    labels += [
-                        self._labels[dataset_idx][
-                            np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[dataset_idx]])
-                        ]
-                    ]
+                    idxs = np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[dataset_idx]])
+                    labels.append({k: self._labels[dataset_idx][k][idxs] for k in self._labels[dataset_idx].keys()})
             # Accumulate indices if necessary
             indices: None | list[np.ndarray] = None
             if self._return_index:
@@ -661,9 +694,12 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 else mod.vstack([in_memory_data, *chunks_converted])
             )
             if self._labels is not None:
-                in_memory_labels = (
-                    np.concatenate(labels) if in_memory_labels is None else np.concatenate([in_memory_labels, *labels])
-                )
+                if in_memory_labels is None:
+                    in_memory_labels = {k: np.concatenate([d[k] for d in labels]) for k in labels[0].keys()}
+                else:
+                    in_memory_labels = {
+                        k: np.concatenate([in_memory_labels[k], *[d[k] for d in labels]]) for k in in_memory_labels
+                    }
             if self._return_index:
                 in_memory_indices = (
                     np.concatenate(indices)
@@ -681,7 +717,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                 if s.shape[0] == self._batch_size:
                     res = [
                         in_memory_data[s],
-                        in_memory_labels[s] if self._labels is not None else None,
+                        ({k: v[s] for k, v in in_memory_labels.items()} if self._labels is not None else None),
                     ]
                     if self._return_index:
                         res += [in_memory_indices[s]]
@@ -692,7 +728,7 @@ class Loader[BackingArray: BackingArray_T, InputInMemoryArray: InputInMemoryArra
                     if (s.shape[0] % self._batch_size) != 0:
                         in_memory_data = in_memory_data[s]
                         if in_memory_labels is not None:
-                            in_memory_labels = in_memory_labels[s]
+                            in_memory_labels = {k: v[s] for k, v in in_memory_labels.items()}
                         if in_memory_indices is not None:
                             in_memory_indices = in_memory_indices[s]
                     else:

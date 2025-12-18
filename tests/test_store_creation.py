@@ -40,7 +40,10 @@ def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expec
 def test_store_creation_warngs_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
     adata_1 = ad.AnnData(X=np.random.randn(10, 20))
     extra_args = {
-        elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else ["a"] * 10}
+        # For `obs`, avoid a string column which outer-joins into mixed str/NaN and can trip Zarr's vlen-utf8 encoder.
+        elem_name: {
+            "arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else np.arange(10)
+        }
     }
     adata_2 = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
     path_1 = tmp_path / "just_x.h5ad"
