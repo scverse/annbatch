@@ -61,7 +61,7 @@ class Loader[
 
     The dataset class on its own is quite performant for "chunked loading" i.e., `chunk_size > 1`.
     When `chunk_size == 1`, a :class:`torch.utils.data.DataLoader` should wrap the dataset object.
-    In this case, be sure to use `spawn` multiprocessing int he wrapping loader.
+    In this case, be sure to use `spawn` multiprocessing in the wrapping loader.
 
     If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
@@ -247,10 +247,10 @@ class Loader[
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
         """
         dataset = adata.X
-        labels = adata.obs
+        obs = adata.obs
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
-        self.add_dataset(cast("BackingArray", dataset), labels)
+        self.add_dataset(cast("BackingArray", dataset), obs)
         return self
 
     def add_datasets(self, datasets: list[BackingArray], obs: list[pd.DataFrame] | None = None) -> Self:
