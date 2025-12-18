@@ -16,7 +16,6 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from annbatch.fields import AnnDataField
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
@@ -56,6 +55,8 @@ except (ImportError, Warning):
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import ModuleType
+
+    from annbatch.fields import AnnDataField
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, TypedDict, cast
 import anndata as ad
 import h5py
 import numpy as np
-import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
@@ -24,6 +23,8 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+    import pandas as pd
 
 
 class Data(TypedDict):
