@@ -231,7 +231,7 @@ class Loader[
         Parameters
         ----------
             adatas
-                List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
+                List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
         """
         check_lt_1([len(adatas)], ["Number of anndatas"])
         for adata in adatas:
@@ -244,7 +244,7 @@ class Loader[
         Parameters
         ----------
             adata
-                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix.
+                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
         """
         dataset = adata.X
         labels = adata.obs
@@ -262,7 +262,7 @@ class Loader[
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
+                List of :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
         """
         if obs is None:
             obs = [None] * len(datasets)
@@ -278,7 +278,7 @@ class Loader[
             dataset
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
-                :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
+                :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
         """
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
