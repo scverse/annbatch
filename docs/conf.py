@@ -133,10 +133,16 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
-    ("py:class", "annbatch.types.TypeAliasType")
+    ("py:class", "annbatch.types.TypeAliasType"),
+    # Private module paths that Sphinx may still try to resolve
+    ("py:class", "annbatch.sampler._sampler.Sampler"),
+    # Internal utility classes not part of public API
+    ("py:class", "annbatch.utils.WorkerHandle"),
 ]
 
 qualname_overrides = {
     "zarr.core.array.Array": "zarr.Array",
     "zarr.core.group.Group": "zarr.Group",
+    "annbatch.sampler._sampler.SliceSampler": "annbatch.sampler.SliceSampler",
+    "annbatch.sampler._sampler.Sampler": "annbatch.sampler.Sampler",
 }

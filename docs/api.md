@@ -29,6 +29,17 @@
     create_anndata_collection
 ```
 
+(samplers)=
+## Samplers
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    sampler.Sampler
+    sampler.SliceSampler
+```
+
 (types)=
 ## types
 

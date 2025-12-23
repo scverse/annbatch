@@ -4,8 +4,7 @@ import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from importlib.util import find_spec
-from itertools import islice
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import numpy as np
 import scipy as sp
@@ -14,7 +13,7 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Generator
 
     from annbatch.types import OutputInMemoryArray_T
 
@@ -31,14 +30,6 @@ class CSRContainer:
     elems: tuple[np.ndarray, np.ndarray, np.ndarray]
     shape: tuple[int, int]
     dtype: np.dtype
-
-
-def _batched[T](iterable: Iterable[T], n: int) -> Generator[list[T], None, None]:
-    if n < 1:
-        raise ValueError("n must be >= 1")
-    it = iter(iterable)
-    while batch := list(islice(it, n)):
-        yield batch
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
@@ -186,17 +177,6 @@ def check_lt_1(vals: list[int], labels: list[str]) -> None:
             if check
         )
         raise ValueError(f"{label} must be greater than 1, got {value}")
-
-
-class SupportsShape(Protocol):  # noqa: D101
-    @property
-    def shape(self) -> tuple[int, int] | list[int]: ...  # noqa: D102
-
-
-def check_var_shapes(objs: list[SupportsShape]) -> None:
-    """Small utility function to check that all objects have the same shape along the second axis"""
-    if not all(objs[0].shape[1] == d.shape[1] for d in objs):
-        raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
 def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
