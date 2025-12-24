@@ -1,139 +1,154 @@
 [build-system]
-requires = ["flit_core >=3.2,<4"]
-build-backend = "flit_core.buildapi"
+build-backend = "hatchling.build"
+requires = [ "hatchling" ]
 
 [project]
-name = "moscan"
-requires-python = ">=3.9,<3.13"
-authors = [{name = "Lamin Labs", email = "open-source@lamin.ai"}]
+name = "annbatch"
+version = "0.0.1"
+description = "A minibatch loader for AnnData stores"
 readme = "README.md"
-dynamic = ["version", "description"]
+license = { file = "LICENSE" }
+maintainers = [
+  { name = "Ilan Gold", email = "ilan.gold@scverse.org" },
+]
+authors = [
+  { name = "Ilan Gold" },
+]
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
 dependencies = [
-    "lamindb",
+  "anndata",
+  # for debug logging (referenced from the issue template)
+  "session-info2",
 ]
+# https://docs.pypi.org/project_metadata/#project-urls
+urls.Documentation = "https://annbatch.readthedocs.io/"
+urls.Homepage = "https://github.com/scverse/annbatch"
+urls.Source = "https://github.com/scverse/annbatch"
 
-[project.urls]
-Home = "https://github.com/laminlabs/moscan"
-
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pre-commit",
-    "nox",
-    "pytest>=6.0",
-    "pytest-cov",
-    "nbproject_test",
+  "pre-commit",
+  "twine>=4.0.2",
+]
+test = [
+  "coverage>=7.10",
+  "pytest",
+  "pytest-cov",     # For VS Code’s coverage functionality
+]
+doc = [
+  "ipykernel",
+  "ipython",
+  "myst-nb>=1.1",
+  "pandas",
+  "sphinx>=8.1",
+  "sphinx-autodoc-typehints",
+  "sphinx-book-theme>=1",
+  "sphinx-copybutton",
+  "sphinx-tabs",
+  "sphinxcontrib-bibtex>=1",
+  "sphinxcontrib-katex",
+  "sphinxext-opengraph",
 ]
 
-[tool.pytest.ini_options]
-testpaths = [
-    "tests",
-]
-filterwarnings = [
-    "ignore:Jupyter is migrating its paths to use standard platformdirs:DeprecationWarning"
+[tool.hatch.envs.default]
+installer = "uv"
+dependency-groups = [ "dev" ]
+
+[tool.hatch.envs.docs]
+dependency-groups = [ "doc" ]
+scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
+scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+scripts.clean = "git clean -fdX -- {args:docs}"
+
+# Test the lowest and highest supported Python versions with normal deps
+[[tool.hatch.envs.hatch-test.matrix]]
+deps = [ "stable" ]
+python = [ "3.11", "3.14" ]
+
+# Test the newest supported Python version also with pre-release deps
+[[tool.hatch.envs.hatch-test.matrix]]
+deps = [ "pre" ]
+python = [ "3.14" ]
+
+[tool.hatch.envs.hatch-test]
+dependency-groups = [ "dev", "test" ]
+
+[tool.hatch.envs.hatch-test.overrides]
+# If the matrix variable `deps` is set to "pre",
+# set the environment variable `UV_PRERELEASE` to "allow".
+matrix.deps.env-vars = [
+  { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
 ]
 
 [tool.ruff]
-src = ["src"]
-line-length = 88
-select = [
-    "F",  # Errors detected by Pyflakes
-    "E",  # Error detected by Pycodestyle
-    "W",  # Warning detected by Pycodestyle
-    "I",  # isort
-    "D",  # pydocstyle
-    "B",  # flake8-bugbear
-    "TID",  # flake8-tidy-imports
-    "C4",  # flake8-comprehensions
-    "BLE",  # flake8-blind-except
-    "UP",  # pyupgrade
-    "RUF100",  # Report unused noqa directives
-    "TCH",  # Typing imports
-    "NPY",  # Numpy specific rules
-    "PTH",  # Use pathlib
-    "S"  # Security
+line-length = 120
+src = [ "src" ]
+extend-include = [ "*.ipynb" ]
+
+format.docstring-code-format = true
+
+lint.select = [
+  "B",      # flake8-bugbear
+  "BLE",    # flake8-blind-except
+  "C4",     # flake8-comprehensions
+  "D",      # pydocstyle
+  "E",      # Error detected by Pycodestyle
+  "F",      # Errors detected by Pyflakes
+  "I",      # isort
+  "RUF100", # Report unused noqa directives
+  "TID",    # flake8-tidy-imports
+  "UP",     # pyupgrade
+  "W",      # Warning detected by Pycodestyle
 ]
-ignore = [
-    # Do not catch blind exception: `Exception`
-    "BLE001",
-    # Errors from function calls in argument defaults. These are fine when the result is immutable.
-    "B008",
-    # line too long -> we accept long comment lines; black gets rid of long code lines
-    "E501",
-    # Do not assign a lambda expression, use a def -> lambda expression assignments are convenient
-    "E731",
-    # allow I, O, l as variable names -> I is the identity matrix
-    "E741",
-    # Missing docstring in public module
-    "D100",
-    # undocumented-public-class
-    "D101",
-    # Missing docstring in public method
-    "D102",
-    # Missing docstring in public function
-    "D103",
-    # Missing docstring in public package
-    "D104",
-    # __magic__ methods are are often self-explanatory, allow missing docstrings
-    "D105",
-    # Missing docstring in public nested class
-    "D106",
-    # Missing docstring in __init__
-    "D107",
-    ## Disable one in each pair of mutually incompatible rules
-    # We don’t want a blank line before a class docstring
-    "D203",
-    # 1 blank line required after class docstring
-    "D204",
-    # first line should end with a period [Bug: doesn't work with single-line docstrings]
-    # We want docstrings to start immediately after the opening triple quote
-    "D213",
-    # Section underline is over-indented ("{name}")
-    "D215",
-    # First line should end with a period
-    "D400",
-    # First line should be in imperative mood; try rephrasing
-    "D401",
-    # First word of the first line should be capitalized: {} -> {}
-    "D403",
-    # First word of the docstring should not be "This"
-    "D404",
-    # Section name should end with a newline ("{name}")
-    "D406",
-    # Missing dashed underline after section ("{name}")
-    "D407",
-    # Section underline should be in the line following the section's name ("{name}")
-    "D408",
-    # Section underline should match the length of its name ("{name}")
-    "D409",
-    # No blank lines allowed between a section header and its content ("{name}")
-    "D412",
-    # Missing blank line after last section ("{name}")
-    "D413",
-    # Imports unused
-    "F401",
-    # camcelcase imported as lowercase
-    "N813",
-    # module import not at top level of file
-    "E402",
-    # open()` should be replaced by `Path.open()
-    "PTH123",
-    # subprocess` call: check for execution of untrusted input - https://github.com/PyCQA/bandit/issues/333
-    "S603",
-    # Starting a process with a partial executable path
-    "S607"
+lint.ignore = [
+  "B008", # Errors from function calls in argument defaults. These are fine when the result is immutable.
+  "D100", # Missing docstring in public module
+  "D104", # Missing docstring in public package
+  "D105", # __magic__ methods are often self-explanatory, allow missing docstrings
+  "D107", # Missing docstring in __init__
+  # Disable one in each pair of mutually incompatible rules
+  "D203", # We don’t want a blank line before a class docstring
+  "D213", # <> We want docstrings to start immediately after the opening triple quote
+  "D400", # first line should end with a period [Bug: doesn’t work with single-line docstrings]
+  "D401", # First line should be in imperative mood; try rephrasing
+  "E501", # line too long -> we accept long comment lines; formatter gets rid of long code lines
+  "E731", # Do not assign a lambda expression, use a def -> lambda expression assignments are convenient
+  "E741", # allow I, O, l as variable names -> I is the identity matrix
+]
+lint.per-file-ignores."*/__init__.py" = [ "F401" ]
+lint.per-file-ignores."docs/*" = [ "I" ]
+lint.per-file-ignores."tests/*" = [ "D" ]
+lint.pydocstyle.convention = "numpy"
+
+[tool.pytest]
+strict = true
+testpaths = [ "tests" ]
+addopts = [
+  "--import-mode=importlib", # allow using test files with same name
 ]
 
-[tool.ruff.pydocstyle]
-convention = "google"
-
-[tool.ruff.per-file-ignores]
-"docs/*" = ["I"]
-"tests/**/*.py" = [
-    "D",  # docstrings are allowed to look a bit off
-    "S101", # asserts allowed in tests...
-    "ARG", # Unused function args -> fixtures nevertheless are functionally relevant...
-    "FBT", # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
-    "PLR2004", # Magic value used in comparison, ...
-    "S311", # Standard pseudo-random generators are not suitable for cryptographic purposes
+[tool.coverage.run]
+source = [ "annbatch" ]
+patch = [ "subprocess" ]
+omit = [
+  "**/test_*.py",
 ]
-"*/__init__.py" = ["F401"]
+
+[tool.cruft]
+skip = [
+  "tests",
+  "src/**/__init__.py",
+  "src/**/basic.py",
+  "docs/api.md",
+  "docs/changelog.md",
+  "docs/references.bib",
+  "docs/references.md",
+  "docs/notebooks/example.ipynb",
+]
