@@ -196,21 +196,23 @@ def test_store_load_dataset(
 
 
 @pytest.mark.parametrize(
-    "gen_loader",
-    [
-        (
-            lambda path, chunk_size=chunk_size, preload_nchunks=preload_nchunks: Loader(
-                shuffle=True,
-                chunk_size=chunk_size,
-                preload_nchunks=preload_nchunks,
-            )
-        )
-        for chunk_size, preload_nchunks in [[0, 10], [10, 0]]
-    ],
+    ("chunk_size", "preload_nchunks"),
+    [[0, 10], [10, 0]],
 )
-def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def test_zarr_store_errors_lt_1(
+    chunk_size, preload_nchunks, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+):
+    ds = Loader(
+        shuffle=True,
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        preload_to_gpu=False,
+        to_torch=False,
+    )
+    ds.add_dataset(**open_sparse(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
     with pytest.raises(ValueError, match="must be greater than 1"):
-        gen_loader(adata_with_zarr_path_same_var_space[1])
+        # Error is raised when sampler is created at iteration time
+        next(iter(ds))
 
 
 def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):

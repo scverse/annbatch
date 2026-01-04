@@ -122,6 +122,7 @@ class Loader[
     _to_torch: bool = True
     _batch_sampler: Sampler[list[slice]] | None
     _dataset_elem_cache: dict[int, CSRDatasetElems]
+    _locked: bool = False  # Set to True when set_sampler is called
 
     # Default sampler args (used when no custom sampler provided)
     _batch_size: int = 1
@@ -172,6 +173,7 @@ class Loader[
         self._shapes = []
         self._obs = None
         self._dataset_elem_cache = {}
+        self._locked = False
 
     def _handle_sampler_args(
         self,
@@ -335,7 +337,16 @@ class Loader[
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
                 :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
+
+        Raises
+        ------
+        RuntimeError
+            If a sampler has already been set via :meth:`set_sampler`.
         """
+        if self._locked:
+            raise RuntimeError(
+                "Cannot add datasets after set_sampler() has been called. Add all datasets before setting the sampler."
+            )
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
                 raise ValueError(
@@ -365,15 +376,12 @@ class Loader[
             self._obs += [obs]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
             self._obs = [obs]
-
-        # Validate sampler if one is set
-        if self._batch_sampler is not None:
-            self._batch_sampler.validate(self.n_obs)
-
         return self
 
     def set_sampler(self, sampler: Sampler[list[slice]]) -> Self:
         """Set the batch sampler for this loader.
+
+        Once a sampler is set, no more datasets can be added via :meth:`add_dataset`.
 
         Parameters
         ----------
@@ -384,131 +392,19 @@ class Loader[
         -------
         Self
             The loader instance for method chaining.
-        """
-        self._batch_sampler = sampler
-        # Validate immediately if we already have datasets
-        if self._train_datasets:
-            sampler.validate(self.n_obs)
-        return self
 
-    def __iter__(
-        self,
-    ) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
-        """Iterate over the on-disk datasets.
-
-        Yields
+        Raises
         ------
-            A batch of data along with its labels and index (both optional).
+        ValueError
+            If no datasets have been added yet, or if the sampler configuration
+            is invalid for the current n_obs.
         """
         if not self._train_datasets:
-            raise ValueError("Cannot iterate: no datasets have been added")
-
-        # Create the sampler now that n_obs is known
-        batch_sampler: Sampler[list[slice]] = (
-            self._batch_sampler
-            if self._batch_sampler is not None
-            else SliceSampler(
-                batch_size=self._batch_size,
-                preload_nchunks=self._preload_nchunks,
-                chunk_size=self._chunk_size,
-                shuffle=self._shuffle,
-                drop_last=self._drop_last,
-            )
-        )
-
-        # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
-        # we must keep track of the leftover data.
-        in_memory_data = None
-        concatenated_obs = None
-        in_memory_indices = None
-        batch_size = batch_sampler.batch_size
-
-        # Detect if we're in a PyTorch worker context and configure the sampler
-        # this has to happen here because the workers are spawned here
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
-
-            from annbatch.utils import WorkerHandle
-
-            if get_worker_info() is not None:
-                worker_handle = WorkerHandle()
-                batch_sampler.set_worker_handle(worker_handle)
-
-        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
-
-        # Call sample(n_obs) to get the iterator
-        for load_request in batch_sampler.sample(self.n_obs):
-            slices = load_request.slices
-            splits = load_request.splits
-            # Sampler yields a list of slices that sum to batch_size
-            dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=False)
-            # Fetch the data over slices
-            chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
-            chunks_converted = self._accumulate_chunks(chunks)
-            # Accumulate labels if necessary
-            obs: None | list[pd.DataFrame] = None
-            if self._obs is not None:
-                obs = self._accumulate_labels(dataset_index_to_slices)
-            # Accumulate indices if necessary
-            indices: None | list[np.ndarray] = None
-            if self._return_index:
-                indices = self._accumulate_indices(slices)
-
-            # Do batch returns, handling leftover data as necessary
-            in_memory_data = (
-                mod.vstack(chunks_converted)
-                if in_memory_data is None
-                else mod.vstack([in_memory_data, *chunks_converted])
-            )
-            if self._obs is not None and obs is not None:
-                concatenated_obs = pd.concat(obs) if concatenated_obs is None else pd.concat([concatenated_obs, *obs])
-            if self._return_index and indices is not None:
-                in_memory_indices = (
-                    np.concatenate(indices)
-                    if in_memory_indices is None
-                    else np.concatenate([in_memory_indices, *indices])
-                )
-
-            # yield all full batches (all but possibly the last)
-            for split in splits[:-1]:
-                yield self._prepare_output(
-                    in_memory_data=in_memory_data,
-                    concatenated_obs=concatenated_obs,
-                    in_memory_indices=in_memory_indices,
-                    split=split,
-                )
-
-            # handle the last split
-            last_split = splits[-1]
-            if len(last_split) == batch_size:
-                # full batch, yield and reset
-                yield self._prepare_output(
-                    in_memory_data=in_memory_data,
-                    concatenated_obs=concatenated_obs,
-                    in_memory_indices=in_memory_indices,
-                    split=last_split,
-                )
-                in_memory_data = None
-                concatenated_obs = None
-                in_memory_indices = None
-            else:
-                # partial batch, carry over for next iteration
-                in_memory_data, concatenated_obs, in_memory_indices = self._prepare_leftover_data(
-                    in_memory_data=in_memory_data,
-                    concatenated_obs=concatenated_obs,
-                    in_memory_indices=in_memory_indices,
-                    leftover_split=last_split,
-                )
-
-        # after sampler is exhausted, yield any remaining leftover
-        # only true when drop_last=False
-        if in_memory_data is not None:
-            yield self._prepare_output(
-                in_memory_data=in_memory_data,
-                concatenated_obs=concatenated_obs,
-                in_memory_indices=in_memory_indices,
-                split=np.arange(in_memory_data.shape[0]),
-            )
+            raise ValueError("Cannot set sampler before adding datasets. Add datasets first.")
+        sampler.validate(self.n_obs)
+        self._batch_sampler = sampler
+        self._locked = True
+        return self
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -733,6 +629,126 @@ class Loader[
                 )
             )
         return await asyncio.gather(*tasks)
+
+    def __iter__(
+        self,
+    ) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
+        """Iterate over the on-disk datasets.
+
+        Yields
+        ------
+            A batch of data along with its labels and index (both optional).
+        """
+        if not self._train_datasets:
+            raise ValueError("Cannot iterate: no datasets have been added")
+
+        # Create the sampler now that n_obs is known
+        batch_sampler: Sampler[list[slice]] = (
+            self._batch_sampler
+            if self._batch_sampler is not None
+            else SliceSampler(
+                start_index=0,
+                end_index=self.n_obs,
+                batch_size=self._batch_size,
+                preload_nchunks=self._preload_nchunks,
+                chunk_size=self._chunk_size,
+                shuffle=self._shuffle,
+                drop_last=self._drop_last,
+            )
+        )
+
+        # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
+        # we must keep track of the leftover data.
+        in_memory_data = None
+        concatenated_obs = None
+        in_memory_indices = None
+        batch_size = batch_sampler.batch_size
+
+        # Detect if we're in a PyTorch worker context and configure the sampler
+        # this has to happen here because the workers are spawned here
+        if find_spec("torch"):
+            from torch.utils.data import get_worker_info
+
+            from annbatch.utils import WorkerHandle
+
+            if get_worker_info() is not None:
+                worker_handle = WorkerHandle()
+                batch_sampler.set_worker_handle(worker_handle)
+
+        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
+
+        for load_request in batch_sampler:
+            slices = load_request.slices
+            splits = load_request.splits
+            # Sampler yields a list of slices that sum to batch_size
+            dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=False)
+            # Fetch the data over slices
+            chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
+            chunks_converted = self._accumulate_chunks(chunks)
+            # Accumulate labels if necessary
+            obs: None | list[pd.DataFrame] = None
+            if self._obs is not None:
+                obs = self._accumulate_labels(dataset_index_to_slices)
+            # Accumulate indices if necessary
+            indices: None | list[np.ndarray] = None
+            if self._return_index:
+                indices = self._accumulate_indices(slices)
+
+            # Do batch returns, handling leftover data as necessary
+            in_memory_data = (
+                mod.vstack(chunks_converted)
+                if in_memory_data is None
+                else mod.vstack([in_memory_data, *chunks_converted])
+            )
+            if self._obs is not None and obs is not None:
+                concatenated_obs = pd.concat(obs) if concatenated_obs is None else pd.concat([concatenated_obs, *obs])
+            if self._return_index and indices is not None:
+                in_memory_indices = (
+                    np.concatenate(indices)
+                    if in_memory_indices is None
+                    else np.concatenate([in_memory_indices, *indices])
+                )
+
+            # yield all full batches (all but possibly the last)
+            for split in splits[:-1]:
+                yield self._prepare_output(
+                    in_memory_data=in_memory_data,
+                    concatenated_obs=concatenated_obs,
+                    in_memory_indices=in_memory_indices,
+                    split=split,
+                )
+
+            # handle the last split
+            last_split = splits[-1]
+            if len(last_split) == batch_size:
+                # full batch, yield and reset
+                yield self._prepare_output(
+                    in_memory_data=in_memory_data,
+                    concatenated_obs=concatenated_obs,
+                    in_memory_indices=in_memory_indices,
+                    split=last_split,
+                )
+                in_memory_data = None
+                concatenated_obs = None
+                in_memory_indices = None
+            else:
+                # partial batch, carry over for next iteration
+                in_memory_data, concatenated_obs, in_memory_indices = self._prepare_leftover_data(
+                    in_memory_data=in_memory_data,
+                    concatenated_obs=concatenated_obs,
+                    in_memory_indices=in_memory_indices,
+                    leftover_split=last_split,
+                )
+
+        # after sampler is exhausted, yield any remaining leftover
+        # only true when drop_last=False
+        if in_memory_data is not None:
+            yield self._prepare_output(
+                in_memory_data=in_memory_data,
+                concatenated_obs=concatenated_obs,
+                in_memory_indices=in_memory_indices,
+                split=np.arange(in_memory_data.shape[0]),
+            )
 
     # -------------------------------------------------------------------------
     # Iteration helper methods (used by __iter__)
