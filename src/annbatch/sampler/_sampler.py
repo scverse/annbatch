@@ -35,11 +35,31 @@ class LoadRequest[T_co]:
 
 
 class Sampler[T_co](ABC):
-    """Base sampler class."""
+    """Base sampler class.
+
+    Samplers control how data is batched and loaded from the underlying datasets.
+    They support a validation pattern where `validate()` is called when the sampler
+    is set on a loader and when datasets are added, and `sample(n_obs)` is called
+    at iteration time to generate load requests.
+    """
 
     @abstractmethod
-    def __iter__(self) -> Iterator[LoadRequest[T_co]]:
-        """Iterator over load requests."""
+    def sample(self, n_obs: int) -> Iterator[LoadRequest[T_co]]:
+        """Generate load requests for the given number of observations.
+
+        This method is called at iteration time when the total number of
+        observations is known.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations in the loader.
+
+        Yields
+        ------
+        LoadRequest
+            Load requests containing slices and splits for batching.
+        """
 
     @abstractmethod
     def __len__(self) -> int:
@@ -50,9 +70,27 @@ class Sampler[T_co](ABC):
     def batch_size(self) -> int | None:
         """The batch size of the sampler if valid."""
 
+    @abstractmethod
+    def validate(self, n_obs: int) -> None:
+        """Validate the sampler configuration against the current loader state.
+
+        This method is called when the sampler is set on a loader and when
+        new datasets are added. Override this method to add custom validation.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations in the loader.
+
+        Raises
+        ------
+        ValueError
+            If the sampler configuration is invalid for the given state.
+        """
+
     def set_worker_handle(self, worker_handle: WorkerHandle) -> None:
         """Set the worker handle if desired. If the sampler doesn't support workers, this is a no-op."""
-        # this is a separate method because we'd want the LoaderBuilder itself
+        # this is a separate method because we'd want the Loader itself
         # passing this to the sampler, this way Loader doesn't need to know about
         # the sampler's worker handle and knows every Sampler supports this
         # but we don't want to force every sampler to implement this
@@ -73,10 +111,6 @@ class SliceSampler(Sampler[list[slice]]):
         Number of observations per batch.
     chunk_size
         Size of each chunk i.e. the range of each slice.
-    start_index
-        Starting observation index (inclusive).
-    end_index
-        Ending observation index (exclusive).
     shuffle
         Whether to shuffle chunk and index order.
     preload_nchunks
@@ -91,10 +125,6 @@ class SliceSampler(Sampler[list[slice]]):
     _chunk_size: int
     _shuffle: bool
     _preload_nchunks: int
-    _start_index: int
-    _end_index: int
-    _n_chunks: int
-    _n_iters: int
     _drop_last: bool
     _rng: np.random.Generator
 
@@ -103,51 +133,80 @@ class SliceSampler(Sampler[list[slice]]):
         *,
         batch_size: int,
         chunk_size: int,
-        start_index: int,
-        end_index: int,
+        start_index: int = 0,
+        end_index: int | None = None,
         shuffle: bool = False,
         preload_nchunks: int,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
-        if start_index < 0 or start_index >= end_index:
-            raise ValueError("start_index must be >= 0 and < end_index")
         check_lt_1([chunk_size, preload_nchunks], ["Chunk size", "Preload chunks"])
         preload_size = chunk_size * preload_nchunks
 
-        # TODO: asses this: Should we make this check mandatory in the base Sampler class?
-        # Because this is actually a requirement for any sampler to run in a Loader class
         if batch_size > preload_size:
             raise ValueError(
                 "batch_size cannot exceed chunk_size * preload_nchunks. "
                 f"Got batch_size={batch_size}, but max is {preload_size}."
             )
 
-        n_batches = (
-            math.floor((end_index - start_index) / batch_size)
-            if drop_last
-            else math.ceil((end_index - start_index) / batch_size)
-        )
-        total_yielded_obs = n_batches * batch_size
-
         self._rng = np.random.default_rng() if rng is None else rng
-        self._n_iters = math.ceil(total_yielded_obs / (chunk_size * preload_nchunks))
-        self._n_chunks = math.ceil((end_index - start_index) / chunk_size)
         self._batch_size = batch_size
         self._chunk_size = chunk_size
-        self._shuffle = shuffle
-        self._preload_nchunks = preload_nchunks
         self._start_index = start_index
         self._end_index = end_index
+        self._shuffle = shuffle
+        self._preload_nchunks = preload_nchunks
         self._drop_last = drop_last
-        self._worker_handle = None
+        self._worker_handle: WorkerHandle | None = None
+        # Cached values computed during sample()
+        self._n_iters: int | None = None
 
     def __len__(self) -> int:
+        if self._n_iters is None:
+            raise ValueError(
+                "Cannot determine length before sample() is called. "
+                "The sampler needs to know n_obs to compute the number of iterations."
+            )
         return self._n_iters
 
-    def __iter__(self) -> Iterator[LoadRequest[list[slice]]]:
+    def validate(self, n_obs: int) -> None:
+        """Validate the sampler configuration against the current loader state.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations in the loader.
+
+        Raises
+        ------
+        ValueError
+            If the sampler configuration is invalid.
+        """
+        if n_obs < 1:
+            raise ValueError(f"n_obs must be at least 1, got {n_obs}")
+        # Could add additional validation here if needed
+
+    def sample(self, n_obs: int) -> Iterator[LoadRequest[list[slice]]]:
+        """Generate load requests for the given number of observations.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations in the loader.
+
+        Yields
+        ------
+        LoadRequest
+            Load requests containing slices and splits for batching.
+        """
+        # Compute derived values based on n_obs
+        n_batches = math.floor(n_obs / self._batch_size) if self._drop_last else math.ceil(n_obs / self._batch_size)
+        total_yielded_obs = n_batches * self._batch_size
+
+        self._n_iters = math.ceil(total_yielded_obs / (self._chunk_size * self._preload_nchunks))
+
         # Compute slices directly from index range
-        slices = self._compute_slices()
+        slices = self._compute_slices(n_obs)
         n_slices = len(slices)
 
         # Create slice indices for shuffling
@@ -217,7 +276,6 @@ class SliceSampler(Sampler[list[slice]]):
                 UserWarning,
                 stacklevel=2,
             )
-        # TODO: asses this: should we raise an error if worker handle is already set?
         self._worker_handle = worker_handle
 
     def supports_workers(self) -> bool:
@@ -225,17 +283,15 @@ class SliceSampler(Sampler[list[slice]]):
 
     def _shuffle_integers(self, integers: np.ndarray) -> np.ndarray:
         if self._worker_handle is None:
-            # TODO: deal with generators later
             self._rng.shuffle(integers)
         else:
-            # should we always have a worker handle? even if its no-op?
             self._worker_handle.shuffle(integers)
         return integers
 
-    def _compute_slices(self) -> list[slice]:
-        """Compute slices directly from start/end indices."""
-        starts = list(range(self._start_index, self._end_index, self._chunk_size))
-        stops = starts[1:] + [self._end_index]
+    def _compute_slices(self, n_obs: int) -> list[slice]:
+        """Compute slices directly from n_obs."""
+        starts = list(range(0, n_obs, self._chunk_size))
+        stops = starts[1:] + [n_obs]
         return [slice(start, stop) for start, stop in zip(starts, stops, strict=False)]
 
     @property

@@ -4,7 +4,7 @@ import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from importlib.util import find_spec
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import scipy as sp
@@ -177,6 +177,17 @@ def check_lt_1(vals: list[int], labels: list[str]) -> None:
             if check
         )
         raise ValueError(f"{label} must be greater than 1, got {value}")
+
+
+class SupportsShape(Protocol):  # noqa: D101
+    @property
+    def shape(self) -> tuple[int, int] | list[int]: ...  # noqa: D102
+
+
+def check_var_shapes(objs: list[SupportsShape]) -> None:
+    """Small utility function to check that all objects have the same shape along the second axis"""
+    if not all(objs[0].shape[1] == d.shape[1] for d in objs):
+        raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
 def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:

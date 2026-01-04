@@ -17,7 +17,7 @@ from zarr import Array as ZarrArray
 
 from annbatch.sampler import Sampler, SliceSampler
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
-from annbatch.utils import CSRContainer, MultiBasicIndexer, check_lt_1, to_torch
+from annbatch.utils import CSRContainer, MultiBasicIndexer, check_lt_1, check_var_shapes, to_torch
 
 from .compat import IterableDataset
 
@@ -49,51 +49,14 @@ class CommonSamplerArgs(NamedTuple):
     drop_last: bool
 
 
-class _DatasetInfoMixin[BackingArray: BackingArray_T]:
-    """Mixin for classes that contain datasets."""
-
-    _shapes: list[tuple[int, int]]
-    _train_datasets: list[BackingArray]
-
-    @property
-    def n_obs(self) -> int:
-        """The total number of observations in this instance i.e., the sum of the first axis of all added datasets.
-
-        Returns
-        -------
-            The number of observations.
-        """
-        return sum(shape[0] for shape in self._shapes)
-
-    @property
-    def n_var(self) -> int:
-        """The total number of variables in this instance i.e., the second axis (which is the same) across all datasets.
-
-        Returns
-        -------
-            The number of variables.
-        """
-        if not self._shapes:
-            raise ValueError("No datasets added yet")
-        return self._shapes[0][1]
-
-    @property
-    def dataset_type(self) -> type[BackingArray]:
-        """The type of the dataset."""
-        return type(self._train_datasets[0])
-
-
-class LoaderBuilder[
+class Loader[
     BackingArray: BackingArray_T,
     InputInMemoryArray: InputInMemoryArray_T,
     OutputInMemoryArray: OutputInMemoryArray_T,
-](_DatasetInfoMixin[BackingArray]):
-    """A builder for creating Loader instances for on-disk anndata stores.
+](IterableDataset):
+    """A loader for on-disk anndata stores.
 
-    This builder handles configuration and adding datasets. Call `.build()` to create
-    an immutable Loader that can be iterated.
-
-    The loader batches together slice requests to the underlying stores to achieve higher performance.
+    This loader batches together slice requests to the underlying stores to achieve higher performance.
     This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
     The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
 
@@ -109,69 +72,63 @@ class LoaderBuilder[
 
     Parameters
     ----------
-    chunk_size
-        The obs size (i.e., axis 0) of contiguous array data to fetch.
-    preload_nchunks
-        The number of chunks of contiguous array data to fetch.
-    batch_sampler
-        A sampler that yields batches of slices to index into the datasets.
-        If provided, `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, `drop_last` should not be provided.
-    shuffle
-        Whether or not to shuffle the data.
-    return_index
-        Whether or not to yield the index on each iteration.
-    batch_size
-        Batch size to yield from the dataset.
-    preload_to_gpu
-        Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
-        This option entails greater GPU memory usage, but is faster at least for sparse operations.
-        :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
-        Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
-        For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to denseify.
-    drop_last
-        Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
-        If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
-        Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
-    to_torch
-        Whether to return `torch.Tensor` as the output.
-        Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
-        Defaults to True if `torch` is installed.
+        chunk_size
+            The obs size (i.e., axis 0) of contiguous array data to fetch.
+        preload_nchunks
+            The number of chunks of contiguous array data to fetch.
+        batch_sampler
+            A sampler that yields batches of slices to index into the datasets.
+            If provided, `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, `drop_last` should not be provided.
+        shuffle
+            Whether or not to shuffle the data.
+        return_index
+            Whether or not to yield the index on each iteration.
+        batch_size
+            Batch size to yield from the dataset.
+        preload_to_gpu
+            Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
+            This option entails greater GPU memory usage, but is faster at least for sparse operations.
+            :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
+            Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
+            For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to denseify.
+        drop_last
+            Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
+            If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
+            Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
+        to_torch
+            Whether to return `torch.Tensor` as the output.
+            Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
+            Defaults to True if `torch` is installed.
 
     Examples
     --------
-    >>> from annbatch import LoaderBuilder
-    >>> loader = (
-            LoaderBuilder(
+        >>> from annbatch import Loader
+        >>> ds = Loader(
                 batch_size=4096,
                 chunk_size=32,
                 preload_nchunks=512,
-            )
-            .add_anndata(my_anndata)
-            .build()
-        )
-    >>> for batch in loader:
-            # optionally convert to dense
-            # batch = batch.to_dense()
-            do_fit(batch)
+            ).add_anndata(my_anndata)
+        >>> for batch in ds:
+                # optionally convert to dense
+                # batch = batch.to_dense()
+                do_fit(batch)
     """
 
     _train_datasets: list[BackingArray]
     _obs: list[pd.DataFrame] | None = None
     _return_index: bool = False
     _shapes: list[tuple[int, int]]
-    _preload_to_gpu: bool = True
+    _preload_to_gpu: bool
     _to_torch: bool = True
+    _batch_sampler: Sampler[list[slice]] | None
+    _dataset_elem_cache: dict[int, CSRDatasetElems]
 
-    # args mutually exclusive with sampler start
+    # Default sampler args (used when no custom sampler provided)
     _batch_size: int = 1
     _drop_last: bool = False
     _shuffle: bool = False
     _preload_nchunks: int = 32
     _chunk_size: int = 512
-    # args mutually exclusive with sampler end
-
-    _batch_sampler: Sampler[list[slice]] | None
-    _dataset_elem_cache: dict[int, CSRDatasetElems]
 
     def __init__(
         self,
@@ -214,6 +171,7 @@ class LoaderBuilder[
         self._train_datasets = []
         self._shapes = []
         self._obs = None
+        self._dataset_elem_cache = {}
 
     def _handle_sampler_args(
         self,
@@ -257,6 +215,46 @@ class LoaderBuilder[
             shuffle=shuffle if shuffle is not None else self._shuffle,
             drop_last=drop_last if drop_last is not None else self._drop_last,
         )
+
+    def __len__(self) -> int:
+        return self.n_obs
+
+    @property
+    def _sp_module(self) -> ModuleType:
+        if self._preload_to_gpu:
+            try:
+                import cupyx.scipy.sparse as cpx  # pragma: no cover
+
+                return cpx
+            except ImportError:
+                raise ImportError(
+                    "Cannot find cupy module even though `preload_to_gpu` argument was set to `True`"
+                ) from None
+        return sp
+
+    @property
+    def _np_module(self) -> ModuleType:
+        if self._preload_to_gpu:
+            try:
+                import cupy as cp
+
+                return cp
+            except ImportError:
+                raise ImportError(
+                    "Cannot find cupy module even though `preload_to_gpu` argument was set to `True`"
+                ) from None
+
+        return np
+
+    @property
+    def dataset_type(self) -> type[BackingArray]:
+        """The type of on-disk data used in this loader.
+
+        Returns
+        -------
+            The type used.
+        """
+        return type(self._train_datasets[0])
 
     @property
     def n_obs(self) -> int:
@@ -322,8 +320,9 @@ class LoaderBuilder[
             obs
                 List of :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
         """
-        obs_list: list[pd.DataFrame] | list[None] = [None] * len(datasets) if obs is None else obs
-        for ds, o in zip(datasets, obs_list, strict=True):
+        if obs is None:
+            obs = [None] * len(datasets)
+        for ds, o in zip(datasets, obs, strict=True):
             self.add_dataset(ds, o)
         return self
 
@@ -358,149 +357,39 @@ class LoaderBuilder[
             )
         if not isinstance(obs, pd.DataFrame):
             raise TypeError("obs must be a pandas DataFrame")
-        if self._shapes and self._shapes[0][1] != dataset.shape[1]:
-            raise ValueError(
-                f"All datasets must have same shape along var axis. "
-                f"Expected {self._shapes[0][1]}, got {dataset.shape[1]}"
-            )
+        datasets = self._train_datasets + [dataset]
+        check_var_shapes(datasets)
         self._shapes = self._shapes + [dataset.shape]
-        self._train_datasets = self._train_datasets + [dataset]
+        self._train_datasets = datasets
         if self._obs is not None:  # labels exist
             self._obs += [obs]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
             self._obs = [obs]
+
+        # Validate sampler if one is set
+        if self._batch_sampler is not None:
+            self._batch_sampler.validate(self.n_obs)
+
         return self
 
-    def build(self) -> Loader[BackingArray, InputInMemoryArray, OutputInMemoryArray]:
-        """Build and return an immutable Loader instance.
+    def set_sampler(self, sampler: Sampler[list[slice]]) -> Self:
+        """Set the batch sampler for this loader.
+
+        Parameters
+        ----------
+        sampler
+            A sampler that controls how data is batched and loaded.
 
         Returns
         -------
-            A Loader ready for iteration.
-
-        Raises
-        ------
-        ValueError
-            If no datasets have been added.
+        Self
+            The loader instance for method chaining.
         """
-        if not self._train_datasets:
-            raise ValueError("Cannot build Loader: no datasets have been added")
-
-        # Create the sampler now that n_obs is known
-        batch_sampler: Sampler[list[slice]] = (
-            self._batch_sampler
-            if self._batch_sampler is not None
-            else SliceSampler(
-                start_index=0,
-                end_index=self.n_obs,
-                batch_size=self._batch_size,
-                preload_nchunks=self._preload_nchunks,
-                chunk_size=self._chunk_size,
-                shuffle=self._shuffle,
-                drop_last=self._drop_last,
-            )
-        )
-
-        return Loader(
-            train_datasets=self._train_datasets,
-            shapes=self._shapes,
-            obs=self._obs,
-            batch_sampler=batch_sampler,
-            return_index=self._return_index,
-            preload_to_gpu=self._preload_to_gpu,
-            to_torch=self._to_torch,
-        )
-
-
-class Loader[
-    BackingArray: BackingArray_T,
-    InputInMemoryArray: InputInMemoryArray_T,
-    OutputInMemoryArray: OutputInMemoryArray_T,
-](_DatasetInfoMixin[BackingArray], IterableDataset):
-    """An immutable loader for on-disk anndata stores.
-
-    This class is created by :meth:`LoaderBuilder.build()` and handles iteration.
-    It cannot be modified after creation - datasets cannot be added and configuration
-    cannot be changed.
-
-    The loader batches together slice requests to the underlying stores to achieve higher performance.
-    This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
-    The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
-
-    Attributes
-    ----------
-    n_obs : int
-        The total number of observations (immutable, computed from dataset shapes).
-    n_var : int
-        The total number of variables (immutable, same across all datasets).
-    dataset_type : type
-        The type of on-disk data used in this loader.
-
-    See Also
-    --------
-    LoaderBuilder : Builder class for creating Loader instances.
-    """
-
-    _train_datasets: list[BackingArray]
-    _obs: list[pd.DataFrame] | None
-    _return_index: bool
-    _shapes: list[tuple[int, int]]
-    _preload_to_gpu: bool
-    _to_torch: bool
-    _batch_size: int
-    _batch_sampler: Sampler[list[slice]]
-    _dataset_elem_cache: dict[int, CSRDatasetElems]
-
-    def __init__(
-        self,
-        *,
-        train_datasets: list[BackingArray],
-        shapes: list[tuple[int, int]],
-        obs: list[pd.DataFrame] | None,
-        batch_sampler: Sampler[list[slice]],
-        return_index: bool,
-        preload_to_gpu: bool,
-        to_torch: bool,
-    ):
-        """Initialize the Loader. Use LoaderBuilder.build() instead of calling directly."""
-        self._train_datasets = train_datasets
-        self._shapes = shapes
-        self._obs = obs
-        self._batch_sampler = batch_sampler
-        self._return_index = return_index
-        self._preload_to_gpu = preload_to_gpu
-        self._to_torch = to_torch
-        self._dataset_elem_cache = {}
-
-    def __len__(self) -> int:
-        return self._n_obs
-
-    @property
-    def _sp_module(self) -> ModuleType:
-        if self._preload_to_gpu:
-            try:
-                import cupyx.scipy.sparse as cpx  # pragma: no cover
-
-                return cpx
-            except ImportError:
-                raise ImportError(
-                    "Cannot find cupy module even though `preload_to_gpu` argument was set to `True`"
-                ) from None
-        return sp
-
-    @property
-    def _np_module(self) -> ModuleType:
-        if self._preload_to_gpu:
-            try:
-                import cupy as cp
-
-                return cp
-            except ImportError:
-                raise ImportError(
-                    "Cannot find cupy module even though `preload_to_gpu` argument was set to `True`"
-                ) from None
-
-        return np
+        self._batch_sampler = sampler
+        # Validate immediately if we already have datasets
+        if self._train_datasets:
+            sampler.validate(self.n_obs)
+        return self
 
     def __iter__(
         self,
@@ -511,24 +400,44 @@ class Loader[
         ------
             A batch of data along with its labels and index (both optional).
         """
+        if not self._train_datasets:
+            raise ValueError("Cannot iterate: no datasets have been added")
+
+        # Create the sampler now that n_obs is known
+        batch_sampler: Sampler[list[slice]] = (
+            self._batch_sampler
+            if self._batch_sampler is not None
+            else SliceSampler(
+                batch_size=self._batch_size,
+                preload_nchunks=self._preload_nchunks,
+                chunk_size=self._chunk_size,
+                shuffle=self._shuffle,
+                drop_last=self._drop_last,
+            )
+        )
+
         # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
         # we must keep track of the leftover data.
         in_memory_data = None
         concatenated_obs = None
         in_memory_indices = None
-        batch_size = self._batch_sampler.batch_size
+        batch_size = batch_sampler.batch_size
+
         # Detect if we're in a PyTorch worker context and configure the sampler
         # this has to happen here because the workers are spawned here
         if find_spec("torch"):
             from torch.utils.data import get_worker_info
+
             from annbatch.utils import WorkerHandle
 
             if get_worker_info() is not None:
                 worker_handle = WorkerHandle()
-                self._batch_sampler.set_worker_handle(worker_handle)
+                batch_sampler.set_worker_handle(worker_handle)
 
         mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
-        for load_request in self._batch_sampler:
+
+        # Call sample(n_obs) to get the iterator
+        for load_request in batch_sampler.sample(self.n_obs):
             slices = load_request.slices
             splits = load_request.splits
             # Sampler yields a list of slices that sum to batch_size
@@ -591,7 +500,7 @@ class Loader[
                     leftover_split=last_split,
                 )
 
-        # after sampler is exhausted, yield any remaining leftover 
+        # after sampler is exhausted, yield any remaining leftover
         # only true when drop_last=False
         if in_memory_data is not None:
             yield self._prepare_output(
@@ -690,7 +599,7 @@ class Loader[
         """
         raise NotImplementedError(f"Cannot fetch data for type {type(dataset)}")
 
-    @_fetch_data.register  # type: ignore[arg-type]
+    @_fetch_data.register
     async def _fetch_data_dense(self, dataset: ZarrArray, slices: list[slice]) -> np.ndarray:
         indexer = MultiBasicIndexer(
             [
@@ -762,7 +671,7 @@ class Loader[
             raise ValueError("Cache not prepared")
         return self._dataset_elem_cache[dataset_idx]
 
-    @_fetch_data.register  # type: ignore[arg-type]
+    @_fetch_data.register
     async def _fetch_data_sparse(
         self,
         dataset: CSRDatasetElems,
@@ -786,21 +695,18 @@ class Loader[
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
         start_indptr = indptr_indices[0] - next(offsets)
-        # Cast to np.ndarray for mypy (zarr async returns NDArrayLike)
-        data_arr = cast("np.ndarray", data_np)
-        indices_arr = cast("np.ndarray", indices_np)
         if len(slices) < 2:  # there is only one slice so no need to concatenate
             return CSRContainer(
-                elems=(data_arr, indices_arr, start_indptr),
+                elems=(data_np, indices_np, start_indptr),
                 shape=(start_indptr.shape[0] - 1, self.n_var),
-                dtype=data_arr.dtype,
+                dtype=data_np.dtype,
             )
         end_indptr = np.concatenate([s[1:] - o for s, o in zip(indptr_indices[1:], offsets, strict=True)])
         indptr_np = np.concatenate([start_indptr, end_indptr])
         return CSRContainer(
-            elems=(data_arr, indices_arr, indptr_np),
+            elems=(data_np, indices_np, indptr_np),
             shape=(indptr_np.shape[0] - 1, self.n_var),
-            dtype=data_arr.dtype,
+            dtype=data_np.dtype,
         )
 
     async def _index_datasets(
