@@ -1,8 +1,9 @@
-"""Sampler classes for efficient chunk-aligned data access from Zarr stores."""
+"""Sampler classes for efficient slice-based data access."""
 
 from __future__ import annotations
 
 import math
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
@@ -175,8 +176,6 @@ class SliceSampler(Sampler[list[slice]]):
                 f"Sampler mask.stop ({self._mask.stop}) exceeds loader n_obs ({n_obs}). "
                 "The sampler range must be within the loader's observations."
             )
-        # mask.start < mask.stop is enforced in __init__, so if mask.stop <= n_obs,
-        # then mask.start < n_obs is guaranteed
 
     def __iter__(self) -> Iterator[LoadRequest[list[slice]]]:
         # Compute slices directly from mask range
@@ -243,8 +242,6 @@ class SliceSampler(Sampler[list[slice]]):
                     f"Set drop_last=True to allow non-divisible configs."
                 )
             if self._drop_last:
-                import warnings
-
                 warnings.warn(
                     "With drop_last=True and multiple workers, up to "
                     f"(batch_size - 1) * num_workers = {(self._batch_size - 1) * worker_handle.num_workers} "
