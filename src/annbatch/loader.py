@@ -78,9 +78,9 @@ class Loader[
     Parameters
     ----------
         chunk_size
-            The obs size (i.e., axis 0) of contiguous array data to fetch per slice.
+            The obs size (i.e., axis 0) of contiguous array data to fetch.
         preload_nchunks
-            The number of slices of contiguous array data to fetch.
+            The number of chunks of contiguous array data to fetch.
         batch_sampler
             A sampler that yields batches of slices to index into the datasets.
             If provided, `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, `drop_last` should not be provided.
