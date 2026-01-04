@@ -157,7 +157,17 @@ class Loader[
             shuffle=shuffle,
             drop_last=drop_last,
         )
-
+        check_lt_1(
+            [
+                sampler_args.chunk_size,
+                sampler_args.preload_nchunks,
+            ],
+            ["Chunk size", "Preload chunks"],
+        )
+        if sampler_args.batch_size > (sampler_args.chunk_size * sampler_args.preload_nchunks):
+            raise NotImplementedError(
+                "Cannot yield batches bigger than the iterated in-memory size i.e., batch_size > (chunk_size * preload_nchunks)."
+            )
         if to_torch and not find_spec("torch"):
             raise ImportError("Could not find torch dependency. Try `pip install torch`.")
         if preload_to_gpu and not find_spec("cupy"):
@@ -209,8 +219,8 @@ class Loader[
 
             return CommonSamplerArgs(
                 batch_size=self._batch_size,  # Loader is going to use this later
-                chunk_size=self._chunk_size,  # not going to be used
-                preload_nchunks=self._preload_nchunks,  # not going to be used
+                chunk_size=self._chunk_size,  # Loader is going to use this later
+                preload_nchunks=self._preload_nchunks,  # Loader is going to use this later
                 shuffle=self._shuffle,  # not going to be used
                 drop_last=self._drop_last,  # not going to be used
             )
