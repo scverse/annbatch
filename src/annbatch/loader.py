@@ -40,7 +40,12 @@ class CSRDatasetElems(NamedTuple):
 
 
 class CommonSamplerArgs(NamedTuple):
-    """Common arguments with the sampler class."""
+    """Common arguments with the sampler class.
+
+    Note: The Loader uses `chunk_size` and `preload_nchunks` terminology,
+    while the Sampler uses `slice_size` and `preload_nslices`. These refer
+    to the same concepts - consider unifying the naming in the future.
+    """
 
     chunk_size: int
     preload_nchunks: int
@@ -73,9 +78,9 @@ class Loader[
     Parameters
     ----------
         chunk_size
-            The obs size (i.e., axis 0) of contiguous array data to fetch.
+            The obs size (i.e., axis 0) of contiguous array data to fetch per slice.
         preload_nchunks
-            The number of chunks of contiguous array data to fetch.
+            The number of slices of contiguous array data to fetch.
         batch_sampler
             A sampler that yields batches of slices to index into the datasets.
             If provided, `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, `drop_last` should not be provided.
@@ -647,11 +652,11 @@ class Loader[
             self._batch_sampler
             if self._batch_sampler is not None
             else SliceSampler(
-                start_index=0,
-                end_index=self.n_obs,
+                mask=slice(0, self.n_obs),
                 batch_size=self._batch_size,
-                preload_nchunks=self._preload_nchunks,
-                chunk_size=self._chunk_size,
+                # Note: Loader uses chunk_size/preload_nchunks, Sampler uses slice_size/preload_nslices
+                preload_nslices=self._preload_nchunks,
+                slice_size=self._chunk_size,
                 shuffle=self._shuffle,
                 drop_last=self._drop_last,
             )
