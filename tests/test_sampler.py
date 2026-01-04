@@ -19,7 +19,7 @@ class TestSliceSamplerBasic:
         batch_size = 5
 
         sampler = SliceSampler(
-            mask=slice(0, n_obs),
+            mask=slice(0, None),
             batch_size=batch_size,
             slice_size=slice_size,
             preload_nslices=preload_nslices,
@@ -87,7 +87,7 @@ class TestSliceSamplerMaskStart:
         start = 30  # Aligned with slice 3
 
         sampler = SliceSampler(
-            mask=slice(start, n_obs),
+            mask=slice(start, None),
             batch_size=5,
             slice_size=slice_size,
             preload_nslices=2,
@@ -110,7 +110,7 @@ class TestSliceSamplerMaskStart:
         start = 35  # Not aligned - middle of slice 3
 
         sampler = SliceSampler(
-            mask=slice(start, n_obs),
+            mask=slice(start, None),
             batch_size=5,
             slice_size=slice_size,
             preload_nslices=2,
@@ -132,7 +132,7 @@ class TestSliceSamplerMaskStart:
         start = 90
 
         sampler = SliceSampler(
-            mask=slice(start, n_obs),
+            mask=slice(start, None),
             batch_size=3,
             slice_size=slice_size,
             preload_nslices=1,
@@ -312,7 +312,7 @@ class TestSliceSamplerWithShuffle:
         start = 30
 
         sampler = SliceSampler(
-            mask=slice(start, n_obs),
+            mask=slice(start, None),
             batch_size=5,
             slice_size=slice_size,
             preload_nslices=2,
@@ -404,7 +404,7 @@ class TestSliceSamplerEdgeCases:
         start = 10  # Exactly one slice in
 
         sampler = SliceSampler(
-            mask=slice(start, n_obs),
+            mask=slice(start, None),
             batch_size=5,
             slice_size=slice_size,
             preload_nslices=2,
@@ -484,7 +484,7 @@ class TestSliceSamplerWithWorkers:
         for worker_id in range(num_workers):
             worker_handle = MockWorkerHandle(worker_id, num_workers)
             sampler = SliceSampler(
-                mask=slice(0, n_obs),
+                mask=slice(0, None),
                 batch_size=batch_size,
                 slice_size=slice_size,
                 preload_nslices=preload_nslices,
@@ -514,7 +514,7 @@ class TestSliceSamplerWithWorkers:
         for worker_id in range(num_workers):
             worker_handle = MockWorkerHandle(worker_id, num_workers)
             sampler = SliceSampler(
-                mask=slice(0, n_obs),
+                mask=slice(0, None),
                 batch_size=batch_size,
                 slice_size=slice_size,
                 preload_nslices=preload_nslices,
