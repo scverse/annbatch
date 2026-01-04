@@ -395,3 +395,115 @@ def test_default_data_structures(
     )
     for batch in ds:
         assert isinstance(batch["data"], expected_cls)
+
+
+class TestLoaderSamplerExclusivity:
+    """Tests for verifying that sampler args and custom sampler are mutually exclusive."""
+
+    def test_cannot_set_sampler_when_chunk_size_provided(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test that set_sampler raises when chunk_size is provided in constructor."""
+        from annbatch.sampler import SliceSampler
+
+        path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        data = open_dense(path)
+
+        loader = Loader(chunk_size=10, preload_to_gpu=False, to_torch=False)
+        loader.add_dataset(**data)
+
+        sampler = SliceSampler(
+            mask=slice(0, 50),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
+            loader.set_sampler(sampler)
+
+    def test_cannot_set_sampler_when_batch_size_provided(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test that set_sampler raises when batch_size is provided in constructor."""
+        from annbatch.sampler import SliceSampler
+
+        path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        data = open_dense(path)
+
+        loader = Loader(batch_size=10, preload_to_gpu=False, to_torch=False)
+        loader.add_dataset(**data)
+
+        sampler = SliceSampler(
+            mask=slice(0, 50),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
+            loader.set_sampler(sampler)
+
+    def test_can_set_sampler_when_no_sampler_args_provided(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test that set_sampler works when no sampler args are provided."""
+        from annbatch.sampler import SliceSampler
+
+        path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        data = open_dense(path)
+
+        loader = Loader(preload_to_gpu=False, to_torch=False)
+        loader.add_dataset(**data)
+
+        sampler = SliceSampler(
+            mask=slice(0, 50),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        # Should NOT raise
+        loader.set_sampler(sampler)
+
+
+class TestLoaderCustomSampler:
+    """Tests for using custom samplers with multiple datasets."""
+
+    def test_custom_sampler_samples_subset_of_combined_datasets(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test custom sampler that samples only a specific range from combined datasets.
+
+        Uses multiple zarr files from fixture, combines them, and samples a subset.
+        """
+        from annbatch.sampler import SliceSampler
+
+        paths = list(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        datas = [open_dense(p) for p in paths]
+
+        loader = Loader(preload_to_gpu=False, to_torch=False, return_index=True)
+        loader.add_datasets(**concat(datas))
+
+        n_obs = loader.n_obs
+        # Sample from middle portion of combined datasets
+        start_idx, end_idx = n_obs // 4, n_obs // 2
+
+        sampler = SliceSampler(
+            mask=slice(start_idx, end_idx),
+            batch_size=10,
+            slice_size=10,
+            preload_nslices=2,
+        )
+        loader.set_sampler(sampler)
+
+        # Collect all yielded indices
+        all_indices = []
+        for batch in loader:
+            all_indices.append(batch["index"])
+
+        stacked_indices = np.concatenate(all_indices)
+
+        # Verify we got exactly the expected range
+        assert set(stacked_indices) == set(range(start_idx, end_idx))
+        assert len(stacked_indices) == end_idx - start_idx

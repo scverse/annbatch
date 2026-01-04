@@ -696,3 +696,58 @@ class TestSliceSamplerValidation:
                 slice_size=10,
                 preload_nslices=2,
             )
+
+
+class TestSliceSamplerNObsChanges:
+    """Tests that confirm n_obs changes affect sampling results."""
+
+    def test_n_obs_increase_changes_result(self):
+        """Test that increasing n_obs changes the sampling output for the same sampler."""
+        sampler = SliceSampler(
+            mask=slice(0, None),  # stop will be resolved dynamically from n_obs
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        # Sample with n_obs=50
+        indices_small = set()
+        for load_request in sampler.sample(n_obs=50):
+            for s in load_request.slices:
+                indices_small.update(range(s.start, s.stop))
+
+        # Sample with n_obs=100 (increased)
+        indices_large = set()
+        for load_request in sampler.sample(n_obs=100):
+            for s in load_request.slices:
+                indices_large.update(range(s.start, s.stop))
+
+        # The larger n_obs should cover more indices
+        assert indices_small == set(range(50))
+        assert indices_large == set(range(100))
+        assert indices_small != indices_large
+        assert indices_small < indices_large  # strict subset
+
+    def test_same_n_obs_gives_same_coverage(self):
+        """Test that same n_obs gives same coverage (without shuffle)."""
+        sampler = SliceSampler(
+            mask=slice(0, None),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+            shuffle=False,
+        )
+
+        # Sample twice with same n_obs
+        indices_first = set()
+        for load_request in sampler.sample(n_obs=100):
+            for s in load_request.slices:
+                indices_first.update(range(s.start, s.stop))
+
+        indices_second = set()
+        for load_request in sampler.sample(n_obs=100):
+            for s in load_request.slices:
+                indices_second.update(range(s.start, s.stop))
+
+        # Coverage should be identical
+        assert indices_first == indices_second == set(range(100))
