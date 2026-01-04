@@ -26,7 +26,7 @@ class TestSliceSamplerBasic:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(n_obs):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -64,13 +64,13 @@ class TestSliceSamplerBasic:
             leftover = remainder
 
         sampler = SliceSampler(
-            mask=slice(0, n_obs),
+            mask=slice(0, None),
             batch_size=batch_size,
             slice_size=slice_size,
             preload_nslices=preload_nslices,
         )
 
-        for i, load_request in enumerate(sampler):
+        for i, load_request in enumerate(sampler.sample(n_obs)):
             actual_sizes = [len(split) for split in load_request.splits]
             assert actual_sizes == expected_sizes_per_iter[i], (
                 f"Iter {i}: expected {expected_sizes_per_iter[i]}, got {actual_sizes}"
@@ -94,7 +94,7 @@ class TestSliceSamplerMaskStart:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(n_obs):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -117,7 +117,7 @@ class TestSliceSamplerMaskStart:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(n_obs):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -139,7 +139,7 @@ class TestSliceSamplerMaskStart:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(n_obs):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -164,7 +164,7 @@ class TestSliceSamplerMaskStop:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -185,7 +185,7 @@ class TestSliceSamplerMaskStop:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -211,7 +211,7 @@ class TestSliceSamplerBothMaskBounds:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -233,7 +233,7 @@ class TestSliceSamplerBothMaskBounds:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -256,7 +256,7 @@ class TestSliceSamplerBothMaskBounds:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -287,7 +287,7 @@ class TestSliceSamplerBothMaskBounds:
             )
 
             worker_indices = set()
-            for load_request in sampler:
+            for load_request in sampler.sample(n_obs):
                 for s in load_request.slices:
                     worker_indices.update(range(s.start, s.stop))
 
@@ -321,7 +321,7 @@ class TestSliceSamplerWithShuffle:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(n_obs):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -344,7 +344,7 @@ class TestSliceSamplerWithShuffle:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -354,6 +354,27 @@ class TestSliceSamplerWithShuffle:
 
 class TestSliceSamplerEdgeCases:
     """Tests for edge cases."""
+
+    def test_mask_stop_none(self):
+        """Test that mask.stop=None uses n_obs dynamically."""
+        n_obs = 100
+        slice_size = 10
+        start = 20
+
+        sampler = SliceSampler(
+            mask=slice(start, None),  # stop will be resolved to n_obs
+            batch_size=5,
+            slice_size=slice_size,
+            preload_nslices=2,
+        )
+
+        all_indices = set()
+        for load_request in sampler.sample(n_obs):
+            for s in load_request.slices:
+                all_indices.update(range(s.start, s.stop))
+
+        expected = set(range(start, n_obs))
+        assert all_indices == expected
 
     def test_very_small_mask(self):
         """Test with a very small mask (smaller than batch_size and slice_size)."""
@@ -369,7 +390,7 @@ class TestSliceSamplerEdgeCases:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -390,7 +411,7 @@ class TestSliceSamplerEdgeCases:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(n_obs):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -420,7 +441,7 @@ class TestSliceSamplerEdgeCases:
         )
 
         all_indices = set()
-        for load_request in sampler:
+        for load_request in sampler.sample(stop):
             for s in load_request.slices:
                 all_indices.update(range(s.start, s.stop))
 
@@ -471,7 +492,7 @@ class TestSliceSamplerWithWorkers:
             sampler.set_worker_handle(worker_handle)
 
             worker_indices = set()
-            for load_request in sampler:
+            for load_request in sampler.sample(n_obs):
                 for s in load_request.slices:
                     worker_indices.update(range(s.start, s.stop))
             all_worker_indices.append(worker_indices)
@@ -501,7 +522,7 @@ class TestSliceSamplerWithWorkers:
             sampler.set_worker_handle(worker_handle)
 
             worker_indices = set()
-            for load_request in sampler:
+            for load_request in sampler.sample(n_obs):
                 for s in load_request.slices:
                     worker_indices.update(range(s.start, s.stop))
             all_worker_indices.append(worker_indices)
@@ -598,7 +619,7 @@ class TestSliceSamplerWithWorkers:
                 )
                 sampler.set_worker_handle(worker_handle)
 
-            all_requests = list(sampler)
+            all_requests = list(sampler.sample(n_obs))
             # On the final iteration, all splits should be batch_size
             # (the final partial is dropped when drop_last=True)
             if all_requests:
@@ -657,8 +678,8 @@ class TestSliceSamplerValidation:
             )
 
     def test_mask_start_equals_stop_raises(self):
-        """Test that mask.start == mask.stop raises."""
-        with pytest.raises(ValueError, match="mask.start must be >= 0 and < mask.stop"):
+        """Test that mask.start == mask.stop raises when stop is specified."""
+        with pytest.raises(ValueError, match="mask.start must be < mask.stop when mask.stop is specified"):
             SliceSampler(
                 mask=slice(50, 50),
                 batch_size=5,
@@ -667,20 +688,10 @@ class TestSliceSamplerValidation:
             )
 
     def test_mask_start_greater_than_stop_raises(self):
-        """Test that mask.start > mask.stop raises."""
-        with pytest.raises(ValueError, match="mask.start must be >= 0 and < mask.stop"):
+        """Test that mask.start > mask.stop raises when stop is specified."""
+        with pytest.raises(ValueError, match="mask.start must be < mask.stop when mask.stop is specified"):
             SliceSampler(
                 mask=slice(100, 50),
-                batch_size=5,
-                slice_size=10,
-                preload_nslices=2,
-            )
-
-    def test_mask_stop_none_raises(self):
-        """Test that mask.stop=None raises."""
-        with pytest.raises(ValueError, match="mask.stop must be specified"):
-            SliceSampler(
-                mask=slice(0, None),
                 batch_size=5,
                 slice_size=10,
                 preload_nslices=2,

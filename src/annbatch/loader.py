@@ -39,21 +39,6 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class _CommonSamplerArgs(NamedTuple):
-    """Common arguments with the sampler class.
-
-    Note: The Loader uses `chunk_size` and `preload_nchunks` terminology,
-    while the Sampler uses `slice_size` and `preload_nslices`. These refer
-    to the same concepts - consider unifying the naming in the future.
-    """
-
-    chunk_size: int
-    preload_nchunks: int
-    batch_size: int
-    shuffle: bool
-    drop_last: bool
-
-
 class Loader[
     BackingArray: BackingArray_T,
     InputInMemoryArray: InputInMemoryArray_T,
@@ -81,9 +66,6 @@ class Loader[
             The obs size (i.e., axis 0) of contiguous array data to fetch.
         preload_nchunks
             The number of chunks of contiguous array data to fetch.
-        batch_sampler
-            A sampler that yields batches of slices to index into the datasets.
-            If provided, `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, `drop_last` should not be provided.
         shuffle
             Whether or not to shuffle the data.
         return_index
@@ -125,9 +107,8 @@ class Loader[
     _shapes: list[tuple[int, int]]
     _preload_to_gpu: bool = True
     _to_torch: bool = True
-    _batch_sampler: Sampler[list[slice]] | None
     _dataset_elem_cache: dict[int, CSRDatasetElems]
-    _locked: bool = False  # Set to True when set_sampler is called
+    _batch_sampler: Sampler[list[slice]] | None = None
 
     # Default sampler args (used when no custom sampler provided)
     _batch_size: int = 1
@@ -141,7 +122,6 @@ class Loader[
         *,
         chunk_size: int | None = None,
         preload_nchunks: int | None = None,
-        batch_sampler: Sampler[list[slice]] | None = None,
         shuffle: bool | None = None,
         return_index: bool = False,
         batch_size: int | None = None,
@@ -149,22 +129,37 @@ class Loader[
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
     ):
-        sampler_args = self._handle_sampler_args(
-            batch_sampler,
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            drop_last=drop_last,
-        )
+        sampler_args = {
+            "chunk_size": chunk_size,
+            "preload_nchunks": preload_nchunks,
+            "batch_size": batch_size,
+            "shuffle": shuffle,
+            "drop_last": drop_last,
+        }
+        # if any is not None then set_sampler can't be called later.
+        self._cannot_set_sampler_msg = None
+        self._cannot_set_sampler = any(v is not None for v in sampler_args.values())
+        if self._cannot_set_sampler:
+            provided_args = [name for name, val in sampler_args.items() if val is not None]
+            self._cannot_set_sampler_msg = (
+                f"Cannot specify {', '.join(provided_args)} when providing a custom sampler. "
+                "These parameters are controlled by the sampler."
+            )
+            sampler_args_filtered = {k: v for k, v in sampler_args.items() if v is not None}
+            self._chunk_size = sampler_args_filtered.get("chunk_size", self._chunk_size)
+            self._preload_nchunks = sampler_args_filtered.get("preload_nchunks", self._preload_nchunks)
+            self._batch_size = sampler_args_filtered.get("batch_size", self._batch_size)
+            self._shuffle = sampler_args_filtered.get("shuffle", self._shuffle)
+            self._drop_last = sampler_args_filtered.get("drop_last", self._drop_last)
+
         check_lt_1(
             [
-                sampler_args.chunk_size,
-                sampler_args.preload_nchunks,
+                self._chunk_size,
+                self._preload_nchunks,
             ],
             ["Chunk size", "Preload chunks"],
         )
-        if sampler_args.batch_size > (sampler_args.chunk_size * sampler_args.preload_nchunks):
+        if self._batch_size > (self._chunk_size * self._preload_nchunks):
             raise NotImplementedError(
                 "Cannot yield batches bigger than the iterated in-memory size i.e., batch_size > (chunk_size * preload_nchunks)."
             )
@@ -173,65 +168,13 @@ class Loader[
         if preload_to_gpu and not find_spec("cupy"):
             raise ImportError("Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.")
 
-        # sampler args start
-        self._chunk_size = sampler_args.chunk_size
-        self._preload_nchunks = sampler_args.preload_nchunks
-        self._drop_last = sampler_args.drop_last
-        self._shuffle = sampler_args.shuffle
-        self._batch_size = sampler_args.batch_size
-        # sampler args end
         self._return_index = return_index
         self._preload_to_gpu = preload_to_gpu
         self._to_torch = to_torch
-        self._batch_sampler = batch_sampler
         self._train_datasets = []
         self._shapes = []
-        self._obs = None
         self._dataset_elem_cache = {}
-        self._locked = False
-
-    def _handle_sampler_args(
-        self,
-        batch_sampler: Sampler[list[slice]] | None,
-        *,
-        chunk_size: int | None = None,
-        preload_nchunks: int | None = None,
-        batch_size: int | None = None,
-        shuffle: bool | None = None,
-        drop_last: bool | None = None,
-    ) -> _CommonSamplerArgs:
-        """Handle the sampler arguments. Is used in the initializer."""
-        sampler_args = {
-            "chunk_size": chunk_size if chunk_size is not None else None,
-            "preload_nchunks": preload_nchunks if preload_nchunks is not None else None,
-            "batch_size": batch_size if batch_size is not None else None,
-            "shuffle": shuffle if shuffle is not None else None,
-            "drop_last": drop_last if drop_last is not None else None,
-        }
-        # Validate mutually exclusive arguments when custom sampler provided
-        if batch_sampler is not None:
-            provided_args = [name for name, val in sampler_args.items() if val is not None]
-            if provided_args:
-                raise ValueError(
-                    f"Cannot specify {', '.join(provided_args)} when providing a custom sampler. "
-                    "These parameters are controlled by the sampler."
-                )
-
-            return _CommonSamplerArgs(
-                batch_size=self._batch_size,  # Loader is going to use this later
-                chunk_size=self._chunk_size,  # Loader is going to use this later
-                preload_nchunks=self._preload_nchunks,  # Loader is going to use this later
-                shuffle=self._shuffle,  # not going to be used
-                drop_last=self._drop_last,  # not going to be used
-            )
-        # Apply defaults when no custom sampler
-        return _CommonSamplerArgs(
-            chunk_size=chunk_size if chunk_size is not None else self._chunk_size,
-            preload_nchunks=preload_nchunks if preload_nchunks is not None else self._preload_nchunks,
-            batch_size=batch_size if batch_size is not None else self._batch_size,
-            shuffle=shuffle if shuffle is not None else self._shuffle,
-            drop_last=drop_last if drop_last is not None else self._drop_last,
-        )
+        self._batch_sampler = None
 
     def __len__(self) -> int:
         return self.n_obs
@@ -291,7 +234,7 @@ class Loader[
         -------
             The number of variables.
         """
-        if not self._shapes:
+        if len(self._shapes) == 0:
             raise ValueError("No datasets added yet")
         return self._shapes[0][1]
 
@@ -353,15 +296,7 @@ class Loader[
             obs
                 :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
 
-        Raises
-        ------
-        RuntimeError
-            If a sampler has already been set via :meth:`set_sampler`.
         """
-        if self._locked:
-            raise RuntimeError(
-                "Cannot add datasets after set_sampler() has been called. Add all datasets before setting the sampler."
-            )
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
                 raise ValueError(
@@ -391,6 +326,8 @@ class Loader[
             self._obs += [obs]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
             self._obs = [obs]
+        if self._batch_sampler is not None:
+            self._batch_sampler.validate(self.n_obs)
         return self
 
     def set_sampler(self, sampler: Sampler[list[slice]]) -> Self:
@@ -403,22 +340,15 @@ class Loader[
         sampler
             A sampler that controls how data is batched and loaded.
 
-        Returns
-        -------
-        Self
-            The loader instance for method chaining.
-
-        Raises
-        ------
-        ValueError
-            If no datasets have been added yet, or if the sampler configuration
-            is invalid for the current n_obs.
         """
-        if not self._train_datasets:
+        if self._cannot_set_sampler:
+            raise ValueError(self._cannot_set_sampler_msg)
+        if len(self._train_datasets) == 0:
             raise ValueError("Cannot set sampler before adding datasets. Add datasets first.")
         sampler.validate(self.n_obs)
         self._batch_sampler = sampler
-        self._locked = True
+        # TODO: it must be ensured that the sampler args of Loader should not be used after this point.
+        # if not,this can lead to bugs in the future.
         return self
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
@@ -663,7 +593,7 @@ class Loader[
             self._batch_sampler
             if self._batch_sampler is not None
             else SliceSampler(
-                mask=slice(0, self.n_obs),
+                mask=slice(0, None),  # stop will be resolved in sample(n_obs)
                 batch_size=self._batch_size,
                 # Note: Loader uses chunk_size/preload_nchunks, Sampler uses slice_size/preload_nslices
                 preload_nslices=self._preload_nchunks,
@@ -693,7 +623,7 @@ class Loader[
 
         mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
 
-        for load_request in batch_sampler:
+        for load_request in batch_sampler.sample(self.n_obs):
             slices = load_request.slices
             splits = load_request.splits
             # Sampler yields a list of slices that sum to batch_size

@@ -42,12 +42,19 @@ class Sampler[T_co](ABC):
     """
 
     @abstractmethod
-    def __iter__(self) -> Iterator[LoadRequest[T_co]]:
-        """Iterator over load requests."""
+    def sample(self, n_obs: int) -> Iterator[LoadRequest[T_co]]:
+        """Sample load requests given the total number of observations.
 
-    @abstractmethod
-    def __len__(self) -> int:
-        """Return the total number of iterations to exhaust the sampler."""
+        Parameters
+        ----------
+        n_obs
+            The total number of observations available.
+
+        Yields
+        ------
+        LoadRequest
+            Load requests for batching data.
+        """
 
     @property
     @abstractmethod
@@ -126,10 +133,11 @@ class SliceSampler(Sampler[list[slice]]):
     ):
         start = mask.start if mask.start is not None else 0
         stop = mask.stop
-        if stop is None:
-            raise ValueError("mask.stop must be specified")
-        if start < 0 or start >= stop:
-            raise ValueError("mask.start must be >= 0 and < mask.stop")
+
+        if start < 0:
+            raise ValueError("mask.start must be >= 0")
+        if stop is not None and start >= stop:
+            raise ValueError("mask.start must be < mask.stop when mask.stop is specified")
 
         check_lt_1([slice_size, preload_nslices], ["Slice size", "Preload slices"])
         preload_size = slice_size * preload_nslices
@@ -140,23 +148,14 @@ class SliceSampler(Sampler[list[slice]]):
                 f"Got batch_size={batch_size}, but max is {preload_size}."
             )
 
-        n_obs = stop - start
-        n_batches = math.floor(n_obs / batch_size) if drop_last else math.ceil(n_obs / batch_size)
-        total_yielded_obs = n_batches * batch_size
-
         self._rng = np.random.default_rng() if rng is None else rng
-        self._n_iters = math.ceil(total_yielded_obs / (slice_size * preload_nslices))
-        self._n_slices = math.ceil(n_obs / slice_size)
         self._batch_size = batch_size
         self._slice_size = slice_size
         self._shuffle = shuffle
         self._preload_nslices = preload_nslices
-        self._mask = slice(start, stop)
+        self._mask = slice(start, stop)  # stop can be None
         self._drop_last = drop_last
         self._worker_handle: WorkerHandle | None = None
-
-    def __len__(self) -> int:
-        return self._n_iters
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -171,15 +170,44 @@ class SliceSampler(Sampler[list[slice]]):
         ValueError
             If the sampler configuration is invalid for the given n_obs.
         """
-        if self._mask.stop > n_obs:
+        start = self._mask.start if self._mask.start is not None else 0
+        stop = self._mask.stop if self._mask.stop is not None else n_obs
+
+        if stop > n_obs:
             raise ValueError(
-                f"Sampler mask.stop ({self._mask.stop}) exceeds loader n_obs ({n_obs}). "
+                f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
                 "The sampler range must be within the loader's observations."
             )
+        if start >= stop:
+            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
 
-    def __iter__(self) -> Iterator[LoadRequest[list[slice]]]:
-        # Compute slices directly from mask range
-        slices = self._compute_slices()
+    def sample(self, n_obs: int) -> Iterator[LoadRequest[list[slice]]]:
+        """Sample load requests given the total number of observations.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations available.
+
+        Yields
+        ------
+        LoadRequest
+            Load requests for batching data.
+        """
+        # Resolve mask with n_obs
+        start = self._mask.start if self._mask.start is not None else 0
+        stop = self._mask.stop if self._mask.stop is not None else n_obs
+
+        if stop > n_obs:
+            raise ValueError(
+                f"Sampler mask.stop ({stop}) exceeds n_obs ({n_obs}). "
+                "The sampler range must be within the available observations."
+            )
+        if start >= stop:
+            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+
+        # Compute slices directly from resolved mask range
+        slices = self._compute_slices(start, stop)
         n_slices = len(slices)
 
         # Create slice indices for shuffling
@@ -197,9 +225,9 @@ class SliceSampler(Sampler[list[slice]]):
         n_leftover_indices = 0
 
         for i in range(n_slice_iters):
-            start = i * self._preload_nslices
-            end = min(start + self._preload_nslices, n_slices_for_worker)
-            indices_to_load = slice_indices[start:end]
+            preload_start = i * self._preload_nslices
+            preload_end = min(preload_start + self._preload_nslices, n_slices_for_worker)
+            indices_to_load = slice_indices[preload_start:preload_end]
 
             # Compute total observations to load from selected slices
             total_obs_to_load = sum(slices[idx].stop - slices[idx].start for idx in indices_to_load)
@@ -261,11 +289,11 @@ class SliceSampler(Sampler[list[slice]]):
             self._worker_handle.shuffle(integers)
         return integers
 
-    def _compute_slices(self) -> list[slice]:
-        """Compute slices directly from mask range."""
-        starts = list(range(self._mask.start, self._mask.stop, self._slice_size))
-        stops = starts[1:] + [self._mask.stop]
-        return [slice(start, stop) for start, stop in zip(starts, stops, strict=False)]
+    def _compute_slices(self, start: int, stop: int) -> list[slice]:
+        """Compute slices from start and stop indices."""
+        starts = list(range(start, stop, self._slice_size))
+        stops = starts[1:] + [stop]
+        return [slice(s, e) for s, e in zip(starts, stops, strict=False)]
 
     @property
     def batch_size(self) -> int | None:
