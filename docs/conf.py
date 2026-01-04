@@ -143,6 +143,8 @@ nitpick_ignore = [
 qualname_overrides = {
     "zarr.core.array.Array": "zarr.Array",
     "zarr.core.group.Group": "zarr.Group",
+    "annbatch.sampler._sampler.LoadRequest": "annbatch.sampler.LoadRequest",
     "annbatch.sampler._sampler.SliceSampler": "annbatch.sampler.SliceSampler",
     "annbatch.sampler._sampler.Sampler": "annbatch.sampler.Sampler",
 }
+
