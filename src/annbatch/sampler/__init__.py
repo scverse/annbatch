@@ -1,4 +1,4 @@
-"""Sampler classes for efficient slice-based data access from Zarr stores.
+"""Sampler classes for efficient slice-based data access.
 
 This module provides samplers optimized for slice-based data access patterns:
 
