@@ -39,7 +39,7 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-class CommonSamplerArgs(NamedTuple):
+class _CommonSamplerArgs(NamedTuple):
     """Common arguments with the sampler class.
 
     Note: The Loader uses `chunk_size` and `preload_nchunks` terminology,
@@ -59,7 +59,7 @@ class Loader[
     InputInMemoryArray: InputInMemoryArray_T,
     OutputInMemoryArray: OutputInMemoryArray_T,
 ](IterableDataset):
-    """A loader for on-disk anndata stores.
+    """A loader for on-disk data anndata stores.
 
     This loader batches together slice requests to the underlying stores to achieve higher performance.
     This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
@@ -123,7 +123,7 @@ class Loader[
     _obs: list[pd.DataFrame] | None = None
     _return_index: bool = False
     _shapes: list[tuple[int, int]]
-    _preload_to_gpu: bool
+    _preload_to_gpu: bool = True
     _to_torch: bool = True
     _batch_sampler: Sampler[list[slice]] | None
     _dataset_elem_cache: dict[int, CSRDatasetElems]
@@ -199,7 +199,7 @@ class Loader[
         batch_size: int | None = None,
         shuffle: bool | None = None,
         drop_last: bool | None = None,
-    ) -> CommonSamplerArgs:
+    ) -> _CommonSamplerArgs:
         """Handle the sampler arguments. Is used in the initializer."""
         sampler_args = {
             "chunk_size": chunk_size if chunk_size is not None else None,
@@ -217,7 +217,7 @@ class Loader[
                     "These parameters are controlled by the sampler."
                 )
 
-            return CommonSamplerArgs(
+            return _CommonSamplerArgs(
                 batch_size=self._batch_size,  # Loader is going to use this later
                 chunk_size=self._chunk_size,  # Loader is going to use this later
                 preload_nchunks=self._preload_nchunks,  # Loader is going to use this later
@@ -225,7 +225,7 @@ class Loader[
                 drop_last=self._drop_last,  # not going to be used
             )
         # Apply defaults when no custom sampler
-        return CommonSamplerArgs(
+        return _CommonSamplerArgs(
             chunk_size=chunk_size if chunk_size is not None else self._chunk_size,
             preload_nchunks=preload_nchunks if preload_nchunks is not None else self._preload_nchunks,
             batch_size=batch_size if batch_size is not None else self._batch_size,
@@ -654,9 +654,10 @@ class Loader[
         ------
             A batch of data along with its labels and index (both optional).
         """
-        if not self._train_datasets:
-            raise ValueError("Cannot iterate: no datasets have been added")
-
+        check_lt_1(
+            [len(self._train_datasets), self.n_obs],
+            ["Number of datasets", "Number of observations"],
+        )
         # Create the sampler now that n_obs is known
         batch_sampler: Sampler[list[slice]] = (
             self._batch_sampler
@@ -764,10 +765,6 @@ class Loader[
                 in_memory_indices=in_memory_indices,
                 split=np.arange(in_memory_data.shape[0]),
             )
-
-    # -------------------------------------------------------------------------
-    # Iteration helper methods (used by __iter__)
-    # -------------------------------------------------------------------------
 
     def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
         """Convert fetched chunks to output array format (CSR or ndarray)."""
