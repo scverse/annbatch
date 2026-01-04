@@ -4,10 +4,7 @@ This module provides samplers optimized for slice-based data access patterns:
 
 - :class:`~annbatch.sampler.Sampler`: Abstract base class for all samplers.
 - :class:`~annbatch.sampler.SliceSampler`: Slice-based access for full or
-  partial dataset iteration. Supports sharding via ``mask`` parameter
-  for distributed training.
-- :class:`~annbatch.sampler.CategoricalSampler`: Category-stratified sampling
-  that first samples a category, then samples within that category.
+  partial dataset iteration.
 
 """
 
