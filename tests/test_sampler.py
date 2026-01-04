@@ -433,14 +433,18 @@ class MockWorkerHandle:
 
     def __init__(self, worker_id: int, num_workers: int, seed: int = 42):
         self.worker_id = worker_id
-        self.num_workers = num_workers
+        self._num_workers = num_workers
         self._rng = np.random.default_rng(seed)  # Same seed = consistent shuffle across workers
+
+    @property
+    def num_workers(self) -> int:
+        return self._num_workers
 
     def shuffle(self, obj):
         self._rng.shuffle(obj)
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        chunks_split = np.array_split(obj, self.num_workers)
+        chunks_split = np.array_split(obj, self._num_workers)
         return chunks_split[self.worker_id]
 
 
@@ -539,6 +543,40 @@ class TestSliceSamplerWithWorkers:
                 drop_last=False,
             )
             sampler.set_worker_handle(worker_handle)
+
+    def test_single_worker_no_divisibility_check(self):
+        """Test that non-divisible config with num_workers=1 does NOT raise."""
+        worker_handle = MockWorkerHandle(0, num_workers=1)
+
+        # This would raise with num_workers > 1, but should be fine with 1
+        sampler = SliceSampler(
+            mask=slice(0, 100),
+            batch_size=7,  # 10 * 2 = 20, not divisible by 7
+            slice_size=10,
+            preload_nslices=2,
+            drop_last=False,
+        )
+        # Should NOT raise - single worker doesn't need divisibility
+        sampler.set_worker_handle(worker_handle)
+
+    def test_single_worker_drop_last_no_warning(self):
+        """Test that drop_last=True with num_workers=1 does NOT warn."""
+        import warnings
+
+        worker_handle = MockWorkerHandle(0, num_workers=1)
+
+        sampler = SliceSampler(
+            mask=slice(0, 100),
+            batch_size=7,
+            slice_size=10,
+            preload_nslices=2,
+            drop_last=True,
+        )
+
+        # Should NOT warn - single worker doesn't have the multi-worker drop issue
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # Turn warnings into errors
+            sampler.set_worker_handle(worker_handle)  # Should not raise
 
     def test_two_workers_drop_last_drops_per_worker(self):
         """Test drop_last=True drops only the final partial batch (intermediate partials are for carry-over)."""

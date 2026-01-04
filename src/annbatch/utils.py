@@ -109,6 +109,13 @@ class WorkerHandle:  # noqa: D101
             return get_worker_info()
         return None
 
+    @property
+    def num_workers(self) -> int:
+        """Return the number of workers, or 1 if not in a worker context."""
+        if self._worker_info is None:
+            return 1
+        return self._worker_info.num_workers
+
     @cached_property
     def _rng(self):
         if self._worker_info is None:

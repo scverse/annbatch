@@ -232,25 +232,26 @@ class SliceSampler(Sampler[list[slice]]):
             )
 
     def set_worker_handle(self, worker_handle: WorkerHandle) -> None:
-        # Worker mode validation
-        if not self._drop_last and self._preload_nslices * self._slice_size % self._batch_size != 0:
-            raise ValueError(
-                f"When using DataLoader workers with drop_last=False, "
-                f"(slice_size * preload_nslices) must be divisible by batch_size. "
-                f"Got {self._preload_nslices * self._slice_size} % {self._batch_size} = "
-                f"{self._preload_nslices * self._slice_size % self._batch_size}. "
-                f"Set drop_last=True to allow non-divisible configs."
-            )
-        if self._drop_last:
-            import warnings
+        # Worker mode validation - only check when there are multiple workers
+        if worker_handle.num_workers > 1:
+            if not self._drop_last and self._preload_nslices * self._slice_size % self._batch_size != 0:
+                raise ValueError(
+                    f"When using DataLoader workers with drop_last=False, "
+                    f"(slice_size * preload_nslices) must be divisible by batch_size. "
+                    f"Got {self._preload_nslices * self._slice_size} % {self._batch_size} = "
+                    f"{self._preload_nslices * self._slice_size % self._batch_size}. "
+                    f"Set drop_last=True to allow non-divisible configs."
+                )
+            if self._drop_last:
+                import warnings
 
-            warnings.warn(
-                "With drop_last=True and multiple workers, up to "
-                "(batch_size - 1) * num_workers observations may be dropped "
-                "(one partial batch per worker).",
-                UserWarning,
-                stacklevel=2,
-            )
+                warnings.warn(
+                    "With drop_last=True and multiple workers, up to "
+                    f"(batch_size - 1) * num_workers = {(self._batch_size - 1) * worker_handle.num_workers} "
+                    "observations may be dropped (one partial batch per worker).",
+                    UserWarning,
+                    stacklevel=2,
+                )
         self._worker_handle = worker_handle
 
     def supports_workers(self) -> bool:
