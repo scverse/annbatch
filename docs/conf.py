@@ -138,6 +138,8 @@ nitpick_ignore = [
     ("py:class", "annbatch.sampler._sampler.Sampler"),
     # Internal utility classes not part of public API
     ("py:class", "annbatch.utils.WorkerHandle"),
+    # LoadRequest is a return type from samplers, not user-instantiated
+    ("py:class", "annbatch.sampler.LoadRequest"),
 ]
 
 qualname_overrides = {
