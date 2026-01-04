@@ -12,7 +12,7 @@ class TestSliceSamplerBasic:
     """Tests for basic SliceSampler functionality."""
 
     def test_full_dataset(self):
-        """Test sampler covers full dataset when no start/end specified."""
+        """Test sampler covers full dataset"""
         n_obs = 100
         slice_size = 10
         preload_nslices = 2
@@ -355,15 +355,15 @@ class TestSliceSamplerWithShuffle:
 class TestSliceSamplerEdgeCases:
     """Tests for edge cases."""
 
-    def test_very_small_shard(self):
-        """Test with a very small shard (smaller than batch_size)."""
+    def test_very_small_mask(self):
+        """Test with a very small mask (smaller than batch_size and slice_size)."""
         slice_size = 10
         start = 95
         stop = 100  # Only 5 observations
 
         sampler = SliceSampler(
             mask=slice(start, stop),
-            batch_size=10,  # Larger than shard size
+            batch_size=10,  # Larger than mask size
             slice_size=slice_size,
             preload_nslices=1,
         )
