@@ -631,14 +631,9 @@ class Loader[
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
             chunks_converted = self._accumulate_chunks(chunks)
-            # Accumulate labels if necessary
-            obs: None | list[pd.DataFrame] = None
-            if self._obs is not None:
-                obs = self._accumulate_labels(dataset_index_to_slices)
-            # Accumulate indices if necessary
-            indices: None | list[np.ndarray] = None
-            if self._return_index:
-                indices = self._accumulate_indices(slices)
+            # Accumulate labels and indices if possible
+            obs: None | list[pd.DataFrame] = self._maybe_accumulate_labels(dataset_index_to_slices)
+            indices: None | list[np.ndarray] = self._maybe_accumulate_indices(slices)
 
             # Do batch returns, handling leftover data as necessary
             in_memory_data = (
@@ -712,16 +707,21 @@ class Loader[
                 result.append(self._np_module.asarray(chunk))
         return result
 
-    def _accumulate_labels(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> list[pd.DataFrame]:
-        """Gather obs labels for the loaded slices."""
-        assert self._obs is not None  # Caller ensures this
+    def _maybe_accumulate_labels(
+        self, dataset_index_to_slices: OrderedDict[int, list[slice]]
+    ) -> list[pd.DataFrame] | None:
+        """Gather obs labels for the loaded slices if possible."""
+        if self._obs is None:
+            return None
         return [
             self._obs[idx].iloc[np.concatenate([np.arange(s.start, s.stop) for s in slices])]
             for idx, slices in dataset_index_to_slices.items()
         ]
 
-    def _accumulate_indices(self, slices: list[slice]) -> list[np.ndarray]:
-        """Gather original indices for the loaded slices."""
+    def _maybe_accumulate_indices(self, slices: list[slice]) -> list[np.ndarray] | None:
+        """Gather original indices for the loaded slices if possible."""
+        if self._return_index is False:
+            return None
         dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=True)
         return [
             np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[idx]])
@@ -743,10 +743,9 @@ class Loader[
             labels = concatenated_obs.iloc[split]
         if self._return_index and in_memory_indices is not None:
             index = in_memory_indices[split]
+        data = in_memory_data[split]
         if self._to_torch:
-            data = to_torch(in_memory_data[split], self._preload_to_gpu)
-        else:
-            data = in_memory_data[split]
+            data = to_torch(data, self._preload_to_gpu)
         return {"data": data, "labels": labels, "index": index}
 
     def _prepare_leftover_data(
