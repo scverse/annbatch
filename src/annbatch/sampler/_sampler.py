@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -37,6 +38,23 @@ class Sampler(ABC):
     """
 
     @abstractmethod
+    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
+        """Implementation of the sample method.
+
+        This method is called by the sample method to perform the actual sampling after
+        the worker handle is set.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations available.
+
+        Yields
+        ------
+        LoadRequest
+            Load requests for batching data.
+        """
+
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests given the total number of observations.
 
@@ -50,6 +68,8 @@ class Sampler(ABC):
         LoadRequest
             Load requests for batching data.
         """
+        worker_handle = self.worker_handle
+        yield from self._sample(n_obs, worker_handle)
 
     @property
     @abstractmethod
@@ -74,14 +94,10 @@ class Sampler(ABC):
             If the sampler configuration is invalid for the given n_obs.
         """
 
-    def set_worker_handle(self, worker_handle: WorkerHandle) -> None:
-        """Set the worker handle if desired. If the sampler doesn't support workers, this is a no-op."""
-        del worker_handle  # to explicitly show that we don't use the worker handle
-        return None
-
-    def supports_workers(self) -> bool:
-        """Return whether the sampler supports workers."""
-        return False
+    @property
+    @abstractmethod
+    def worker_handle(self) -> WorkerHandle | None:
+        """The worker handle if the sampler supports workers."""
 
 
 class SliceSampler(Sampler):
@@ -158,7 +174,6 @@ class SliceSampler(Sampler):
         self._preload_nslices = preload_nslices
         self._mask = slice(start, stop)  # stop can be None
         self._drop_last = drop_last
-        self._worker_handle: WorkerHandle | None = None
 
     def _prepare_start_stop(self, n_obs: int) -> tuple[int, int]:
         """Prepare the start and stop indices for sampling."""
@@ -190,8 +205,8 @@ class SliceSampler(Sampler):
         """
         _ = self._prepare_start_stop(n_obs)  # ignore return only validate
 
-    def sample(self, n_obs: int) -> Iterator[LoadRequest[list[slice]]]:
-        """Sample load requests given the total number of observations.
+    def _sample(self, n_obs: int, worker_handle: WorkerHandle | None = None) -> Iterator[LoadRequest]:
+        """Implementation of the sample method.
 
         Parameters
         ----------
@@ -211,13 +226,13 @@ class SliceSampler(Sampler):
         n_slices = math.ceil((stop - start) / self._slice_size)
         slice_indices = np.arange(n_slices)
         if self._shuffle:
-            slice_indices = self._shuffle_integers(slice_indices)
+            slice_indices = self._shuffle_integers(slice_indices, worker_handle)
 
         slices = self._compute_slices(slice_indices, start, stop)
 
         # Worker sharding: each worker gets a disjoint subset of slices
-        if self._worker_handle is not None:
-            slice_indices = self._worker_handle.get_part_for_worker(slice_indices)
+        if worker_handle is not None:
+            slice_indices = worker_handle.get_part_for_worker(slice_indices)
 
         n_slices_for_worker = len(slice_indices)
         n_slice_iters = math.ceil(n_slices_for_worker / self._preload_nslices) if n_slices_for_worker > 0 else 0
@@ -258,20 +273,27 @@ class SliceSampler(Sampler):
                 splits=splits,
             )
 
-    def set_worker_handle(self, worker_handle: WorkerHandle) -> None:
+    @property
+    def worker_handle(self) -> WorkerHandle | None:
         # Worker mode validation - only check when there are multiple workers
-        if worker_handle.num_workers > 1 and not self._drop_last:
+        worker_handle = None
+        if find_spec("torch"):
+            from torch.utils.data import get_worker_info
+
+            from annbatch.utils import WorkerHandle
+
+            if get_worker_info() is not None:
+                worker_handle = WorkerHandle()
+
+        if worker_handle is not None and worker_handle.num_workers > 1 and not self._drop_last:
             raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
-        self._worker_handle = worker_handle
+        return worker_handle
 
-    def supports_workers(self) -> bool:
-        return True
-
-    def _shuffle_integers(self, integers: np.ndarray) -> np.ndarray:
-        if self._worker_handle is None:
+    def _shuffle_integers(self, integers: np.ndarray, worker_handle: WorkerHandle | None = None) -> np.ndarray:
+        if worker_handle is None:
             self._rng.shuffle(integers)
         else:
-            self._worker_handle.shuffle(integers)
+            worker_handle.shuffle(integers)
         return integers
 
     def _compute_slices(self, slice_indices: np.ndarray, start: int, stop: int) -> list[slice]:
@@ -288,7 +310,6 @@ class SliceSampler(Sampler):
         offsets[0] = start
         if (incomplete_slice_size := (stop - start) % self._slice_size) == 0:
             incomplete_slice_size = self._slice_size
-        # offsets[pivot_index + 1] =
         offsets[pivot_index + 1] = incomplete_slice_size
         offsets = np.cumsum(offsets)
 

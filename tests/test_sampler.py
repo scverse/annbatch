@@ -489,10 +489,8 @@ class TestSliceSamplerWithWorkers:
                 preload_nslices=preload_nslices,
                 drop_last=True,
             )
-            sampler.set_worker_handle(worker_handle)
-
             worker_indices = set()
-            for load_request in sampler.sample(n_obs):
+            for load_request in sampler._sample(n_obs, worker_handle):
                 for s in load_request.slices:
                     worker_indices.update(range(s.start, s.stop))
             all_worker_indices.append(worker_indices)
@@ -518,12 +516,10 @@ class TestSliceSamplerWithWorkers:
                 batch_size=batch_size,
                 slice_size=slice_size,
                 preload_nslices=preload_nslices,
-                drop_last=True,
             )
-            sampler.set_worker_handle(worker_handle)
 
             worker_indices = set()
-            for load_request in sampler.sample(n_obs):
+            for load_request in sampler._sample(n_obs, worker_handle):
                 for s in load_request.slices:
                     worker_indices.update(range(s.start, s.stop))
             all_worker_indices.append(worker_indices)
@@ -550,7 +546,7 @@ class TestSliceSamplerWithWorkers:
                 preload_nslices=2,
                 drop_last=False,
             )
-            sampler.set_worker_handle(worker_handle)
+            sampler._sample(100, worker_handle)
 
     def test_two_workers_drop_last_drops_per_worker(self):
         """Test drop_last=True drops only the final partial batch (intermediate partials are for carry-over)."""
@@ -569,9 +565,8 @@ class TestSliceSamplerWithWorkers:
                 preload_nslices=preload_nslices,
                 drop_last=True,
             )
-            sampler.set_worker_handle(worker_handle)
 
-            all_requests = list(sampler.sample(n_obs))
+            all_requests = list(sampler._sample(n_obs, worker_handle))
             # On the final iteration, all splits should be batch_size
             # (the final partial is dropped when drop_last=True)
             if all_requests:

@@ -133,10 +133,7 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
-    # Internal utility classes not part of public API
-    ("py:class", "annbatch.utils.WorkerHandle"),
-    # LoadRequest is a return type from samplers, not user-instantiated
-    ("py:class", "annbatch.sampler.LoadRequest"),
+    ("py:class", "annbatch.types.TypeAliasType")
 ]
 
 qualname_overrides = {
@@ -146,4 +143,3 @@ qualname_overrides = {
     "annbatch.sampler._sampler.SliceSampler": "annbatch.sampler.SliceSampler",
     "annbatch.sampler._sampler.Sampler": "annbatch.sampler.Sampler",
 }
-

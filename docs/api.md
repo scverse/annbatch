@@ -38,6 +38,7 @@
 
     sampler.Sampler
     sampler.SliceSampler
+    sampler.LoadRequest
 ```
 
 (types)=

@@ -608,18 +608,9 @@ class Loader[
         in_memory_data = None
         concatenated_obs = None
         in_memory_indices = None
-        batch_size = batch_sampler.batch_size
 
         # Detect if we're in a PyTorch worker context and configure the sampler
         # this has to happen here because the workers are spawned here
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
-
-            from annbatch.utils import WorkerHandle
-
-            if get_worker_info() is not None:
-                worker_handle = WorkerHandle()
-                batch_sampler.set_worker_handle(worker_handle)
 
         mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
 
@@ -635,61 +626,25 @@ class Loader[
             obs: None | list[pd.DataFrame] = self._maybe_accumulate_labels(dataset_index_to_slices)
             indices: None | list[np.ndarray] = self._maybe_accumulate_indices(slices)
 
-            # Do batch returns, handling leftover data as necessary
-            in_memory_data = (
-                mod.vstack(chunks_converted)
-                if in_memory_data is None
-                else mod.vstack([in_memory_data, *chunks_converted])
-            )
+            in_memory_data = mod.vstack(chunks_converted)
             if self._obs is not None and obs is not None:
-                concatenated_obs = pd.concat(obs) if concatenated_obs is None else pd.concat([concatenated_obs, *obs])
+                concatenated_obs = pd.concat(obs)
             if self._return_index and indices is not None:
-                in_memory_indices = (
-                    np.concatenate(indices)
-                    if in_memory_indices is None
-                    else np.concatenate([in_memory_indices, *indices])
-                )
+                in_memory_indices = np.concatenate(indices)
 
-            # yield all full batches (all but possibly the last)
-            for split in splits[:-1]:
+            # The DataLoader (via the Fetcher) is the "manager" that observes the
+            # dataset's output and decides whether to discard it.
+            # either dataloader should be responsible for discarding the leftover data,
+            # or the loader should be responsible for discarding the leftover data.
+            # it shouldn't be here.
+
+            for split in splits:
                 yield self._prepare_output(
                     in_memory_data=in_memory_data,
                     concatenated_obs=concatenated_obs,
                     in_memory_indices=in_memory_indices,
                     split=split,
                 )
-
-            # handle the last split
-            last_split = splits[-1]
-            if len(last_split) == batch_size:
-                # full batch, yield and reset
-                yield self._prepare_output(
-                    in_memory_data=in_memory_data,
-                    concatenated_obs=concatenated_obs,
-                    in_memory_indices=in_memory_indices,
-                    split=last_split,
-                )
-                in_memory_data = None
-                concatenated_obs = None
-                in_memory_indices = None
-            else:
-                # partial batch, carry over for next iteration
-                in_memory_data, concatenated_obs, in_memory_indices = self._prepare_leftover_data(
-                    in_memory_data=in_memory_data,
-                    concatenated_obs=concatenated_obs,
-                    in_memory_indices=in_memory_indices,
-                    leftover_split=last_split,
-                )
-
-        # after sampler is exhausted, yield any remaining leftover
-        # only true when drop_last=False
-        if in_memory_data is not None:
-            yield self._prepare_output(
-                in_memory_data=in_memory_data,
-                concatenated_obs=concatenated_obs,
-                in_memory_indices=in_memory_indices,
-                split=np.arange(in_memory_data.shape[0]),
-            )
 
     def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
         """Convert fetched chunks to output array format (CSR or ndarray)."""
@@ -747,19 +702,3 @@ class Loader[
         if self._to_torch:
             data = to_torch(data, self._preload_to_gpu)
         return {"data": data, "labels": labels, "index": index}
-
-    def _prepare_leftover_data(
-        self,
-        *,
-        in_memory_data: OutputInMemoryArray_T,
-        concatenated_obs: pd.DataFrame | None,
-        in_memory_indices: np.ndarray | None,
-        leftover_split: np.ndarray,
-    ) -> tuple[OutputInMemoryArray_T, pd.DataFrame | None, np.ndarray | None]:
-        """Subset data/labels/indices to keep only leftover rows for next iter."""
-        in_memory_data = in_memory_data[leftover_split]
-        if concatenated_obs is not None:
-            concatenated_obs = concatenated_obs.iloc[leftover_split]
-        if in_memory_indices is not None:
-            in_memory_indices = in_memory_indices[leftover_split]
-        return in_memory_data, concatenated_obs, in_memory_indices
