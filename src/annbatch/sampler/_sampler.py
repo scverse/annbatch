@@ -18,31 +18,29 @@ if TYPE_CHECKING:
     from annbatch.utils import WorkerHandle
 
 
-T_co = TypeVar("T_co", covariant=True)
 
 
 @dataclass(frozen=True)
-class LoadRequest[T_co]:
+class LoadRequest:
     """Load request from sampler."""
 
-    # below the explanations are for when T_co = list[slice]
     # slices to load
     # a list of at most slice_size ranged slices
-    slices: T_co
+    slices: list[slice]
     # how the concatenation of slices should be split into batches
     # a list of splits, last one may be partial (< batch_size)
     # the loader carries over partial batches to the next iteration
     splits: list[np.ndarray]
 
 
-class Sampler[T_co](ABC):
+class Sampler(ABC):
     """Base sampler class.
 
     Samplers control how data is batched and loaded from the underlying datasets.
     """
 
     @abstractmethod
-    def sample(self, n_obs: int) -> Iterator[LoadRequest[T_co]]:
+    def sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests given the total number of observations.
 
         Parameters
@@ -89,7 +87,7 @@ class Sampler[T_co](ABC):
         return False
 
 
-class SliceSampler(Sampler[list[slice]]):
+class SliceSampler(Sampler):
     """Slice-based sampler for batched data access.
 
     Parameters
@@ -157,6 +155,21 @@ class SliceSampler(Sampler[list[slice]]):
         self._drop_last = drop_last
         self._worker_handle: WorkerHandle | None = None
 
+    def _prepare_start_stop(self, n_obs: int) -> tuple[int, int]:
+        """Prepare the start and stop indices for sampling."""
+        start = self._mask.start if self._mask.start is not None else 0
+        stop = self._mask.stop if self._mask.stop is not None else n_obs
+
+        if stop > n_obs:
+            raise ValueError(
+                f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
+                "The sampler range must be within the loader's observations."
+            )
+        if start >= stop:
+            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+
+        return start, stop
+
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
 
@@ -170,16 +183,7 @@ class SliceSampler(Sampler[list[slice]]):
         ValueError
             If the sampler configuration is invalid for the given n_obs.
         """
-        start = self._mask.start if self._mask.start is not None else 0
-        stop = self._mask.stop if self._mask.stop is not None else n_obs
-
-        if stop > n_obs:
-            raise ValueError(
-                f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
-                "The sampler range must be within the loader's observations."
-            )
-        if start >= stop:
-            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+        _ = self._prepare_start_stop(n_obs)  # ignore return only validate
 
     def sample(self, n_obs: int) -> Iterator[LoadRequest[list[slice]]]:
         """Sample load requests given the total number of observations.
@@ -194,17 +198,7 @@ class SliceSampler(Sampler[list[slice]]):
         LoadRequest
             Load requests for batching data.
         """
-        # Resolve mask with n_obs
-        start = self._mask.start if self._mask.start is not None else 0
-        stop = self._mask.stop if self._mask.stop is not None else n_obs
-
-        if stop > n_obs:
-            raise ValueError(
-                f"Sampler mask.stop ({stop}) exceeds n_obs ({n_obs}). "
-                "The sampler range must be within the available observations."
-            )
-        if start >= stop:
-            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+        start, stop = self._prepare_start_stop(n_obs)
 
         # Compute slices directly from resolved mask range
         slices = self._compute_slices(start, stop)
@@ -293,7 +287,7 @@ class SliceSampler(Sampler[list[slice]]):
         """Compute slices from start and stop indices."""
         starts = list(range(start, stop, self._slice_size))
         stops = starts[1:] + [stop]
-        return [slice(s, e) for s, e in zip(starts, stops, strict=False)]
+        return [slice(s, e) for s, e in zip(starts, stops, strict=True)]
 
     @property
     def batch_size(self) -> int | None:
