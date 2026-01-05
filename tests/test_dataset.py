@@ -136,13 +136,6 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     50,
                     preload_to_gpu,
                 ],  # batch size equal to in-memory size loading
-                [
-                    10,
-                    5,
-                    open_func,
-                    14,
-                    preload_to_gpu,
-                ],  # batch size does not divide in memory size evenly
             ]
         ]
     ],
@@ -221,6 +214,53 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
+@pytest.mark.parametrize(
+    "open_func",
+    [
+        pytest.param(
+            open_sparse,
+            id="sparse",
+        ),
+        pytest.param(
+            open_dense,
+            id="dense",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "preload_to_gpu",
+    [
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                find_spec("cupy") is None,
+                reason="need cupy installed",
+            ),
+        ),
+        pytest.param(False, id="cpu"),
+    ],
+)
+def test_batch_size_does_not_divide_evenly_fails(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    open_func: Callable[[Path], Data],
+    preload_to_gpu: bool,
+):
+    """Test that it fails if batch_size does not divide evenly into chunk_size * preload_nchunks."""
+    # chunk_size=10, preload_nchunks=5 -> in-memory size = 50
+    # batch_size=14 does not divide evenly into 50
+    ds = Loader(
+        shuffle=False,
+        chunk_size=10,
+        preload_nchunks=5,
+        batch_size=14,
+        preload_to_gpu=preload_to_gpu,
+        to_torch=False,
+    )
+    ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
+    with pytest.raises(ValueError, match="must be divisible by batch_size"):
+        next(iter(ds))
+
+
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
 @pytest.mark.parametrize(
     "preload_to_gpu",
@@ -248,7 +288,7 @@ def test_to_torch(
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
-        batch_size=42,
+        batch_size=25,
         preload_to_gpu=preload_to_gpu,
         return_index=True,
         to_torch=True,
@@ -263,7 +303,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path])
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
-        batch_size=42,
+        batch_size=25,
         preload_to_gpu=False,
         return_index=True,
         drop_last=True,
@@ -387,7 +427,7 @@ def test_default_data_structures(
 ):
     # format is a smoke test for sparse
     ds = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, **kwargs
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, **kwargs
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]

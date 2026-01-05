@@ -37,15 +37,15 @@ class TestSliceSamplerBasic:
         n_obs = 100
         slice_size = 10
         preload_nslices = 2
-        batch_size = 7
+        batch_size = 5
 
-        # Example with these params (slice_size=10, preload_nslices=2, batch_size=7):
         # Each iter loads slice_size * preload_nslices = 20 obs
-        # Iter 1: 20 obs → [7, 7, 6], leftover=6
-        # Iter 2: 20 + 6 = 26 → [7, 7, 7, 5], leftover=5
-        # Iter 3: 20 + 5 = 25 → [7, 7, 7, 4], leftover=4
-        # Iter 4: 20 + 4 = 24 → [7, 7, 7, 3], leftover=3
-        # Iter 5: 20 + 3 = 23 → [7, 7, 7, 2], final partial yielded
+        # Iter 1: 20 obs → [5, 5, 5, 5]
+        # Iter 2: 20 obs → [5, 5, 5, 5]
+        # Iter 3: 20 obs → [5, 5, 5, 5]
+        # Iter 4: 20 obs → [5, 5, 5, 5]
+        # Iter 5: 20 obs → [5, 5, 5, 5]
+
         import math
 
         obs_per_iter = slice_size * preload_nslices
@@ -127,8 +127,8 @@ class TestSliceSamplerMaskStart:
 
     def test_mask_start_near_end(self):
         """Test mask.start near the end of dataset."""
-        n_obs = 100
-        slice_size = 10
+        n_obs = 120
+        slice_size = 12
         start = 90
 
         sampler = SliceSampler(
@@ -145,7 +145,6 @@ class TestSliceSamplerMaskStart:
 
         expected = set(range(start, n_obs))
         assert all_indices == expected
-        assert len(all_indices) == 10
 
 
 class TestSliceSamplerMaskStop:
@@ -477,7 +476,7 @@ class TestSliceSamplerWithWorkers:
         n_obs = 200
         slice_size = 10
         preload_nslices = 2
-        batch_size = 10  # 10 * 2 = 20, divisible by 10
+        batch_size = 10
         num_workers = 2
 
         all_worker_indices = []
@@ -488,6 +487,7 @@ class TestSliceSamplerWithWorkers:
                 batch_size=batch_size,
                 slice_size=slice_size,
                 preload_nslices=preload_nslices,
+                drop_last=True,
             )
             sampler.set_worker_handle(worker_handle)
 
@@ -507,7 +507,7 @@ class TestSliceSamplerWithWorkers:
         n_obs = 300
         slice_size = 10
         preload_nslices = 3
-        batch_size = 10  # 10 * 3 = 30, divisible by 10
+        batch_size = 10
         num_workers = 3
 
         all_worker_indices = []
@@ -518,6 +518,7 @@ class TestSliceSamplerWithWorkers:
                 batch_size=batch_size,
                 slice_size=slice_size,
                 preload_nslices=preload_nslices,
+                drop_last=True,
             )
             sampler.set_worker_handle(worker_handle)
 
@@ -537,20 +538,6 @@ class TestSliceSamplerWithWorkers:
             combined |= indices
         assert combined == set(range(n_obs))
 
-    def test_workers_drop_last_warns(self):
-        """Test that drop_last=True with workers emits warning."""
-        worker_handle = MockWorkerHandle(0, 2)
-
-        with pytest.warns(UserWarning, match="multiple workers"):
-            sampler = SliceSampler(
-                mask=slice(0, 100),
-                batch_size=7,  # Non-divisible
-                slice_size=10,
-                preload_nslices=2,
-                drop_last=True,
-            )
-            sampler.set_worker_handle(worker_handle)
-
     def test_workers_non_divisible_without_drop_last_raises(self):
         """Test that non-divisible config without drop_last raises ValueError."""
         worker_handle = MockWorkerHandle(0, 2)
@@ -565,59 +552,24 @@ class TestSliceSamplerWithWorkers:
             )
             sampler.set_worker_handle(worker_handle)
 
-    def test_single_worker_no_divisibility_check(self):
-        """Test that non-divisible config with num_workers=1 does NOT raise."""
-        worker_handle = MockWorkerHandle(0, num_workers=1)
-
-        # This would raise with num_workers > 1, but should be fine with 1
-        sampler = SliceSampler(
-            mask=slice(0, 100),
-            batch_size=7,  # 10 * 2 = 20, not divisible by 7
-            slice_size=10,
-            preload_nslices=2,
-            drop_last=False,
-        )
-        # Should NOT raise - single worker doesn't need divisibility
-        sampler.set_worker_handle(worker_handle)
-
-    def test_single_worker_drop_last_no_warning(self):
-        """Test that drop_last=True with num_workers=1 does NOT warn."""
-        import warnings
-
-        worker_handle = MockWorkerHandle(0, num_workers=1)
-
-        sampler = SliceSampler(
-            mask=slice(0, 100),
-            batch_size=7,
-            slice_size=10,
-            preload_nslices=2,
-            drop_last=True,
-        )
-
-        # Should NOT warn - single worker doesn't have the multi-worker drop issue
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")  # Turn warnings into errors
-            sampler.set_worker_handle(worker_handle)  # Should not raise
-
     def test_two_workers_drop_last_drops_per_worker(self):
         """Test drop_last=True drops only the final partial batch (intermediate partials are for carry-over)."""
         n_obs = 200
         slice_size = 10
         preload_nslices = 2
-        batch_size = 7  # Non-divisible: 20 / 7 = 2 full batches + 6 leftover per iter
+        batch_size = 5
         num_workers = 2
 
         for worker_id in range(num_workers):
             worker_handle = MockWorkerHandle(worker_id, num_workers)
-            with pytest.warns(UserWarning):
-                sampler = SliceSampler(
-                    mask=slice(0, n_obs),
-                    batch_size=batch_size,
-                    slice_size=slice_size,
-                    preload_nslices=preload_nslices,
-                    drop_last=True,
-                )
-                sampler.set_worker_handle(worker_handle)
+            sampler = SliceSampler(
+                mask=slice(0, n_obs),
+                batch_size=batch_size,
+                slice_size=slice_size,
+                preload_nslices=preload_nslices,
+                drop_last=True,
+            )
+            sampler.set_worker_handle(worker_handle)
 
             all_requests = list(sampler.sample(n_obs))
             # On the final iteration, all splits should be batch_size

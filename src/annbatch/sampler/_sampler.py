@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import math
-import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -16,8 +15,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from annbatch.utils import WorkerHandle
-
-
 
 
 @dataclass(frozen=True)
@@ -145,6 +142,14 @@ class SliceSampler(Sampler):
                 "batch_size cannot exceed slice_size * preload_nslices. "
                 f"Got batch_size={batch_size}, but max is {preload_size}."
             )
+        # TODO: These checks can be redundant since the Loader will also check them as well
+        # but the problem is these assumptions are also made in the Loader
+        # how do we handle this? (also holds for batch_size > preload_size)
+        if preload_size % batch_size != 0:
+            raise ValueError(
+                "slice_size * preload_nslices must be divisible by batch_size. "
+                f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
+            )
 
         self._rng = np.random.default_rng() if rng is None else rng
         self._batch_size = batch_size
@@ -201,13 +206,14 @@ class SliceSampler(Sampler):
         start, stop = self._prepare_start_stop(n_obs)
 
         # Compute slices directly from resolved mask range
-        slices = self._compute_slices(start, stop)
-        n_slices = len(slices)
 
         # Create slice indices for shuffling
+        n_slices = math.ceil((stop - start) / self._slice_size)
         slice_indices = np.arange(n_slices)
         if self._shuffle:
             slice_indices = self._shuffle_integers(slice_indices)
+
+        slices = self._compute_slices(slice_indices, start, stop)
 
         # Worker sharding: each worker gets a disjoint subset of slices
         if self._worker_handle is not None:
@@ -254,23 +260,8 @@ class SliceSampler(Sampler):
 
     def set_worker_handle(self, worker_handle: WorkerHandle) -> None:
         # Worker mode validation - only check when there are multiple workers
-        if worker_handle.num_workers > 1:
-            if not self._drop_last and self._preload_nslices * self._slice_size % self._batch_size != 0:
-                raise ValueError(
-                    f"When using DataLoader workers with drop_last=False, "
-                    f"(slice_size * preload_nslices) must be divisible by batch_size. "
-                    f"Got {self._preload_nslices * self._slice_size} % {self._batch_size} = "
-                    f"{self._preload_nslices * self._slice_size % self._batch_size}. "
-                    f"Set drop_last=True to allow non-divisible configs."
-                )
-            if self._drop_last:
-                warnings.warn(
-                    "With drop_last=True and multiple workers, up to "
-                    f"(batch_size - 1) * num_workers = {(self._batch_size - 1) * worker_handle.num_workers} "
-                    "observations may be dropped (one partial batch per worker).",
-                    UserWarning,
-                    stacklevel=2,
-                )
+        if worker_handle.num_workers > 1 and not self._drop_last:
+            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
         self._worker_handle = worker_handle
 
     def supports_workers(self) -> bool:
@@ -283,10 +274,26 @@ class SliceSampler(Sampler):
             self._worker_handle.shuffle(integers)
         return integers
 
-    def _compute_slices(self, start: int, stop: int) -> list[slice]:
-        """Compute slices from start and stop indices."""
-        starts = list(range(start, stop, self._slice_size))
-        stops = starts[1:] + [stop]
+    def _compute_slices(self, slice_indices: np.ndarray, start: int, stop: int) -> list[slice]:
+        """Compute slices from start and stop indices.
+
+        This function is used to compute the slices for the data to load.
+        The slices are computed such that the last slice is the incomplete slice if the total number of observations is not divisible by the slice size.
+        Supposed to also work with shuffled slice indices so that the last slice computed isn't always the incomplete slice.
+        """
+        n_slices = len(slice_indices)
+        pivot_index = slice_indices[-1]
+
+        offsets = np.ones(n_slices + 1, dtype=int) * self._slice_size
+        offsets[0] = start
+        if (incomplete_slice_size := (stop - start) % self._slice_size) == 0:
+            incomplete_slice_size = self._slice_size
+        # offsets[pivot_index + 1] =
+        offsets[pivot_index + 1] = incomplete_slice_size
+        offsets = np.cumsum(offsets)
+
+        starts = offsets[:-1][slice_indices]
+        stops = offsets[1:][slice_indices]
         return [slice(s, e) for s, e in zip(starts, stops, strict=True)]
 
     @property
