@@ -4,7 +4,6 @@ import warnings
 from dataclasses import dataclass
 from functools import cached_property
 from importlib.util import find_spec
-from itertools import islice
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
@@ -14,7 +13,7 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Generator
 
     from annbatch.types import OutputInMemoryArray_T
 
@@ -31,14 +30,6 @@ class CSRContainer:
     elems: tuple[np.ndarray, np.ndarray, np.ndarray]
     shape: tuple[int, int]
     dtype: np.dtype
-
-
-def _batched[T](iterable: Iterable[T], n: int) -> Generator[list[T], None, None]:
-    if n < 1:
-        raise ValueError("n must be >= 1")
-    it = iter(iterable)
-    while batch := list(islice(it, n)):
-        yield batch
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
@@ -117,6 +108,13 @@ class WorkerHandle:  # noqa: D101
 
             return get_worker_info()
         return None
+
+    @property
+    def num_workers(self) -> int:
+        """Return the number of workers, or 1 if not in a worker context."""
+        if self._worker_info is None:
+            return 1
+        return self._worker_info.num_workers
 
     @cached_property
     def _rng(self):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
 from importlib.util import find_spec
@@ -16,17 +15,9 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
+from annbatch.sampler import Sampler, SliceSampler
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
-from annbatch.utils import (
-    CSRContainer,
-    MultiBasicIndexer,
-    WorkerHandle,
-    _batched,
-    check_lt_1,
-    check_var_shapes,
-    split_given_size,
-    to_torch,
-)
+from annbatch.utils import CSRContainer, MultiBasicIndexer, check_lt_1, check_var_shapes, to_torch
 
 from .compat import IterableDataset
 
@@ -65,7 +56,9 @@ class Loader[
 
     If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
-    If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the fiven data type.
+    If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
+    When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
+    `shuffle`, and `drop_last` must not be set (they are controlled by the sampler).
 
     Parameters
     ----------
@@ -111,56 +104,77 @@ class Loader[
     _train_datasets: list[BackingArray]
     _obs: list[pd.DataFrame] | None = None
     _return_index: bool = False
-    _batch_size: int = 1
     _shapes: list[tuple[int, int]]
     _preload_to_gpu: bool = True
-    _drop_last: bool = False
     _to_torch: bool = True
-    _shuffle: bool
-    _preload_nchunks: int
-    _worker_handle: WorkerHandle
-    _chunk_size: int
     _dataset_elem_cache: dict[int, CSRDatasetElems]
+    _batch_sampler: Sampler[list[slice]] | None = None
+
+    # Default sampler args (used when no custom sampler provided)
+    _batch_size: int = 1
+    _drop_last: bool = False
+    _shuffle: bool = False
+    _preload_nchunks: int = 32
+    _chunk_size: int = 512
 
     def __init__(
         self,
         *,
-        chunk_size: int = 512,
-        preload_nchunks: int = 32,
-        shuffle: bool = True,
+        chunk_size: int | None = None,
+        preload_nchunks: int | None = None,
+        shuffle: bool | None = None,
         return_index: bool = False,
-        batch_size: int = 1,
+        batch_size: int | None = None,
         preload_to_gpu: bool = find_spec("cupy") is not None,
-        drop_last: bool = False,
+        drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
     ):
+        sampler_args = {
+            "chunk_size": chunk_size,
+            "preload_nchunks": preload_nchunks,
+            "batch_size": batch_size,
+            "shuffle": shuffle,
+            "drop_last": drop_last,
+        }
+        # if any is not None then set_sampler can't be called later.
+        self._cannot_set_sampler_msg = None
+        self._cannot_set_sampler = any(v is not None for v in sampler_args.values())
+        if self._cannot_set_sampler:
+            provided_args = [name for name, val in sampler_args.items() if val is not None]
+            self._cannot_set_sampler_msg = (
+                f"Cannot specify {', '.join(provided_args)} when providing a custom sampler. "
+                "These parameters are controlled by the sampler."
+            )
+            sampler_args_filtered = {k: v for k, v in sampler_args.items() if v is not None}
+            self._chunk_size = sampler_args_filtered.get("chunk_size", self._chunk_size)
+            self._preload_nchunks = sampler_args_filtered.get("preload_nchunks", self._preload_nchunks)
+            self._batch_size = sampler_args_filtered.get("batch_size", self._batch_size)
+            self._shuffle = sampler_args_filtered.get("shuffle", self._shuffle)
+            self._drop_last = sampler_args_filtered.get("drop_last", self._drop_last)
+
         check_lt_1(
             [
-                chunk_size,
-                preload_nchunks,
+                self._chunk_size,
+                self._preload_nchunks,
             ],
             ["Chunk size", "Preload chunks"],
         )
-        if batch_size > (chunk_size * preload_nchunks):
+        if self._batch_size > (self._chunk_size * self._preload_nchunks):
             raise NotImplementedError(
                 "Cannot yield batches bigger than the iterated in-memory size i.e., batch_size > (chunk_size * preload_nchunks)."
             )
         if to_torch and not find_spec("torch"):
-            raise ImportError("Could not find torch dependeny. Try `pip install torch`.")
+            raise ImportError("Could not find torch dependency. Try `pip install torch`.")
         if preload_to_gpu and not find_spec("cupy"):
             raise ImportError("Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.")
+
         self._return_index = return_index
-        self._batch_size = batch_size
         self._preload_to_gpu = preload_to_gpu
         self._to_torch = to_torch
-        self._drop_last = drop_last
-        self._chunk_size = chunk_size
-        self._preload_nchunks = preload_nchunks
-        self._shuffle = shuffle
-        self._worker_handle = WorkerHandle()
         self._train_datasets = []
         self._shapes = []
         self._dataset_elem_cache = {}
+        self._batch_sampler = None
 
     def __len__(self) -> int:
         return self.n_obs
@@ -220,6 +234,8 @@ class Loader[
         -------
             The number of variables.
         """
+        if len(self._shapes) == 0:
+            raise ValueError("No datasets added yet")
         return self._shapes[0][1]
 
     def add_anndatas(
@@ -279,6 +295,7 @@ class Loader[
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
                 :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
+
         """
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
@@ -309,6 +326,29 @@ class Loader[
             self._obs += [obs]
         elif obs is not None:  # labels dont exist yet, but are being added for the first time
             self._obs = [obs]
+        if self._batch_sampler is not None:
+            self._batch_sampler.validate(self.n_obs)
+        return self
+
+    def set_sampler(self, sampler: Sampler[list[slice]]) -> Self:
+        """Set the batch sampler for this loader.
+
+        Once a sampler is set, no more datasets can be added via :meth:`add_dataset`.
+
+        Parameters
+        ----------
+        sampler
+            A sampler that controls how data is batched and loaded.
+
+        """
+        if self._cannot_set_sampler:
+            raise ValueError(self._cannot_set_sampler_msg)
+        if len(self._train_datasets) == 0:
+            raise ValueError("Cannot set sampler before adding datasets. Add datasets first.")
+        sampler.validate(self.n_obs)
+        self._batch_sampler = sampler
+        # TODO: it must be ensured that the sampler args of Loader should not be used after this point.
+        # if not,this can lead to bugs in the future.
         return self
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
@@ -369,27 +409,14 @@ class Loader[
             A lookup between the dataset and its indexing slices, ordered by keys.
         """
         dataset_index_to_slices: defaultdict[int, list[slice]] = defaultdict(list)
-        for slice in slices:
-            for relative_obs_indices in self._get_relative_obs_indices(slice, use_original_space=use_original_space):
+        for slice_ in slices:
+            for relative_obs_indices in self._get_relative_obs_indices(slice_, use_original_space=use_original_space):
                 dataset_index_to_slices[relative_obs_indices[1]] += [relative_obs_indices[0]]
         keys = sorted(dataset_index_to_slices.keys())
         dataset_index_to_slices_sorted = OrderedDict()
         for k in keys:
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
-
-    def _get_chunks(self, chunk_size: int) -> np.ndarray:
-        """Get a potentially shuffled list of chunk ids, accounting for the fact that this dataset might be inside a worker.
-
-        Returns
-        -------
-            A :class:`numpy.ndarray` of chunk ids.
-        """
-        chunks = np.arange(math.ceil(self.n_obs / chunk_size))
-        if self._shuffle:
-            self._worker_handle.shuffle(chunks)
-
-        return self._worker_handle.get_part_for_worker(chunks)
 
     @singledispatchmethod
     async def _fetch_data(self, dataset: ZarrArray | CSRDatasetElems, slices: list[slice]) -> InputInMemoryArray:
@@ -561,107 +588,117 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
+        # Create the sampler now that n_obs is known
+        batch_sampler: Sampler[list[slice]] = (
+            self._batch_sampler
+            if self._batch_sampler is not None
+            else SliceSampler(
+                mask=slice(0, None),  # stop will be resolved in sample(n_obs)
+                batch_size=self._batch_size,
+                # Note: Loader uses chunk_size/preload_nchunks, Sampler uses slice_size/preload_nslices
+                preload_nslices=self._preload_nchunks,
+                slice_size=self._chunk_size,
+                shuffle=self._shuffle,
+                drop_last=self._drop_last,
+            )
+        )
+
         # In order to handle data returned where (chunk_size * preload_nchunks) mod batch_size != 0
         # we must keep track of the leftover data.
         in_memory_data = None
         concatenated_obs = None
         in_memory_indices = None
+
+        # Detect if we're in a PyTorch worker context and configure the sampler
+        # this has to happen here because the workers are spawned here
+
         mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
-        for chunk_indices in _batched(self._get_chunks(self._chunk_size), self._preload_nchunks):
-            slices = [
-                slice(
-                    index * self._chunk_size,
-                    min(self.n_obs, (index + 1) * self._chunk_size),
-                )
-                for index in chunk_indices
-            ]
-            dataset_index_to_slices = self._slices_to_slices_with_array_index(slices)
+
+        for load_request in batch_sampler.sample(self.n_obs):
+            slices = load_request.slices
+            splits = load_request.splits
+            # Sampler yields a list of slices that sum to batch_size
+            dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=False)
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
-            if any(isinstance(c, CSRContainer) for c in chunks):
-                chunks_converted: list[OutputInMemoryArray] = [
-                    self._sp_module.csr_matrix(
-                        tuple(self._np_module.asarray(e) for e in c.elems),
-                        shape=c.shape,
-                        dtype="float64" if self._preload_to_gpu else c.dtype,
-                    )
-                    for c in chunks
-                ]
-            else:
-                chunks_converted = [self._np_module.asarray(c) for c in chunks]
-            # Accumulate labels
-            obs: None | list[pd.DataFrame] = None
-            if self._obs is not None:
-                obs = []
-                for dataset_idx in dataset_index_to_slices.keys():
-                    obs += [
-                        self._obs[dataset_idx].iloc[
-                            np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[dataset_idx]])
-                        ]
-                    ]
-            # Accumulate indices if necessary
-            indices: None | list[np.ndarray] = None
-            if self._return_index:
-                dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=True)
-                dataset_indices = dataset_index_to_slices.keys()
-                indices = [
-                    np.concatenate(
-                        [
-                            np.arange(
-                                s.start,
-                                s.stop,
-                            )
-                            for s in dataset_index_to_slices[index]
-                        ]
-                    )
-                    for index in dataset_indices
-                ]
-            # Do batch returns, handling leftover data as necessary
-            in_memory_data = (
-                mod.vstack(chunks_converted)
-                if in_memory_data is None
-                else mod.vstack([in_memory_data, *chunks_converted])
-            )
-            if self._obs is not None:
-                concatenated_obs = pd.concat(obs) if concatenated_obs is None else pd.concat([concatenated_obs, *obs])
-            if self._return_index:
-                in_memory_indices = (
-                    np.concatenate(indices)
-                    if in_memory_indices is None
-                    else np.concatenate([in_memory_indices, *indices])
+            chunks_converted = self._accumulate_chunks(chunks)
+            # Accumulate labels and indices if possible
+            obs: None | list[pd.DataFrame] = self._maybe_accumulate_labels(dataset_index_to_slices)
+            indices: None | list[np.ndarray] = self._maybe_accumulate_indices(slices)
+
+            in_memory_data = mod.vstack(chunks_converted)
+            if self._obs is not None and obs is not None:
+                concatenated_obs = pd.concat(obs)
+            if self._return_index and indices is not None:
+                in_memory_indices = np.concatenate(indices)
+
+            # The DataLoader (via the Fetcher) is the "manager" that observes the
+            # dataset's output and decides whether to discard it.
+            # either dataloader should be responsible for discarding the leftover data,
+            # or the loader should be responsible for discarding the leftover data.
+            # it shouldn't be here.
+
+            for split in splits:
+                yield self._prepare_output(
+                    in_memory_data=in_memory_data,
+                    concatenated_obs=concatenated_obs,
+                    in_memory_indices=in_memory_indices,
+                    split=split,
                 )
-            # Create random indices into in_memory_data and then index into it
-            # If there is "leftover" at the end (see the modulo op),
-            # save it for the next iteration.
-            batch_indices = np.arange(in_memory_data.shape[0])
-            if self._shuffle:
-                np.random.default_rng().shuffle(batch_indices)
-            splits = split_given_size(batch_indices, self._batch_size)
-            for i, s in enumerate(splits):
-                if s.shape[0] == self._batch_size:
-                    output: LoaderOutput = {
-                        "data": to_torch(in_memory_data[s], self._preload_to_gpu)
-                        if self._to_torch
-                        else in_memory_data[s],
-                        "labels": concatenated_obs.iloc[s] if self._obs is not None else None,
-                        "index": in_memory_indices[s] if self._return_index else None,
-                    }
-                    yield output
-                if i == (len(splits) - 1):  # end of iteration, leftover data needs be kept
-                    if (s.shape[0] % self._batch_size) != 0:
-                        in_memory_data = in_memory_data[s]
-                        if concatenated_obs is not None:
-                            concatenated_obs = concatenated_obs.iloc[s]
-                        if in_memory_indices is not None:
-                            in_memory_indices = in_memory_indices[s]
-                    else:
-                        in_memory_data = None
-                        concatenated_obs = None
-                        in_memory_indices = None
-        if in_memory_data is not None and not self._drop_last:  # handle any leftover data
-            output: LoaderOutput = {
-                "data": to_torch(in_memory_data, self._preload_to_gpu) if self._to_torch else in_memory_data,
-                "labels": concatenated_obs if self._obs is not None else None,
-                "index": in_memory_indices if self._return_index else None,
-            }
-            yield output
+
+    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
+        """Convert fetched chunks to output array format (CSR or ndarray)."""
+        result: list[OutputInMemoryArray_T] = []
+        for chunk in chunks:
+            if isinstance(chunk, CSRContainer):
+                result.append(
+                    self._sp_module.csr_matrix(
+                        tuple(self._np_module.asarray(e) for e in chunk.elems),
+                        shape=chunk.shape,
+                        dtype="float64" if self._preload_to_gpu else chunk.dtype,
+                    )
+                )
+            else:
+                result.append(self._np_module.asarray(chunk))
+        return result
+
+    def _maybe_accumulate_labels(
+        self, dataset_index_to_slices: OrderedDict[int, list[slice]]
+    ) -> list[pd.DataFrame] | None:
+        """Gather obs labels for the loaded slices if possible."""
+        if self._obs is None:
+            return None
+        return [
+            self._obs[idx].iloc[np.concatenate([np.arange(s.start, s.stop) for s in slices])]
+            for idx, slices in dataset_index_to_slices.items()
+        ]
+
+    def _maybe_accumulate_indices(self, slices: list[slice]) -> list[np.ndarray] | None:
+        """Gather original indices for the loaded slices if possible."""
+        if self._return_index is False:
+            return None
+        dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=True)
+        return [
+            np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[idx]])
+            for idx in dataset_index_to_slices
+        ]
+
+    def _prepare_output(
+        self,
+        *,
+        in_memory_data: OutputInMemoryArray_T,
+        concatenated_obs: pd.DataFrame | None,
+        in_memory_indices: np.ndarray | None,
+        split: np.ndarray,
+    ) -> LoaderOutput:
+        """Prepare the final output dict for a single batch."""
+        index = None
+        labels = None
+        if self._obs is not None and concatenated_obs is not None:
+            labels = concatenated_obs.iloc[split]
+        if self._return_index and in_memory_indices is not None:
+            index = in_memory_indices[split]
+        data = in_memory_data[split]
+        if self._to_torch:
+            data = to_torch(data, self._preload_to_gpu)
+        return {"data": data, "labels": labels, "index": index}

@@ -136,13 +136,6 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     50,
                     preload_to_gpu,
                 ],  # batch size equal to in-memory size loading
-                [
-                    10,
-                    5,
-                    open_func,
-                    14,
-                    preload_to_gpu,
-                ],  # batch size does not divide in memory size evenly
             ]
         ]
     ],
@@ -221,6 +214,53 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
+@pytest.mark.parametrize(
+    "open_func",
+    [
+        pytest.param(
+            open_sparse,
+            id="sparse",
+        ),
+        pytest.param(
+            open_dense,
+            id="dense",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "preload_to_gpu",
+    [
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                find_spec("cupy") is None,
+                reason="need cupy installed",
+            ),
+        ),
+        pytest.param(False, id="cpu"),
+    ],
+)
+def test_batch_size_does_not_divide_evenly_fails(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    open_func: Callable[[Path], Data],
+    preload_to_gpu: bool,
+):
+    """Test that it fails if batch_size does not divide evenly into chunk_size * preload_nchunks."""
+    # chunk_size=10, preload_nchunks=5 -> in-memory size = 50
+    # batch_size=14 does not divide evenly into 50
+    ds = Loader(
+        shuffle=False,
+        chunk_size=10,
+        preload_nchunks=5,
+        batch_size=14,
+        preload_to_gpu=preload_to_gpu,
+        to_torch=False,
+    )
+    ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
+    with pytest.raises(ValueError, match="must be divisible by batch_size"):
+        next(iter(ds))
+
+
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
 @pytest.mark.parametrize(
     "preload_to_gpu",
@@ -248,7 +288,7 @@ def test_to_torch(
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
-        batch_size=42,
+        batch_size=25,
         preload_to_gpu=preload_to_gpu,
         return_index=True,
         to_torch=True,
@@ -263,7 +303,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path])
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
-        batch_size=42,
+        batch_size=25,
         preload_to_gpu=False,
         return_index=True,
         drop_last=True,
@@ -316,7 +356,7 @@ def test_torch_multiprocess_dataloading_zarr(
     """
     from torch.utils.data import DataLoader
 
-    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False, drop_last=True)
     ds.add_datasets(
         **concat([open_func(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
     )
@@ -387,7 +427,7 @@ def test_default_data_structures(
 ):
     # format is a smoke test for sparse
     ds = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, **kwargs
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, **kwargs
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
@@ -395,3 +435,115 @@ def test_default_data_structures(
     )
     for batch in ds:
         assert isinstance(batch["data"], expected_cls)
+
+
+class TestLoaderSamplerExclusivity:
+    """Tests for verifying that sampler args and custom sampler are mutually exclusive."""
+
+    def test_cannot_set_sampler_when_chunk_size_provided(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test that set_sampler raises when chunk_size is provided in constructor."""
+        from annbatch.sampler import SliceSampler
+
+        path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        data = open_dense(path)
+
+        loader = Loader(chunk_size=10, preload_to_gpu=False, to_torch=False)
+        loader.add_dataset(**data)
+
+        sampler = SliceSampler(
+            mask=slice(0, 50),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
+            loader.set_sampler(sampler)
+
+    def test_cannot_set_sampler_when_batch_size_provided(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test that set_sampler raises when batch_size is provided in constructor."""
+        from annbatch.sampler import SliceSampler
+
+        path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        data = open_dense(path)
+
+        loader = Loader(batch_size=10, preload_to_gpu=False, to_torch=False)
+        loader.add_dataset(**data)
+
+        sampler = SliceSampler(
+            mask=slice(0, 50),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
+            loader.set_sampler(sampler)
+
+    def test_can_set_sampler_when_no_sampler_args_provided(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test that set_sampler works when no sampler args are provided."""
+        from annbatch.sampler import SliceSampler
+
+        path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        data = open_dense(path)
+
+        loader = Loader(preload_to_gpu=False, to_torch=False)
+        loader.add_dataset(**data)
+
+        sampler = SliceSampler(
+            mask=slice(0, 50),
+            batch_size=5,
+            slice_size=10,
+            preload_nslices=2,
+        )
+
+        # Should NOT raise
+        loader.set_sampler(sampler)
+
+
+class TestLoaderCustomSampler:
+    """Tests for using custom samplers with multiple datasets."""
+
+    def test_custom_sampler_samples_subset_of_combined_datasets(
+        self, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    ):
+        """Test custom sampler that samples only a specific range from combined datasets.
+
+        Uses multiple zarr files from fixture, combines them, and samples a subset.
+        """
+        from annbatch.sampler import SliceSampler
+
+        paths = list(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+        datas = [open_dense(p) for p in paths]
+
+        loader = Loader(preload_to_gpu=False, to_torch=False, return_index=True)
+        loader.add_datasets(**concat(datas))
+
+        n_obs = loader.n_obs
+        # Sample from middle portion of combined datasets
+        start_idx, end_idx = n_obs // 4, n_obs // 2
+
+        sampler = SliceSampler(
+            mask=slice(start_idx, end_idx),
+            batch_size=10,
+            slice_size=10,
+            preload_nslices=2,
+        )
+        loader.set_sampler(sampler)
+
+        # Collect all yielded indices
+        all_indices = []
+        for batch in loader:
+            all_indices.append(batch["index"])
+
+        stacked_indices = np.concatenate(all_indices)
+
+        # Verify we got exactly the expected range
+        assert set(stacked_indices) == set(range(start_idx, end_idx))
+        assert len(stacked_indices) == end_idx - start_idx
