@@ -205,6 +205,17 @@ class SliceSampler(Sampler):
         """
         _ = self._prepare_start_stop(n_obs)  # ignore return only validate
 
+    def _process_iter(
+        self, indices: np.ndarray, slices: list[slice], slice_indices_to_load: np.ndarray, n_split_per_iter: int
+    ) -> LoadRequest:
+        if self._shuffle:
+            indices = self._shuffle_integers(indices.copy())
+        splits = np.array_split(indices, n_split_per_iter)
+        return LoadRequest(
+            slices=[slices[idx] for idx in slice_indices_to_load],
+            splits=splits,
+        )
+
     def _sample(self, n_obs: int, worker_handle: WorkerHandle | None = None) -> Iterator[LoadRequest]:
         """Implementation of the sample method.
 
@@ -237,41 +248,30 @@ class SliceSampler(Sampler):
         n_slices_for_worker = len(slice_indices)
         n_slice_iters = math.ceil(n_slices_for_worker / self._preload_nslices) if n_slices_for_worker > 0 else 0
 
-        n_leftover_indices = 0
+        # there is only one slice that isn't complete and that is the last slice
+        # extract the iteration result that contains the last slice
+        n_obs_per_iter = self._preload_nslices * self._slice_size
+        n_split_per_iter = n_obs_per_iter // self._batch_size
 
-        for i in range(n_slice_iters):
-            preload_start = i * self._preload_nslices
-            preload_end = min(preload_start + self._preload_nslices, n_slices_for_worker)
-            indices_to_load = slice_indices[preload_start:preload_end]
+        loaded_indices = np.arange(n_obs_per_iter)
+        slices_per_iter = np.array_split(slice_indices, n_slice_iters)
 
-            # Compute total observations to load from selected slices
-            total_obs_to_load = sum(slices[idx].stop - slices[idx].start for idx in indices_to_load)
-
-            # Generate loaded indices with leftover from previous iteration
-            loaded_indices = np.arange(total_obs_to_load + n_leftover_indices)
-            if self._shuffle:
-                loaded_indices = self._shuffle_integers(loaded_indices)
-            splits = list(np.split(loaded_indices, np.arange(self._batch_size, len(loaded_indices), self._batch_size)))
-
-            is_last_iter = i == n_slice_iters - 1
-            last_is_partial = splits[-1].shape[0] < self._batch_size
-
-            if last_is_partial:
-                if is_last_iter and self._drop_last:
-                    # Drop the final partial batch entirely
-                    splits = splits[:-1]
-                    n_leftover_indices = 0
-                else:
-                    # Track leftover count for next iteration's index generation
-                    # splits[-1] is partial and will be carried over by Loader
-                    n_leftover_indices = splits[-1].shape[0]
-            else:
-                n_leftover_indices = 0
-
-            yield LoadRequest(
-                slices=[slices[idx] for idx in indices_to_load],
-                splits=splits,
-            )
+        for slice_indices_to_load in slices_per_iter[:-1]:
+            yield self._process_iter(loaded_indices, slices, slice_indices_to_load, n_split_per_iter)
+        # don't want to check if last slice because python loops
+        # are already expensive
+        # no need to check each time, just do it once at the end
+        last_n_obs = sum(slices[idx].stop - slices[idx].start for idx in slices_per_iter[-1])
+        loaded_indices = np.arange(last_n_obs)
+        if self._shuffle:
+            loaded_indices = self._shuffle_integers(loaded_indices)
+        splits = np.array_split(loaded_indices, n_split_per_iter)
+        if (self._drop_last and splits[-1].shape[0] < self._batch_size) or splits[-1].shape[0] == 0:
+            splits = splits[:-1]
+        yield LoadRequest(
+            slices=[slices[idx] for idx in slices_per_iter[-1]],
+            splits=splits,
+        )
 
     @property
     def worker_handle(self) -> WorkerHandle | None:
