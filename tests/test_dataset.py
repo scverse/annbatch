@@ -257,27 +257,33 @@ def test_to_torch(
     assert isinstance(next(iter(ds))["data"], torch.Tensor)
 
 
-def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+@pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
+def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], drop_last: bool):
     # batch_size guaranteed to have leftovers to drop
+    batch_size = 42
+    zarr_path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    adata = ad.read_zarr(zarr_path)
     ds = Loader(
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
-        batch_size=42,
+        batch_size=batch_size,
         preload_to_gpu=False,
         return_index=True,
-        drop_last=True,
+        drop_last=drop_last,
         to_torch=False,
     )
-    ds.add_dataset(**open_sparse(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
-    adata = adata_with_zarr_path_same_var_space[0]
+    ds.add_dataset(**open_sparse(zarr_path))
     batches = []
     indices = []
     for batch in ds:
         batches += [batch["data"]]
         indices += [batch["index"]]
+    total_obs = adata.shape[0]
+    leftover = total_obs % batch_size
+    assert batches[-1].shape[0] == (batch_size if drop_last else leftover)
     X = sp.vstack(batches).toarray()
-    assert X.shape[0] < adata.shape[0]
+    assert X.shape[0] == (total_obs - leftover if drop_last else total_obs)
     X_expected = adata[np.concatenate(indices)].layers["sparse"].toarray()
     np.testing.assert_allclose(X, X_expected)
 
