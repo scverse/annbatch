@@ -281,6 +281,8 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
         indices += [batch["index"]]
     total_obs = adata.shape[0]
     leftover = total_obs % batch_size
+    for batch in batches[:-1]:
+        assert batch.shape[0] == batch_size
     assert batches[-1].shape[0] == (batch_size if drop_last else leftover)
     X = sp.vstack(batches).toarray()
     assert X.shape[0] == (total_obs - leftover if drop_last else total_obs)
