@@ -112,13 +112,14 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
     }
     for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
-            adata = ad.experimental.read_lazy(path_or_anndata)
+            adata = ad.experimental.read_lazy(path_or_anndata, load_annotation_index=False)
         else:
             adata = path_or_anndata
         for elem_name, key_count in found_keys.items():
             curr_keys = set(getattr(adata, elem_name).keys())
             for key in curr_keys:
-                key_count[key] += 1
+                if not (elem_name in { "var", "obs" } and key == "_index"):
+                    key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
     if num_raw_in_adata != len(paths_or_anndatas) and num_raw_in_adata != 0:
@@ -139,7 +140,7 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
 
 def _lazy_load_anndatas(
     paths: Iterable[PathLike[str]] | Iterable[str],
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.experimental.read_lazy,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
     adatas = []
     categoricals_in_all_adatas = {}
