@@ -118,7 +118,7 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
         for elem_name, key_count in found_keys.items():
             curr_keys = set(getattr(adata, elem_name).keys())
             for key in curr_keys:
-                if (elem_name not in { "var", "obs" } and key != "_index"):
+                if not (elem_name in { "var", "obs" } and key == "_index"):
                     key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
