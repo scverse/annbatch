@@ -340,8 +340,6 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         ----------
             adata_paths
                 Paths to the AnnData files used to create the zarr store.
-            output_path
-                Path to the output zarr store.
             load_adata
                 Function to customize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
@@ -371,7 +369,7 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         Examples
         --------
             >>> import anndata as ad
-            >>> from annbatch import create_anndata_collection
+            >>> from annbatch import PreShuffledCollection
             # create a custom load function to only keep `.X`, `.obs` and `.var` in the output store
             >>> def read_lazy_x_and_obs_only(path):
             ...     adata = ad.experimental.read_lazy(path)
@@ -473,16 +471,15 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         Examples
         --------
             >>> import anndata as ad
-            >>> from annbatch import add_to_collection
+            >>> from annbatch import PreShuffledCollection
             >>> datasets = [
             ...     "path/to/first_adata.h5ad",
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> add_to_collection(
-            ... datasets,
-            ... "path/to/output/zarr_store",
-            ...  load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
+            >>> PreShuffledCollection("path/to/existing/preshuffled_collection.zarr").add_to_collection(
+            ...     datasets,
+            ...     load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
             ...)
         """
         if self.is_empty:

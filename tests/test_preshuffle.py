@@ -200,6 +200,8 @@ def test_store_creation(
         n_obs_per_dataset=60,
         shuffle=shuffle,
     )
+    assert not PreShuffledCollection(output_path).is_empty
+    assert zarr.open(output_path).attrs["annbatch-shuffled"]
 
     adata_orig = adata_with_h5_path_different_var_space[0]
     # make sure all category dtypes match
@@ -329,3 +331,13 @@ def test_store_extension(
     z = zarr.open(store_path / "dataset_0")
     assert z["obsm"]["arr"].chunks == (5, z["obsm"]["arr"].shape[1])
     assert z["X"]["indices"].chunks[0] == 10
+
+
+def test_empty(tmp_path: Path):
+    g = zarr.open(tmp_path / "empty.zarr")
+    collection = PreShuffledCollection(g)
+    assert collection.is_empty
+    # Doesn't matter what errors as long as this function runs, but not to completion
+    with pytest.raises(TypeError):
+        collection.add_to_collection()
+    assert "annbatch-shuffled" not in g.attrs
