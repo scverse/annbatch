@@ -25,8 +25,7 @@
    :toctree: generated/
 
     write_sharded
-    add_to_collection
-    create_anndata_collection
+    PreShuffledCollection
 ```
 
 (types)=
