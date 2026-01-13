@@ -88,7 +88,6 @@ collection.create_anndata_collection(
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    output_path=,
     shuffle=True,  # shuffling is needed if you want to use chunked access
 )
 ```
