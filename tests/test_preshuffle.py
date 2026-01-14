@@ -167,7 +167,7 @@ def test_store_creation_drop_elem(
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_drop_elems.zarr"
     output_path.mkdir(parents=True, exist_ok=True)
 
-    DatasetCollection(output_path).add(
+    collection = DatasetCollection(output_path).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -177,7 +177,7 @@ def test_store_creation_drop_elem(
         n_obs_per_dataset=60,
         load_adata=_read_lazy_x_and_obs_only,
     )
-    adata_output = ad.read_zarr(next(output_path.iterdir()))
+    adata_output = ad.io.read_elem(next(iter(collection)))
     assert "arr" not in adata_output.obsm
     assert adata_output.raw is None
 
