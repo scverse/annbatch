@@ -107,6 +107,10 @@ def write_sharded(
 
 def _check_for_mismatched_keys(
     paths_or_anndatas: Iterable[PathLike[str] | ad.AnnData | zarr.Group | h5py.Group] | Iterable[str | ad.AnnData],
+    *,
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
+        x, load_annotation_index=False
+    ),
 ):
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
@@ -116,7 +120,7 @@ def _check_for_mismatched_keys(
     }
     for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
-            adata = ad.experimental.read_lazy(path_or_anndata, load_annotation_index=False)
+            adata = load_adata(path_or_anndata)
         else:
             adata = path_or_anndata
         for elem_name, key_count in found_keys.items():
@@ -504,7 +508,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-        _check_for_mismatched_keys(adata_paths)
+        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
         chunks = _create_chunks_for_shuffling(
@@ -606,7 +610,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")
         # Check for mismatched keys among the inputs.
-        _check_for_mismatched_keys(adata_paths)
+        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
         # Check for mismatched keys between datasets and the inputs.

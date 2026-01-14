@@ -4,6 +4,7 @@ import glob
 from typing import TYPE_CHECKING, Literal
 
 import anndata as ad
+import h5py
 import numpy as np
 import pandas as pd
 import pytest
@@ -37,7 +38,7 @@ def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expec
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
-def test_store_creation_warngs_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
+def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", "layers", "raw"], tmp_path: Path):
     adata_1 = ad.AnnData(X=np.random.randn(10, 20))
     extra_args = {
         elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else ["a"] * 10}
@@ -56,6 +57,25 @@ def test_store_creation_warngs_with_different_keys(elem_name: Literal["obsm", "l
             zarr_dense_shard_size=10,
             n_obs_per_dataset=10,
         )
+
+
+def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
+    adata_1 = ad.AnnData(X=np.random.randn(10, 20))
+    adata_2 = ad.AnnData(X=np.random.randn(10, 20), layers={"arr": np.random.randn(10, 20)})
+    path_1 = tmp_path / "just_x.h5ad"
+    path_2 = tmp_path / "with_extra_key.h5ad"
+    adata_1.write_h5ad(path_1)
+    adata_2.write_h5ad(path_2)
+    collection = DatasetCollection(tmp_path / "collection.zarr").add(
+        [path_1, path_2],
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=5,
+        zarr_dense_shard_size=10,
+        n_obs_per_dataset=10,
+        load_adata=lambda x: ad.AnnData(X=ad.io.read_elem(h5py.File(x)["X"])),
+    )
+    assert len(ad.read_zarr(next(iter(collection))).layers.keys()) == 0
 
 
 def test_store_creation_path_added_to_obs(tmp_path: Path):
