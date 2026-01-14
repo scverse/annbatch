@@ -9,7 +9,7 @@ Let's go through the above example:
 ### Preprocessing
 
 ```python
-Collection("path/to/output/store.zarr").create_anndata_collection(
+Collection("path/to/output/store.zarr").add(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"

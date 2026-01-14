@@ -308,10 +308,113 @@ class Collection[T: h5py.Group | zarr.Group]:
         )
 
     @_with_settings
-    def create_anndata_collection(
+    def add(
         self,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         *,
+        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
+            x, load_annotation_index=False
+        ),
+        var_subset: Iterable[str] | None = None,
+        zarr_sparse_chunk_size: int = 32768,
+        zarr_sparse_shard_size: int = 134_217_728,
+        zarr_dense_chunk_size: int = 1024,
+        zarr_dense_shard_size: int = 4_194_304,
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
+        n_obs_per_dataset: int = 2_097_152,
+        shuffle_slice_size: int = 1000,
+        shuffle: bool = True,
+    ):
+        """Take AnnData paths, create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per store if running for the first time).
+
+        The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
+        The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
+        However, this function can also output h5 datasets and also unshuffled datasets as well.
+        The var space is by default outer-joined initially, and then subsequently added datasets (i.e., on second calls to this function) are subsetted, but this behavior can be controlled by `var_subset`.
+        A key `src_path` is added to `obs` to indicate where individual row came from.
+        We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
+        Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_slice_size` as so many rows will be read into memory before writing to disk.
+
+        Parameters
+        ----------
+            adata_paths
+                Paths to the AnnData files used to create the zarr store.
+            load_adata
+                Function to customize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
+                If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
+                The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
+            var_subset
+                Subset of gene names to include in the store. If None, all genes are included.
+                Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
+            zarr_sparse_chunk_size
+                Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
+            zarr_sparse_shard_size
+                Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
+            zarr_dense_chunk_size
+                Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
+            zarr_dense_shard_size
+                Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
+            zarr_compressor
+                Compressors to use to compress the data in the zarr store.
+            h5ad_compressor
+                Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
+            n_obs_per_dataset
+                Number of observations to load into memory at once for shuffling / pre-processing.
+                The higher this number, the more memory is used, but the better the shuffling.
+                This corresponds to the size of the shards created.
+                Only applicable when adding datasets for the first time, otherwise ignored.
+            shuffle
+                Whether to shuffle the data before writing it to the store.
+                Ignored once the store is non-empty.
+            shuffle_slice_size
+                How many contiguous rows to load into memory before shuffling at once.
+                `(shuffle_slice_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_slice_size`.
+
+        Examples
+        --------
+            >>> import anndata as ad
+            >>> from annbatch import Collection
+            # create a custom load function to only keep `.X`, `.obs` and `.var` in the output store
+            >>> def read_lazy_x_and_obs_only(path):
+            ...     adata = ad.experimental.read_lazy(path)
+            ...     return ad.AnnData(
+            ...         X=adata.X,
+            ...         obs=adata.obs.to_memory(),
+            ...         var=adata.var.to_memory(),
+            ...)
+
+            >>> datasets = [
+            ...     "path/to/first_adata.h5ad",
+            ...     "path/to/second_adata.h5ad",
+            ...     "path/to/third_adata.h5ad",
+            ... ]
+            >>> Collection("path/to/output/zarr_store.zarr").add(
+            ...    datasets,
+            ...    load_adata=read_lazy_x_and_obs_only,
+            ...)
+        """
+        shared_kwargs = {
+            "adata_paths": adata_paths,
+            "load_adata": load_adata,
+            "zarr_sparse_chunk_size": zarr_sparse_chunk_size,
+            "zarr_sparse_shard_size": zarr_sparse_shard_size,
+            "zarr_dense_chunk_size": zarr_dense_chunk_size,
+            "zarr_dense_shard_size": zarr_dense_shard_size,
+            "zarr_compressor": zarr_compressor,
+            "h5ad_compressor": h5ad_compressor,
+            "shuffle_slice_size": shuffle_slice_size,
+            "shuffle": shuffle,
+        }
+        if self.is_empty:
+            self._create_collection(**shared_kwargs, n_obs_per_dataset=n_obs_per_dataset, var_subset=var_subset)
+        else:
+            self._add_to_collection(**shared_kwargs)
+
+    def _create_collection(
+        self,
+        *,
+        adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
             x, load_annotation_index=False
         ),
@@ -347,6 +450,7 @@ class Collection[T: h5py.Group | zarr.Group]:
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
+                Only applicable when adding datasets for the first time, otherwise ignored and the incoming data's var space is subsetted to that of the existing collection.
             zarr_sparse_chunk_size
                 Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
             zarr_sparse_shard_size
@@ -363,6 +467,7 @@ class Collection[T: h5py.Group | zarr.Group]:
                 Number of observations to load into memory at once for shuffling / pre-processing.
                 The higher this number, the more memory is used, but the better the shuffling.
                 This corresponds to the size of the shards created.
+                Only applicable when adding datasets for the first time, otherwise ignored.
             shuffle
                 Whether to shuffle the data before writing it to the store.
             shuffle_slice_size
@@ -387,7 +492,7 @@ class Collection[T: h5py.Group | zarr.Group]:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> Collection("path/to/output/zarr_store.zarr").create_anndata_collection(
+            >>> Collection("path/to/output/zarr_store.zarr").add(
             ...    datasets,
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
@@ -434,9 +539,9 @@ class Collection[T: h5py.Group | zarr.Group]:
         else:
             self._group.attrs["annbatch-shuffled"] = True
 
-    @_with_settings
-    def add_to_collection(
+    def _add_to_collection(
         self,
+        *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         zarr_sparse_chunk_size: int = 32768,
@@ -446,6 +551,7 @@ class Collection[T: h5py.Group | zarr.Group]:
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_slice_size: int = 1000,
+        shuffle: bool = True,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
@@ -475,6 +581,8 @@ class Collection[T: h5py.Group | zarr.Group]:
                 To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
             shuffle_slice_size
                 How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
+            shuffle
+                Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
 
         Examples
         --------
@@ -485,13 +593,13 @@ class Collection[T: h5py.Group | zarr.Group]:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> Collection("path/to/existing/preshuffled_collection.zarr").add_to_collection(
+            >>> Collection("path/to/existing/preshuffled_collection.zarr").add(
             ...     datasets,
             ...     load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
             ...)
         """
         if self.is_empty:
-            raise ValueError("Store is empty. Please run `Collection.create_anndata_collection` first.")
+            raise ValueError("Store is empty. Please run `Collection.add` first.")
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths)
 
@@ -503,7 +611,7 @@ class Collection[T: h5py.Group | zarr.Group]:
                 adata_concat.shape[0],
                 np.ceil(len(adata_concat) / len(self._dataset_keys)),
                 shuffle_slice_size,
-                shuffle=True,
+                shuffle=shuffle,
             )
         else:
             chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(self._dataset_keys))
@@ -518,8 +626,11 @@ class Collection[T: h5py.Group | zarr.Group]:
                 adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_dataset.var.index)]
             )
             adata = ad.concat([adata_dataset, subset_adata], join="outer")
-            idxs_shuffled = np.random.default_rng().permutation(len(adata))
-            adata = _persist_adata_in_memory(adata[idxs_shuffled, :])
+            if shuffle:
+                idxs = np.random.default_rng().permutation(len(adata))
+            else:
+                idxs = np.arange(len(adata))
+            adata = _persist_adata_in_memory(adata[idxs, :])
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,

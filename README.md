@@ -71,7 +71,7 @@ For a detailed tutorial, please see the [in-depth section of our docs][]
 Basic preprocessing:
 
 ```python
-from annbatch import create_anndata_collection
+from annbatch import Collection
 
 import zarr
 from pathlib import Path
@@ -83,12 +83,12 @@ zarr.config.set(
 )
 # a directory containing `dataset_{i}.zarr`
 collection = Collection("path/to/output/collection.zarr")
-collection.create_anndata_collection(
+collection.add(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    shuffle=True,  # shuffling is needed if you want to use chunked access
+    shuffle=True,  # shuffling is needed if you want to use chunked access, but is the default
 )
 ```
 
