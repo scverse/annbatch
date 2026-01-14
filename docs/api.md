@@ -25,7 +25,7 @@
    :toctree: generated/
 
     write_sharded
-    PreShuffledCollection
+    Collection
 ```
 
 (types)=

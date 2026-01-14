@@ -266,7 +266,7 @@ def _with_settings(func):
     return wrapper
 
 
-class PreShuffledCollection[T: h5py.Group | zarr.Group]:
+class Collection[T: h5py.Group | zarr.Group]:
     """A preshuffled collection object including functionality for creating, adding to, and loading collections."""
 
     _group: T
@@ -372,7 +372,7 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         Examples
         --------
             >>> import anndata as ad
-            >>> from annbatch import PreShuffledCollection
+            >>> from annbatch import Collection
             # create a custom load function to only keep `.X`, `.obs` and `.var` in the output store
             >>> def read_lazy_x_and_obs_only(path):
             ...     adata = ad.experimental.read_lazy(path)
@@ -387,7 +387,7 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> PreShuffledCollection("path/to/output/zarr_store.zarr").create_anndata_collection(
+            >>> Collection("path/to/output/zarr_store.zarr").create_anndata_collection(
             ...    datasets,
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
@@ -479,19 +479,19 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         Examples
         --------
             >>> import anndata as ad
-            >>> from annbatch import PreShuffledCollection
+            >>> from annbatch import Collection
             >>> datasets = [
             ...     "path/to/first_adata.h5ad",
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> PreShuffledCollection("path/to/existing/preshuffled_collection.zarr").add_to_collection(
+            >>> Collection("path/to/existing/preshuffled_collection.zarr").add_to_collection(
             ...     datasets,
             ...     load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
             ...)
         """
         if self.is_empty:
-            raise ValueError("Store is empty. Please run `PreShuffledCollection.create_anndata_collection` first.")
+            raise ValueError("Store is empty. Please run `Collection.create_anndata_collection` first.")
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths)
 

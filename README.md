@@ -82,7 +82,7 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 # a directory containing `dataset_{i}.zarr`
-collection = PreShuffledCollection("path/to/output/collection.zarr")
+collection = Collection("path/to/output/collection.zarr")
 collection.create_anndata_collection(
     adata_paths=[
         "path/to/your/file1.h5ad",
