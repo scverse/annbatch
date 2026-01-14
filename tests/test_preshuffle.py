@@ -67,7 +67,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     adata_2.write_h5ad(path_2)
     paths = [path_1, path_2]
     output_dir = tmp_path / "path_src_collection.zarr"
-    DatasetCollection(output_dir).add(
+    collection = DatasetCollection(output_dir).add(
         paths,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -76,9 +76,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
         n_obs_per_dataset=10,
         shuffle=False,
     )
-    adata_result = ad.concat(
-        [ad.read_zarr(path) for path in sorted((output_dir).iterdir()) if path.is_dir()], join="outer"
-    )
+    adata_result = ad.concat([ad.io.read_elem(g) for g in collection], join="outer")
     pd.testing.assert_extension_array_equal(
         adata_result.obs["src_path"].array,
         pd.Categorical(([str(path_1)] * 10) + ([str(path_2)] * 10), categories=[str(p) for p in paths]),
@@ -144,7 +142,7 @@ def test_store_creation_default(
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_default.zarr"
-    DatasetCollection(output_path).add(
+    collection = DatasetCollection(output_path).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -153,7 +151,7 @@ def test_store_creation_default(
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
     )
-    assert isinstance(ad.read_zarr(next(p for p in (output_path).iterdir() if p.is_dir())).X, sp.csr_matrix)
+    assert isinstance(ad.io.read_elem(next(iter(collection))).X, sp.csr_matrix)
     assert sorted(glob.glob(str(output_path / "dataset_*"))) == sorted(
         str(p) for p in (output_path).iterdir() if p.is_dir()
     )
@@ -190,7 +188,7 @@ def test_store_creation(
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}.zarr"
-    DatasetCollection(output_path).add(
+    collection = DatasetCollection(output_path).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -205,7 +203,7 @@ def test_store_creation(
 
     adata_orig = adata_with_h5_path_different_var_space[0]
     # make sure all category dtypes match
-    adatas_shuffled = [ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir()) if zarr_path.is_dir()]
+    adatas_shuffled = [ad.io.read_elem(g) for g in collection]
     for adata in adatas_shuffled:
         assert adata.obs["label"].dtype == adata_orig.obs["label"].dtype
     # subset to var_subset
@@ -256,7 +254,7 @@ def test_mismatched_raw_concat(
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous.zarr"
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
     with pytest.warns(UserWarning, match=r"Found raw keys not present in all anndatas"):
-        DatasetCollection(output_path).add(
+        collection = DatasetCollection(output_path).add(
             h5_paths,
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
@@ -280,7 +278,7 @@ def test_mismatched_raw_concat(
 
     adata_orig = ad.concat(adatas_orig, join="outer")
     adata_orig.obs_names_make_unique()
-    adata = ad.concat([ad.read_zarr(zarr_path) for zarr_path in sorted(output_path.iterdir()) if zarr_path.is_dir()])
+    adata = ad.concat([ad.io.read_elem(g) for g in collection])
     del adata.obs["src_path"]
     pd.testing.assert_frame_equal(adata_orig.var, adata.var)
     pd.testing.assert_frame_equal(adata_orig.obs, adata.obs)
@@ -318,7 +316,7 @@ def test_store_extension(
         zarr_dense_chunk_size=5,
         zarr_dense_shard_size=10,
     )
-    adatas_on_disk = [ad.read_zarr(zarr_path) for zarr_path in sorted(store_path.iterdir()) if zarr_path.is_dir()]
+    adatas_on_disk = [ad.io.read_elem(g) for g in collection]
     adata = ad.concat(adatas_on_disk)
     adata_orig = adata_with_h5_path_different_var_space[0]
     expected_adata = ad.concat([adata_orig, adata_orig[adata_orig.obs["store_id"] >= 4]], join="outer")
