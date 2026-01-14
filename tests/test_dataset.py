@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from annbatch.io import Collection
+
 
 class Data(TypedDict):
     dataset: ad.abc.CSRDataset | zarr.Array
@@ -36,30 +38,33 @@ class ListData:
     obs: list[np.ndarray]
 
 
-def open_sparse(path: Path, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
+def open_sparse(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        if not isinstance(path, zarr.Group):
+            path = zarr.open(path)
         data = {
-            "dataset": ad.io.sparse_dataset(zarr.open(path)["layers"]["sparse"]),
-            "obs": ad.io.read_elem(zarr.open(path)["obs"]),
+            "dataset": ad.io.sparse_dataset(path["layers"]["sparse"]),
+            "obs": ad.io.read_elem(path["obs"]),
         }
     if use_anndata:
         return ad.AnnData(X=data["dataset"], obs=data["obs"])
     return data
 
 
-def open_dense(path: Path, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
+def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata: bool = False) -> Data | ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        if not isinstance(path, zarr.Group):
+            path = zarr.open(path)
         data = {
-            "dataset": zarr.open(path)["X"],
-            "obs": ad.io.read_elem(zarr.open(path)["obs"]),
+            "dataset": path["X"],
+            "obs": ad.io.read_elem(path["obs"]),
         }
     if use_anndata:
         return ad.AnnData(X=data["dataset"], obs=data["obs"])
-    return data
     return data
 
 
@@ -79,7 +84,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     "gen_loader",
     [
         pytest.param(
-            lambda path,
+            lambda collection,
             shuffle,
             use_zarrs,
             chunk_size=chunk_size,
@@ -94,10 +99,15 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
-            ).add_anndatas(
-                [open_func(p, use_zarrs=use_zarrs, use_anndata=True) for p in path.glob("*.zarr")],
+            ).add_collection(
+                collection,
+                **(
+                    {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                    if open_func is not None
+                    else {}
+                ),
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-dataset_type={open_func.__name__[5:]}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=pytest.mark.skipif(
                 find_spec("cupy") is None and preload_to_gpu,
                 reason="need cupy installed",
@@ -106,7 +116,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
             for preload_to_gpu in [True, False]
-            for open_func in [open_sparse, open_dense]
+            for open_func in [open_sparse, open_dense, None]
             for elem in [
                 [
                     1,
@@ -147,9 +157,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         ]
     ],
 )
-def test_store_load_dataset(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs
-):
+def test_store_load_dataset(simple_collection: tuple[ad.AnnData, Collection], *, shuffle: bool, gen_loader, use_zarrs):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store
@@ -157,8 +165,8 @@ def test_store_load_dataset(
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader: Loader = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
-    adata = adata_with_zarr_path_same_var_space[0]
+    loader: Loader = gen_loader(simple_collection[1], shuffle, use_zarrs)
+    adata = simple_collection[0]
     is_dense = loader.dataset_type is zarr.Array
     n_elems = 0
     batches = []

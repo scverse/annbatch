@@ -107,22 +107,16 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
+def custom_load_func(g: zarr.Group) -> ad.AnnData:
+    return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns])
+
 # This settings override ensures that you don't lose/alter your categorical codes when reading the data in!
 with ad.settings.override(remove_unused_categories=False):
     ds = Loader(
         batch_size=4096,
         chunk_size=32,
         preload_nchunks=256,
-    ).add_anndatas(
-        [
-            ad.AnnData(
-                # note that you can open an AnnData file using any type of zarr store
-                X=ad.io.sparse_dataset(zarr.open(p)["X"]),
-                obs=ad.io.read_elem(zarr.open(p)["obs"]),
-            )
-            for p in Path("path/to/output/collection").glob("*.zarr")
-        ]
-    )
+    ).add_collection(collection) # Automatically uses the on-disk `X` and full `obs` in the `Loader` but the `load_adata` arg can override this behavior (see `custom_load_func` above)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:

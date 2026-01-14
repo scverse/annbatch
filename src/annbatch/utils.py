@@ -7,6 +7,7 @@ from importlib.util import find_spec
 from itertools import islice
 from typing import TYPE_CHECKING, Protocol
 
+import anndata as ad
 import numpy as np
 import scipy as sp
 import zarr
@@ -190,3 +191,10 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
                 input.shape,
             )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
+
+
+def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
+    """Load X as a sparse array or dense zarr array and obs from a group"""
+    return ad.AnnData(
+        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]), obs=ad.io.read_elem(g["obs"])
+    )

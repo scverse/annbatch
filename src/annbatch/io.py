@@ -21,7 +21,7 @@ from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Generator, Iterable, Mapping
     from os import PathLike
     from typing import Any, Literal
 
@@ -298,7 +298,11 @@ class Collection[T: h5py.Group | zarr.Group]:
 
     @property
     def _dataset_keys(self) -> list[str]:
-        return [k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None]
+        return sorted([k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None])
+
+    def __iter__(self) -> Generator[zarr.Group]:
+        for k in self._dataset_keys:
+            yield self._group[k]
 
     @property
     def is_empty(self) -> bool:
@@ -410,6 +414,7 @@ class Collection[T: h5py.Group | zarr.Group]:
             self._create_collection(**shared_kwargs, n_obs_per_dataset=n_obs_per_dataset, var_subset=var_subset)
         else:
             self._add_to_collection(**shared_kwargs)
+        return self
 
     def _create_collection(
         self,

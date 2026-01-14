@@ -24,6 +24,7 @@ from annbatch.utils import (
     _batched,
     check_lt_1,
     check_var_shapes,
+    load_x_and_obs,
     split_given_size,
     to_torch,
 )
@@ -31,8 +32,10 @@ from annbatch.utils import (
 from .compat import IterableDataset
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from types import ModuleType
+
+    from annbatch.io import Collection
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -221,6 +224,27 @@ class Loader[
             The number of variables.
         """
         return self._shapes[0][1]
+
+    def add_collection(
+        self, collection: Collection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
+    ):
+        """Load from an existing {class}`annbatch.Collection`
+
+        Parameters
+        ----------
+        collection
+            _description_
+        load_adata, optional
+            _description_, by default load_x_and_obs
+
+        Returns
+        -------
+            _description_
+        """
+        if collection.is_empty:
+            raise ValueError("Collection is empty")
+        adatas = [load_adata(g) for g in collection]
+        return self.add_anndatas(adatas)
 
     def add_anndatas(
         self,
