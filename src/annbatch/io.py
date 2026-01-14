@@ -6,7 +6,7 @@ import warnings
 from collections import defaultdict
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 import anndata as ad
 import dask.array as da
@@ -266,12 +266,12 @@ def _with_settings(func):
     return wrapper
 
 
-class DatasetCollection[T: h5py.Group | zarr.Group]:
+class DatasetCollection[T: (h5py.Group, zarr.Group)]:
     """A preshuffled collection object including functionality for creating, adding to, and loading collections."""
 
     _group: T
 
-    def __init__(self, group: T | str | Path, *, mode: Literal["a", "r", "r+"] = "a"):
+    def __init__(self, group: zarr.Group | h5py.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a"):
         """Initialization of the object at a given location.
 
         Note that if the group is a h5py/zarr object, it must have the correct permissions for any subsequent operations you plan to do.
@@ -300,7 +300,7 @@ class DatasetCollection[T: h5py.Group | zarr.Group]:
     def _dataset_keys(self) -> list[str]:
         return sorted([k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None])
 
-    def __iter__(self) -> Generator[zarr.Group]:
+    def __iter__(self) -> Generator[T]:
         for k in self._dataset_keys:
             yield self._group[k]
 
@@ -329,7 +329,7 @@ class DatasetCollection[T: h5py.Group | zarr.Group]:
         n_obs_per_dataset: int = 2_097_152,
         shuffle_slice_size: int = 1000,
         shuffle: bool = True,
-    ):
+    ) -> Self:
         """Take AnnData paths, create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per store if running for the first time).
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
@@ -433,7 +433,7 @@ class DatasetCollection[T: h5py.Group | zarr.Group]:
         n_obs_per_dataset: int = 2_097_152,
         shuffle_slice_size: int = 1000,
         shuffle: bool = True,
-    ):
+    ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
