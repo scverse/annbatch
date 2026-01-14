@@ -71,7 +71,7 @@ For a detailed tutorial, please see the [in-depth section of our docs][]
 Basic preprocessing:
 
 ```python
-from annbatch import Collection
+from annbatch import DatasetCollection
 
 import zarr
 from pathlib import Path
@@ -82,7 +82,7 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 # a directory containing `dataset_{i}.zarr`
-collection = Collection("path/to/output/collection.zarr")
+collection = DatasetCollection("path/to/output/collection.zarr")
 collection.add(
     adata_paths=[
         "path/to/your/file1.h5ad",

@@ -13,7 +13,7 @@ import zarr
 from scipy.sparse import random as sparse_random
 
 from annbatch import write_sharded
-from annbatch.io import Collection
+from annbatch.io import DatasetCollection
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -108,10 +108,10 @@ def adata_with_h5_path_different_var_space(
 @pytest.fixture(scope="session")
 def simple_collection(
     tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
-) -> tuple[Collection, ad.AnnData]:
+) -> tuple[DatasetCollection, ad.AnnData]:
     zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
-    collection = Collection(output_path).add(
+    collection = DatasetCollection(output_path).add(
         zarr_stores,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,

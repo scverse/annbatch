@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from annbatch.io import Collection
+    from annbatch.io import DatasetCollection
 
 
 class Data(TypedDict):
@@ -157,7 +157,9 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         ]
     ],
 )
-def test_store_load_dataset(simple_collection: tuple[ad.AnnData, Collection], *, shuffle: bool, gen_loader, use_zarrs):
+def test_store_load_dataset(
+    simple_collection: tuple[ad.AnnData, DatasetCollection], *, shuffle: bool, gen_loader, use_zarrs
+):
     """
     This test verifies that the DaskDataset works correctly:
         1. The DaskDataset correctly loads data from the mock store

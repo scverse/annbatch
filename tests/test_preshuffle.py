@@ -10,7 +10,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Collection, write_sharded
+from annbatch import DatasetCollection, write_sharded
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,7 +48,7 @@ def test_store_creation_warngs_with_different_keys(elem_name: Literal["obsm", "l
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
-        Collection(tmp_path / "collection.zarr").add(
+        DatasetCollection(tmp_path / "collection.zarr").add(
             [path_1, path_2],
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
@@ -67,7 +67,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     adata_2.write_h5ad(path_2)
     paths = [path_1, path_2]
     output_dir = tmp_path / "path_src_collection.zarr"
-    Collection(output_dir).add(
+    DatasetCollection(output_dir).add(
         paths,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -96,7 +96,7 @@ def test_store_addition_different_keys(
     orig_path = tmp_path / "orig.h5ad"
     adata_orig.write_h5ad(orig_path)
     output_path = tmp_path / "zarr_store_addition_different_keys.zarr"
-    collection = Collection(output_path)
+    collection = DatasetCollection(output_path)
     collection.add(
         [orig_path],
         zarr_sparse_chunk_size=10,
@@ -144,7 +144,7 @@ def test_store_creation_default(
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_default.zarr"
-    Collection(output_path).add(
+    DatasetCollection(output_path).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -167,7 +167,7 @@ def test_store_creation_drop_elem(
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_drop_elems.zarr"
     output_path.mkdir(parents=True, exist_ok=True)
 
-    Collection(output_path).add(
+    DatasetCollection(output_path).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -190,7 +190,7 @@ def test_store_creation(
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}.zarr"
-    Collection(output_path).add(
+    DatasetCollection(output_path).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -200,7 +200,7 @@ def test_store_creation(
         n_obs_per_dataset=60,
         shuffle=shuffle,
     )
-    assert not Collection(output_path).is_empty
+    assert not DatasetCollection(output_path).is_empty
     assert zarr.open(output_path).attrs["annbatch-shuffled"]
 
     adata_orig = adata_with_h5_path_different_var_space[0]
@@ -256,7 +256,7 @@ def test_mismatched_raw_concat(
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous.zarr"
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
     with pytest.warns(UserWarning, match=r"Found raw keys not present in all anndatas"):
-        Collection(output_path).add(
+        DatasetCollection(output_path).add(
             h5_paths,
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
@@ -299,7 +299,7 @@ def test_store_extension(
     original = all_h5_paths
     additional = all_h5_paths[4:]  # don't add everything to get a "different" var space
     # create new store
-    collection = Collection(store_path)
+    collection = DatasetCollection(store_path)
     collection.add(
         original,
         zarr_sparse_chunk_size=10,
@@ -335,7 +335,7 @@ def test_store_extension(
 
 def test_empty(tmp_path: Path):
     g = zarr.open(tmp_path / "empty.zarr")
-    collection = Collection(g)
+    collection = DatasetCollection(g)
     assert collection.is_empty
     # Doesn't matter what errors as long as this function runs, but not to completion
     with pytest.raises(TypeError):

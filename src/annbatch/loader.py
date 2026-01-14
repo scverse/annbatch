@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import ModuleType
 
-    from annbatch.io import Collection
+    from annbatch.io import DatasetCollection
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -226,9 +226,9 @@ class Loader[
         return self._shapes[0][1]
 
     def add_collection(
-        self, collection: Collection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
+        self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
     ):
-        """Load from an existing {class}`annbatch.Collection`
+        """Load from an existing {class}`annbatch.DatasetCollection`
 
         Parameters
         ----------
@@ -242,7 +242,7 @@ class Loader[
             _description_
         """
         if collection.is_empty:
-            raise ValueError("Collection is empty")
+            raise ValueError("DatasetCollection is empty")
         adatas = [load_adata(g) for g in collection]
         return self.add_anndatas(adatas)
 
