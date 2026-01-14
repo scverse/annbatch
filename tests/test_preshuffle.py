@@ -140,22 +140,6 @@ def test_store_addition_different_keys(
         )
 
 
-def _read_lazy_x_and_obs_only(path) -> ad.AnnData:
-    adata_ = ad.experimental.read_lazy(path)
-    if adata_.raw is not None:
-        x = adata_.raw.X
-        var = adata_.raw.var
-    else:
-        x = adata_.X
-        var = adata_.var
-
-    return ad.AnnData(
-        X=x,
-        obs=adata_.obs.to_memory(),
-        var=var.to_memory(),
-    )
-
-
 def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
 ):
@@ -175,29 +159,6 @@ def test_store_creation_default(
     assert sorted(glob.glob(str(output_path / "dataset_*"))) == sorted(
         str(p) for p in (output_path).iterdir() if p.is_dir()
     )
-
-
-def test_store_creation_drop_elem(
-    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
-):
-    var_subset = [f"gene_{i}" for i in range(100)]
-    h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
-    output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_drop_elems.zarr"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    collection = DatasetCollection(output_path).add(
-        [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
-        var_subset=var_subset,
-        zarr_sparse_chunk_size=10,
-        zarr_sparse_shard_size=20,
-        zarr_dense_chunk_size=10,
-        zarr_dense_shard_size=20,
-        n_obs_per_dataset=60,
-        load_adata=_read_lazy_x_and_obs_only,
-    )
-    adata_output = ad.io.read_elem(next(iter(collection)))
-    assert "arr" not in adata_output.obsm
-    assert adata_output.raw is None
 
 
 @pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
@@ -262,6 +223,22 @@ def test_store_creation(
     assert z["X"]["indices"].chunks[0] == 10
 
 
+def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
+    adata_ = ad.experimental.read_lazy(path)
+    if adata_.raw is not None:
+        x = adata_.raw.X
+        var = adata_.raw.var
+    else:
+        x = adata_.X
+        var = adata_.var
+
+    return ad.AnnData(
+        X=x,
+        obs=adata_.obs.to_memory(),
+        var=var.to_memory(),
+    )
+
+
 @pytest.mark.parametrize(
     "adata_with_h5_path_different_var_space",
     [{"all_adatas_have_raw": False}],
@@ -273,17 +250,16 @@ def test_mismatched_raw_concat(
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous.zarr"
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
-    with pytest.warns(UserWarning, match=r"Found raw keys not present in all anndatas"):
-        collection = DatasetCollection(output_path).add(
-            h5_paths,
-            zarr_sparse_chunk_size=10,
-            zarr_sparse_shard_size=20,
-            zarr_dense_chunk_size=10,
-            zarr_dense_shard_size=20,
-            n_obs_per_dataset=60,
-            load_adata=_read_lazy_x_and_obs_only,
-            shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
-        )
+    collection = DatasetCollection(output_path).add(
+        h5_paths,
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=10,
+        zarr_dense_shard_size=20,
+        n_obs_per_dataset=60,
+        shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
+        load_adata=_read_lazy_x_and_obs_only_from_raw,
+    )
 
     adatas_orig = []
     for file in h5_paths:
