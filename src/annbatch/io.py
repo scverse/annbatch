@@ -187,16 +187,15 @@ def _lazy_load_anndatas(
     return adata
 
 
-def _create_chunks_for_shuffling(adata: ad.AnnData, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle: bool = True):
-    chunk_boundaries = np.cumsum([0] + list(adata.X.chunks[0]))
-    slices = [
-        slice(int(start), int(end)) for start, end in zip(chunk_boundaries[:-1], chunk_boundaries[1:], strict=True)
-    ]
+def _create_chunks_for_shuffling(
+    n_obs: int, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle_slice_size: int = 1000, shuffle: bool = True
+):
+    # this splits the array up into `shuffle_slice_size` contiguous runs
+    idxs = np.array_split(np.arange(n_obs), np.ceil(n_obs / shuffle_slice_size))
     if shuffle:
-        random.shuffle(slices)
-    idxs = np.concatenate([np.arange(s.start, s.stop) for s in slices])
-    idxs = np.array_split(idxs, np.ceil(len(idxs) / shuffle_n_obs_per_dataset))
-
+        random.shuffle(idxs)
+    idxs = np.concatenate(idxs)
+    idxs = np.array_split(idxs, np.ceil(n_obs / shuffle_n_obs_per_dataset))
     return idxs
 
 
@@ -324,6 +323,7 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
+        shuffle_slice_size: int = 1000,
         shuffle: bool = True,
     ):
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
@@ -365,6 +365,9 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
                 This corresponds to the size of the shards created.
             shuffle
                 Whether to shuffle the data before writing it to the store.
+            shuffle_slice_size
+                How many contiguous rows to load into memory before shuffling at once.
+                `(shuffle_slice_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_slice_size`.
 
         Examples
         --------
@@ -394,7 +397,9 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         _check_for_mismatched_keys(adata_paths)
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
-        chunks = _create_chunks_for_shuffling(adata_concat, n_obs_per_dataset, shuffle=shuffle)
+        chunks = _create_chunks_for_shuffling(
+            adata_concat.shape[0], n_obs_per_dataset, shuffle_slice_size, shuffle=shuffle
+        )
 
         if var_subset is None:
             var_subset = adata_concat.var_names
@@ -440,6 +445,7 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         zarr_dense_shard_size: int = 4_194_304,
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
+        shuffle_slice_size: int = 1000,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
@@ -467,6 +473,8 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
             should_sparsify_output_in_memory
                 This option is for testing only appending sparse files to dense stores.
                 To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
+            shuffle_slice_size
+                How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
 
         Examples
         --------
@@ -492,7 +500,10 @@ class PreShuffledCollection[T: h5py.Group | zarr.Group]:
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         if isinstance(adata_concat.X, DaskArray):
             chunks = _create_chunks_for_shuffling(
-                adata_concat, np.ceil(len(adata_concat) / len(self._dataset_keys)), shuffle=True
+                adata_concat.shape[0],
+                np.ceil(len(adata_concat) / len(self._dataset_keys)),
+                shuffle_slice_size,
+                shuffle=True,
             )
         else:
             chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(self._dataset_keys))

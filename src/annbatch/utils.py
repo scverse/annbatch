@@ -65,50 +65,6 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-def sample_rows(
-    x_list: list[np.ndarray],
-    obs_list: list[np.ndarray] | None,
-    indices: list[np.ndarray] | None = None,
-    *,
-    shuffle: bool = True,
-) -> Generator[tuple[np.ndarray, np.ndarray | None], None, None]:
-    """Samples rows from multiple arrays and their corresponding observation arrays.
-
-    Parameters
-    ----------
-        x_list
-            A list of numpy arrays containing the data to sample from.
-        obs_list
-            A list of numpy arrays containing the corresponding observations.
-        indices
-            the list of indexes for each element in `x_list/`
-        shuffle
-            Whether to shuffle the rows before sampling.
-
-    Yields
-    ------
-        tuple
-            A tuple containing a row from `x_list` and the corresponding row from `obs_list`.
-    """
-    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
-    cum = np.concatenate(([0], np.cumsum(lengths)))
-    total = cum[-1]
-    idxs = np.arange(total)
-    if shuffle:
-        np.random.default_rng().shuffle(idxs)
-    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
-    row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs, strict=True):
-        res = [
-            x_list[ai][ri],
-            obs_list[ai][ri] if obs_list is not None else None,
-        ]
-        if indices is not None:
-            yield (*res, indices[ai][ri])
-        else:
-            yield tuple(res)
-
-
 class WorkerHandle:  # noqa: D101
     @cached_property
     def _worker_info(self):
