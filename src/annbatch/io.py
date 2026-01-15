@@ -118,7 +118,7 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
         for elem_name, key_count in found_keys.items():
             curr_keys = set(getattr(adata, elem_name).keys())
             for key in curr_keys:
-                if not (elem_name in { "var", "obs" } and key == "_index"):
+                if not (elem_name in {"var", "obs"} and key == "_index"):
                     key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
@@ -140,7 +140,9 @@ def _check_for_mismatched_keys(paths_or_anndatas: Iterable[PathLike[str] | ad.An
 
 def _lazy_load_anndatas(
     paths: Iterable[PathLike[str]] | Iterable[str],
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
+        x, load_annotation_index=False
+    ),
 ):
     adatas = []
     categoricals_in_all_adatas = {}
@@ -225,16 +227,13 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
         del adata.raw
         adata.raw = adata_raw
 
-    for k, elem in adata.obsm.items():
-        # TODO: handle `Dataset2D` in `obsm` and `varm` that are
-        if isinstance(elem, DaskArray):
-            adata.obsm[k] = _compute_blockwise(elem)
+    for axis_name in ["layers", "obsm", "varm", "obsp", "varp"]:
+        for k, elem in getattr(adata, axis_name).items():
+            # TODO: handle `Dataset2D` in `obsm` and `varm` that are
+            if isinstance(elem, DaskArray):
+                getattr(adata, axis_name)[k] = _compute_blockwise(elem)
 
-    for k, elem in adata.layers.items():
-        if isinstance(elem, DaskArray):
-            adata.obsm[k] = _compute_blockwise(elem)
-
-    return adata
+    return adata.to_memory()
 
 
 DATASET_PREFIX = "dataset"
