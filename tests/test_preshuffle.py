@@ -152,7 +152,6 @@ def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     open_store: Callable[[Path], zarr.Group | h5py.Group],
 ):
-    var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = (
         adata_with_h5_path_different_var_space[1].parent
@@ -161,13 +160,6 @@ def test_store_creation_default(
     store = open_store(output_path, mode="w")
     collection = DatasetCollection(store).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
-        var_subset=var_subset,
-        zarr_sparse_chunk_size=10,
-        zarr_sparse_shard_size=20,
-        zarr_dense_chunk_size=10,
-        zarr_dense_shard_size=20,
-        n_obs_per_dataset=50,
-        shuffle_slice_size=10,
     )
     assert isinstance(ad.io.read_elem(next(iter(collection))).X, sp.csr_matrix)
     # Test directory structure to make sure nothing extraneous was written
