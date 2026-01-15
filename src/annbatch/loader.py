@@ -235,7 +235,7 @@ class Loader[
         collection
             The collection who on-disk datasets should be used in this loader.
         load_adata
-            A custom load function - recall that whatever is found in :attr:`AnnData.X` and :attr:`AnnData.obs` will be yielded in batches.
+            A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
             Default is to just load `X` and `obs`.
 
         Returns
