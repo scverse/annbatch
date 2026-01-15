@@ -99,7 +99,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
-            ).add_collection(
+            ).use_collection(
                 collection,
                 **(
                     {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}

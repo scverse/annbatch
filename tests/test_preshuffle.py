@@ -50,7 +50,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
-        DatasetCollection(tmp_path / "collection.zarr").add(
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
             [path_1, path_2],
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
@@ -67,7 +67,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
     path_2 = tmp_path / "with_extra_key.h5ad"
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
-    collection = DatasetCollection(tmp_path / "collection.zarr").add(
+    collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
         [path_1, path_2],
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -88,7 +88,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     adata_2.write_h5ad(path_2)
     paths = [path_1, path_2]
     output_dir = tmp_path / "path_src_collection.zarr"
-    collection = DatasetCollection(output_dir).add(
+    collection = DatasetCollection(output_dir).add_adatas(
         paths,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -116,7 +116,7 @@ def test_store_addition_different_keys(
     adata_orig.write_h5ad(orig_path)
     output_path = tmp_path / "zarr_store_addition_different_keys.zarr"
     collection = DatasetCollection(output_path)
-    collection.add(
+    collection.add_adatas(
         [orig_path],
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -131,7 +131,7 @@ def test_store_addition_different_keys(
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
-        collection.add(
+        collection.add_adatas(
             [additional_path],
             load_adata=load_adata,
             zarr_sparse_chunk_size=10,
@@ -153,7 +153,7 @@ def test_store_creation_default(
         / f"zarr_store_creation_test_default.{'h5ad' if open_store is h5py.File else 'zarr'}"
     )
     store = open_store(output_path, mode="w")
-    collection = DatasetCollection(store).add(
+    collection = DatasetCollection(store).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -180,7 +180,7 @@ def test_store_creation(
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}.zarr"
-    collection = DatasetCollection(output_path).add(
+    collection = DatasetCollection(output_path).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -261,7 +261,7 @@ def test_mismatched_raw_concat(
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous.zarr"
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
-    collection = DatasetCollection(output_path).add(
+    collection = DatasetCollection(output_path).add_adatas(
         h5_paths,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -305,7 +305,7 @@ def test_store_extension(
     additional = all_h5_paths[4:]  # don't add everything to get a "different" var space
     # create new store
     collection = DatasetCollection(store_path)
-    collection.add(
+    collection.add_adatas(
         original,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -315,7 +315,7 @@ def test_store_extension(
         shuffle=True,
     )
     # add h5ads to existing store
-    collection.add(
+    collection.add_adatas(
         additional,
         load_adata=load_adata,
         zarr_sparse_chunk_size=10,
@@ -344,5 +344,5 @@ def test_empty(tmp_path: Path):
     assert collection.is_empty
     # Doesn't matter what errors as long as this function runs, but not to completion
     with pytest.raises(TypeError):
-        collection.add()
+        collection.add_adatas()
     assert not (V1_ENCODING.items() <= g.attrs.items())

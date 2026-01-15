@@ -225,10 +225,12 @@ class Loader[
         """
         return self._shapes[0][1]
 
-    def add_collection(
+    def use_collection(
         self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
     ) -> Self:
-        """Load from an existing :class:`annbatch.DatasetCollection`
+        """Load from an existing :class:`annbatch.DatasetCollection`.
+
+        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_anndatas` or open an issue.
 
         Parameters
         ----------
@@ -240,8 +242,14 @@ class Loader[
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
+        if getattr(self, "_collection_added", False):
+            raise RuntimeError(
+                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_anndatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_anndatas`."
+            )
         adatas = [load_adata(g) for g in collection]
-        return self.add_anndatas(adatas)
+        self.add_anndatas(adatas)
+        self._collection_added = True
+        return self
 
     def add_anndatas(
         self,

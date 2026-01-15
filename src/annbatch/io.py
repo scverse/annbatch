@@ -323,7 +323,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         return not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0
 
     @_with_settings
-    def add(
+    def add_adatas(
         self,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         *,
@@ -405,7 +405,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> DatasetCollection("path/to/output/zarr_store.zarr").add(
+            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_adatas(
             ...    datasets,
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)

@@ -84,7 +84,7 @@ zarr.config.set(
 
 # Create a collection at the given path. The subgroups will all be anndata stores.
 collection = DatasetCollection("path/to/output/collection.zarr")
-collection.add(
+collection.add_adatas(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
@@ -118,10 +118,10 @@ with ad.settings.override(remove_unused_categories=False):
         chunk_size=32,
         preload_nchunks=256,
     )
-    # `add_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
+    # `use_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
     # but the `load_adata` arg can override this behavior
     # (see `custom_load_func` above for an example of customization).
-    ds = ds.add_collection(collection)
+    ds = ds.use_collection(collection)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:

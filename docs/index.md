@@ -9,7 +9,7 @@ Let's go through the above example:
 ### Preprocessing
 
 ```python
-colleciton = DatasetCollection("path/to/output/store.zarr").add(
+colleciton = DatasetCollection("path/to/output/store.zarr").add_adatas(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
@@ -32,12 +32,12 @@ See the [zarr docs on sharding][] for more information.
 #### Chunked access
 
 ```python
-# `add_collection` will automatically get everything in `X` and `obs` and yield it.
+# `use_collection` will automatically get everything in `X` and `obs` and yield it.
 ds = Loader(
     batch_size=4096,
     chunk_size=32,
     preload_nchunks=256,
-).add_collection(collection)
+).use_collection(collection)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
