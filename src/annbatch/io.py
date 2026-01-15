@@ -348,7 +348,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         However, this function can also output h5 datasets and also unshuffled datasets as well.
         The var space is by default outer-joined initially, and then subsequently added datasets (i.e., on second calls to this function) are subsetted, but this behavior can be controlled by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
-        We highly recommend making your indexes unique across files, and this function will call :meth:`AnnData.obs_names_make_unique`.
+        We highly recommend making your indexes unique across files, and this function will call `AnnData.obs_names_make_unique`.
         Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_slice_size` as so many rows will be read into memory before writing to disk.
         After the dataset completes, a marker is added to the group's `attrs` to note that this dataset has been shuffled by `annbatch`.
         This is not a stable API but only for internal purposes at the moment.
@@ -453,7 +453,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         However, this function can also output h5 datasets and also unshuffled datasets as well.
         The var space is by default outer-joined, but can be subsetted by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
-        We highly recommend making your indexes unique across files, and this function will call :meth:`AnnData.obs_names_make_unique`.
+        We highly recommend making your indexes unique across files, and this function will call `AnnData.obs_names_make_unique`.
         Memory usage should be controlled by `n_obs_per_dataset` as so many rows will be read into memory before writing to disk.
 
         Parameters
