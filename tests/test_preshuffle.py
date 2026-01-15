@@ -161,6 +161,7 @@ def test_store_creation_default(
     collection = DatasetCollection(store).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
     )
+    assert len(list(iter(collection))) == 1  # default n_obs_per_dataset is much more than total obs
     assert isinstance(ad.io.read_elem(next(iter(collection))).X, sp.csr_matrix)
     # Test directory structure to make sure nothing extraneous was written
     if isinstance(store, zarr.Group):
