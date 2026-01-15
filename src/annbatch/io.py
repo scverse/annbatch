@@ -523,7 +523,6 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             var_subset = adata_concat.var_names
 
         for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
-            print(chunk)
             var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
