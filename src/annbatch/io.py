@@ -278,7 +278,7 @@ def _with_settings(func):
 
 
 class DatasetCollection[T: (h5py.Group, zarr.Group)]:
-    """A preshuffled collection object including functionality for creating, adding to, and loading collections."""
+    """A preshuffled collection object including functionality for creating, adding to, and loading collections shuffled by `annbatch`."""
 
     _group: T
 
@@ -350,15 +350,17 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         A key `src_path` is added to `obs` to indicate where individual row came from.
         We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
         Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_slice_size` as so many rows will be read into memory before writing to disk.
+        After the dataset completes, a marker is added to the group's `attrs` to note that this dataset has been shuffled by `annbatch`.
+        This is not a stable API but only for internal purposes at the moment.
 
         Parameters
         ----------
             adata_paths
                 Paths to the AnnData files used to create the zarr store.
             load_adata
-                Function to customize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
+                Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
-                The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
+                The input to the function is a path to an anndata file, and the output is an :class:`anndata.AnnData` object.
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
