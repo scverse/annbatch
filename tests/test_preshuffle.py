@@ -214,7 +214,12 @@ def test_store_creation(
     )
     assert "arr" in adata.obsm
     if shuffle:
+        # If it's shuffled I'd expect more than 80% of elements to be out of order
+        assert sum(adata_orig.obs_names != adata.obs_names) > (0.8 * adata.shape[0])
+        assert adata_orig.obs_names.isin(adata.obs_names).all()
         adata = adata[adata_orig.obs_names].copy()
+    else:
+        assert (adata_orig.obs_names == adata.obs_names).all()
     np.testing.assert_array_equal(
         adata.X if isinstance(adata.X, np.ndarray) else adata.X.toarray(),
         adata_orig.X if isinstance(adata_orig.X, np.ndarray) else adata_orig.X.toarray(),
