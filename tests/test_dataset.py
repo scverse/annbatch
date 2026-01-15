@@ -231,6 +231,13 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
+def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    ds = Loader()
+    ds = ds.use_collection(simple_collection[1])
+    with pytest.raises(RuntimeError, match="You should not add multiple collections"):
+        ds.use_collection(simple_collection[1])
+
+
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
 @pytest.mark.parametrize(
     "preload_to_gpu",
