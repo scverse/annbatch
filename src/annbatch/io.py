@@ -198,24 +198,37 @@ def _lazy_load_anndatas(
 
 
 def _create_chunks_for_shuffling(
-    n_obs: int, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle_slice_size: int = 1000, shuffle: bool = True
+    n_obs: int,
+    shuffle_slice_size: int = 1000,
+    shuffle: bool = True,
+    *,
+    shuffle_n_obs_per_dataset: int | None = None,
+    n_chunkings: int | None = None,
 ) -> list[np.ndarray]:
     # this splits the array up into `shuffle_slice_size` contiguous runs
     idxs = split_given_size(np.arange(n_obs), shuffle_slice_size)
     if shuffle:
         random.shuffle(idxs)
-    n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_slice_size)
+    match shuffle_n_obs_per_dataset is not None, n_chunkings is not None:
+        case True, False:
+            n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_slice_size)
+            use_single_chunking = n_obs <= shuffle_n_obs_per_dataset or n_slices_per_dataset <= 1
+        case False, True:
+            n_slices_per_dataset = (n_obs // n_chunkings) // shuffle_slice_size
+            use_single_chunking = n_chunkings == 1
+        case _, _:
+            raise ValueError("Cannot provide both shuffle_n_obs_per_dataset and n_chunkings or neither")
     # In this case `shuffle_n_obs_per_dataset` is bigger than the size of the dataset or the slice size is probably too big.
-    if n_obs <= shuffle_n_obs_per_dataset or n_slices_per_dataset <= 1:
-        chunks = [np.concatenate(idxs)]
-    else:
-        # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
-        idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
-        chunks = [
-            np.concatenate([np.arange(s.start, s.stop) for s in idx])
-            for idx in split_given_size(idxs, n_slices_per_dataset)
-        ]
-    return chunks
+    if use_single_chunking:
+        return [np.concatenate(idxs)]
+    # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
+    idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
+    return [
+        np.concatenate([np.arange(s.start, s.stop) for s in idx])
+        for idx in (
+            split_given_size(idxs, n_slices_per_dataset) if n_chunkings is None else np.array_split(idxs, n_chunkings)
+        )
+    ]
 
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
@@ -516,12 +529,11 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], n_obs_per_dataset, shuffle_slice_size, shuffle=shuffle
+            adata_concat.shape[0], shuffle_slice_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
         )
 
         if var_subset is None:
             var_subset = adata_concat.var_names
-
         for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
             var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
@@ -606,16 +618,12 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0],
-            np.ceil(len(adata_concat) / len(self._dataset_keys)),
-            shuffle_slice_size,
-            shuffle=shuffle,
+            adata_concat.shape[0], shuffle_slice_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys)
         )
 
         adata_concat.obs_names_make_unique()
-
         for dataset, chunk in tqdm(
-            zip(self._dataset_keys, chunks, strict=False), total=len(self._dataset_keys), desc="processing chunks"
+            zip(self._dataset_keys, chunks, strict=True), total=len(self._dataset_keys), desc="processing chunks"
         ):
             adata_dataset = ad.io.read_elem(self._group[dataset])
             subset_adata = _to_categorical_obs(
@@ -623,9 +631,9 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             )
             adata = ad.concat([adata_dataset, subset_adata], join="outer")
             if shuffle:
-                idxs = np.random.default_rng().permutation(len(adata))
+                idxs = np.random.default_rng().permutation(adata.shape[0])
             else:
-                idxs = np.arange(len(adata))
+                idxs = np.arange(adata.shape[0])
             adata = _persist_adata_in_memory(adata[idxs, :])
             if isinstance(self._group, zarr.Group):
                 write_sharded(
