@@ -79,7 +79,7 @@ def adata_with_h5_path_different_var_space(
     adatas = []
     for i, (m, n) in enumerate(zip(n_cells, n_features, strict=True)):
         var_idx = [f"gene_{gene}" for gene in range(n // 2)] + [f"gene_{gene}_{i}" for gene in range(n // 2, n)]
-        obs_idx = np.arange(m).astype(str)
+        obs_idx = np.arange(m).astype(str) + f"-{i}"
         adata = ad.AnnData(
             X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
             obs=pd.DataFrame(

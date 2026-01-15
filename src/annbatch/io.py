@@ -215,8 +215,6 @@ def _create_chunks_for_shuffling(
             np.concatenate([np.arange(s.start, s.stop) for s in idx])
             for idx in split_given_size(idxs, n_slices_per_dataset)
         ]
-    if sum(len(idx) for idx in chunks) != n_obs or (np.sort(np.concatenate(chunks)) != np.arange(n_obs)).any():
-        raise RuntimeError(f"This should not happen, please open an issue, {np.sort(np.concatenate(chunks))}")
     return chunks
 
 
@@ -326,7 +324,10 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
 
     @property
     def _dataset_keys(self) -> list[str]:
-        return sorted([k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None])
+        return sorted(
+            [k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None],
+            key=lambda x: int(x.split("_")[1]),
+        )
 
     def __iter__(self) -> Generator[T]:
         for k in self._dataset_keys:

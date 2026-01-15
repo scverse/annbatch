@@ -280,7 +280,7 @@ def test_mismatched_raw_concat(
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
-        n_obs_per_dataset=50,
+        n_obs_per_dataset=30,
         shuffle_slice_size=10,
         shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
         load_adata=_read_lazy_x_and_obs_only_from_raw,
