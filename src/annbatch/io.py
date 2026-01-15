@@ -160,7 +160,7 @@ def _lazy_load_anndatas(
     ),
 ):
     adatas = []
-    categoricals_in_all_adatas = {}
+    categoricals_in_all_adatas: dict[str, pd.Index] = {}
     for i, path in tqdm(enumerate(paths), desc="loading"):
         adata = load_adata(path)
         # Track the source file for this given anndata object
@@ -170,19 +170,17 @@ def _lazy_load_anndatas(
         # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
             categorical_cols_in_this_adata = {
-                col: set(adata.obs[col].dtype.categories)
-                for col in adata.obs.columns
-                if adata.obs[col].dtype == "category"
+                col: adata.obs[col].dtype.categories for col in adata.obs.columns if adata.obs[col].dtype == "category"
             }
             if not categoricals_in_all_adatas:
                 categoricals_in_all_adatas = {
                     **categorical_cols_in_this_adata,
-                    "src_path": set(adata.obs["src_path"].dtype.categories),
+                    "src_path": adata.obs["src_path"].dtype.categories,
                 }
             else:
                 for k in categoricals_in_all_adatas.keys() & categorical_cols_in_this_adata.keys():
-                    categoricals_in_all_adatas[k] = set(categoricals_in_all_adatas[k]).union(
-                        set(categorical_cols_in_this_adata[k])
+                    categoricals_in_all_adatas[k] = categoricals_in_all_adatas[k].union(
+                        categorical_cols_in_this_adata[k]
                     )
         # TODO: Probably bug in anndata, need the true index for proper outer joins (can't skirt this with fake indexes, at least not in the mixed-type regime).
         if isinstance(adata.var, Dataset2D):
@@ -640,7 +638,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                 idxs = np.random.default_rng().permutation(adata.shape[0])
             else:
                 idxs = np.arange(adata.shape[0])
-            adata = _persist_adata_in_memory(adata[idxs, :])
+            adata = _persist_adata_in_memory(adata[idxs, :].copy())
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,
