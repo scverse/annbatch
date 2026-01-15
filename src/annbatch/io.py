@@ -20,6 +20,8 @@ from dask.array.core import Array as DaskArray
 from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
+from annbatch.utils import split_given_size
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterable, Mapping
     from os import PathLike
@@ -63,6 +65,8 @@ def write_sharded(
             Number of obs elements per dense shard along the first axis
         compressors
             The compressors to pass to `zarr`.
+        key
+            The key to which this object should be written - by default the root, in which case the *entire* store (not just the group) is cleared first.
     """
     ad.settings.zarr_write_format = 3
 
@@ -195,14 +199,12 @@ def _lazy_load_anndatas(
 
 def _create_chunks_for_shuffling(
     n_obs: int, shuffle_n_obs_per_dataset: int = 1_048_576, shuffle_slice_size: int = 1000, shuffle: bool = True
-):
+) -> list[np.ndarray]:
     # this splits the array up into `shuffle_slice_size` contiguous runs
-    idxs = np.array_split(np.arange(n_obs), np.ceil(n_obs / shuffle_slice_size))
+    idxs = split_given_size(np.arange(n_obs), shuffle_slice_size)
     if shuffle:
         random.shuffle(idxs)
-    idxs = np.concatenate(idxs)
-    idxs = np.array_split(idxs, np.ceil(n_obs / shuffle_n_obs_per_dataset))
-    return idxs
+    return [idx.ravel() for idx in split_given_size(idxs, max(1, shuffle_n_obs_per_dataset // shuffle_slice_size))]
 
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
