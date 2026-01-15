@@ -12,6 +12,7 @@ import scipy.sparse as sp
 import zarr
 
 from annbatch import DatasetCollection, write_sharded
+from annbatch.io import V1_ENCODING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -140,13 +141,19 @@ def test_store_addition_different_keys(
         )
 
 
+@pytest.mark.parametrize("open_store", [h5py.File, zarr.open_group])
 def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+    open_store: Callable[[Path], zarr.Group | h5py.Group],
 ):
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
-    output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_default.zarr"
-    collection = DatasetCollection(output_path).add(
+    output_path = (
+        adata_with_h5_path_different_var_space[1].parent
+        / f"zarr_store_creation_test_default.{'h5ad' if open_store is h5py.File else 'zarr'}"
+    )
+    store = open_store(output_path, mode="w")
+    collection = DatasetCollection(store).add(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -156,9 +163,13 @@ def test_store_creation_default(
         n_obs_per_dataset=60,
     )
     assert isinstance(ad.io.read_elem(next(iter(collection))).X, sp.csr_matrix)
-    assert sorted(glob.glob(str(output_path / "dataset_*"))) == sorted(
-        str(p) for p in (output_path).iterdir() if p.is_dir()
-    )
+    # Test directory structure to make sure nothing extraneous was written
+    if isinstance(store, zarr.Group):
+        assert sorted(glob.glob(str(output_path / "dataset_*"))) == sorted(
+            str(p) for p in (output_path).iterdir() if p.is_dir()
+        )
+    assert list(iter(collection)) == [store[k] for k in sorted(store.keys())]
+    assert V1_ENCODING.items() <= store.attrs.items()
 
 
 @pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
@@ -180,7 +191,7 @@ def test_store_creation(
         shuffle=shuffle,
     )
     assert not DatasetCollection(output_path).is_empty
-    assert zarr.open(output_path).attrs["annbatch-shuffled"]
+    assert V1_ENCODING.items() <= zarr.open(output_path).attrs.items()
 
     adata_orig = adata_with_h5_path_different_var_space[0]
     # make sure all category dtypes match
@@ -334,4 +345,4 @@ def test_empty(tmp_path: Path):
     # Doesn't matter what errors as long as this function runs, but not to completion
     with pytest.raises(TypeError):
         collection.add()
-    assert "annbatch-shuffled" not in g.attrs
+    assert not (V1_ENCODING.items() <= g.attrs.items())

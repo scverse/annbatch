@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
     from zarr.abc.codec import BytesBytesCodec
 
+V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
+
 
 def _round_down(num: int, divisor: int):
     return num - (num % divisor)
@@ -318,7 +320,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
     @property
     def is_empty(self) -> bool:
         """Wether or not there is an existing store at the group location."""
-        return "annbatch-shuffled" not in self._group.attrs or (
+        return not (V1_ENCODING.items() <= self._group.attrs.items()) or (
             not self._group.attrs["annbatch-shuffled"] and len(self._dataset_keys) == 0
         )
 
@@ -553,9 +555,9 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                     self._group, f"{DATASET_PREFIX}_{i}", adata_chunk, dataset_kwargs={"compression": h5ad_compressor}
                 )
         if isinstance(self._group, zarr.Group):
-            self._group.update_attributes({"annbatch-shuffled": True})
+            self._group.update_attributes(V1_ENCODING)
         else:
-            self._group.attrs["annbatch-shuffled"] = True
+            self._group.attrs.update(V1_ENCODING)
 
     def _add_to_collection(
         self,
