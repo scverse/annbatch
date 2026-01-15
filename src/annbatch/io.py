@@ -320,9 +320,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
     @property
     def is_empty(self) -> bool:
         """Wether or not there is an existing store at the group location."""
-        return not (V1_ENCODING.items() <= self._group.attrs.items()) or (
-            not self._group.attrs["annbatch-shuffled"] and len(self._dataset_keys) == 0
-        )
+        return not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0
 
     @_with_settings
     def add(
