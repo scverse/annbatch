@@ -142,8 +142,7 @@ def test_store_addition_different_keys(
             zarr_sparse_shard_size=20,
             zarr_dense_chunk_size=5,
             zarr_dense_shard_size=10,
-            n_obs_per_dataset=50,
-            shuffle_slice_size=10,
+            shuffle_slice_size=2,
         )
 
 

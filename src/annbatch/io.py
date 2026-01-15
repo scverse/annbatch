@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 import re
 import warnings
@@ -615,6 +616,11 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        if math.ceil(adata_concat.shape[0] / shuffle_slice_size) < len(self._dataset_keys):
+            raise ValueError(
+                f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
+                "Open an issue if the incoming anndata is so small it cannot be distributed across the on-disk data"
+            )
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
