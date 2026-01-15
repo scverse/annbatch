@@ -246,14 +246,21 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
         del adata.raw
         adata.raw = adata_raw
 
-    for k, elem in adata.obsm.items():
-        # TODO: handle `Dataset2D` in `obsm` and `varm` that are
-        if isinstance(elem, DaskArray):
-            adata.obsm[k] = _compute_blockwise(elem)
+    for axis_name in ["layers", "obsm", "varm", "obsp", "varp"]:
+        for k, elem in getattr(adata, axis_name).items():
+            # TODO: handle `Dataset2D` in `obsm` and `varm` that are
+            if isinstance(elem, DaskArray):
+                getattr(adata, axis_name)[k] = _compute_blockwise(elem)
+            if isinstance(elem, Dataset2D):
+                elem = elem.to_memory()
+                if "_index" in elem.columns:
+                    del elem["_index"]
+                # TODO: Bug in anndata
+                if "obs" in axis_name:
+                    elem.index = adata.obs_names
+                getattr(adata, axis_name)[k] = elem
 
-    for k, elem in adata.layers.items():
-        if isinstance(elem, DaskArray):
-            adata.obsm[k] = _compute_blockwise(elem)
+    return adata.to_memory()
 
     return adata
 

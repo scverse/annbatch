@@ -78,6 +78,8 @@ def adata_with_h5_path_different_var_space(
     n_cells = [random.randint(50, 100) for _ in range(n_adatas)]
     adatas = []
     for i, (m, n) in enumerate(zip(n_cells, n_features, strict=True)):
+        var_idx = [f"gene_{gene}" for gene in range(n // 2)] + [f"gene_{gene}_{i}" for gene in range(n // 2, n)]
+        obs_idx = np.arange(m).astype(str)
         adata = ad.AnnData(
             X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
             obs=pd.DataFrame(
@@ -86,12 +88,11 @@ def adata_with_h5_path_different_var_space(
                     "store_id": [i] * m,
                     "numeric": np.arange(m),
                 },
-                index=np.arange(m).astype(str),
+                index=obs_idx,
             ),
-            var=pd.DataFrame(
-                index=[f"gene_{gene}" for gene in range(n // 2)] + [f"gene_{gene}_{i}" for gene in range(n // 2, n)]
-            ),
-            obsm={"arr": np.random.randn(m, 10)},
+            var=pd.DataFrame(index=var_idx),
+            obsm={"arr": np.random.randn(m, 10), "df": pd.DataFrame({"numeric": np.arange(m)}, index=obs_idx)},
+            varm={"arr": np.random.randn(n, 10), "df": pd.DataFrame({"numeric": np.arange(n)}, index=var_idx)},
         )
         if all_adatas_have_raw or (i % 2 == 0):
             adata_raw = adata[:, adata.var.index[: (n // 2)]].copy()
