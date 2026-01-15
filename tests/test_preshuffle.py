@@ -57,6 +57,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
             zarr_dense_chunk_size=5,
             zarr_dense_shard_size=10,
             n_obs_per_dataset=10,
+            shuffle_slice_size=10,
         )
 
 
@@ -74,6 +75,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
         zarr_dense_chunk_size=5,
         zarr_dense_shard_size=10,
         n_obs_per_dataset=10,
+        shuffle_slice_size=5,
         load_adata=lambda x: ad.AnnData(X=ad.io.read_elem(h5py.File(x)["X"])),
     )
     assert len(ad.read_zarr(next(iter(collection))).layers.keys()) == 0
@@ -95,6 +97,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
         zarr_dense_chunk_size=5,
         zarr_dense_shard_size=10,
         n_obs_per_dataset=10,
+        shuffle_slice_size=5,
         shuffle=False,
     )
     adata_result = ad.concat([ad.io.read_elem(g) for g in collection], join="outer")
@@ -123,6 +126,7 @@ def test_store_addition_different_keys(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=50,
+        shuffle_slice_size=10,
     )
     extra_args = {
         elem_name: {"arr" if elem_name != "raw" else "X": np.random.randn(10, 20) if elem_name != "obs" else ["a"] * 10}
@@ -138,6 +142,8 @@ def test_store_addition_different_keys(
             zarr_sparse_shard_size=20,
             zarr_dense_chunk_size=5,
             zarr_dense_shard_size=10,
+            n_obs_per_dataset=50,
+            shuffle_slice_size=10,
         )
 
 
@@ -160,7 +166,8 @@ def test_store_creation_default(
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
-        n_obs_per_dataset=60,
+        n_obs_per_dataset=50,
+        shuffle_slice_size=10,
     )
     assert isinstance(ad.io.read_elem(next(iter(collection))).X, sp.csr_matrix)
     # Test directory structure to make sure nothing extraneous was written
@@ -187,7 +194,8 @@ def test_store_creation(
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=5,
         zarr_dense_shard_size=10,
-        n_obs_per_dataset=60,
+        n_obs_per_dataset=50,
+        shuffle_slice_size=10,
         shuffle=shuffle,
     )
     assert not DatasetCollection(output_path).is_empty
@@ -272,7 +280,8 @@ def test_mismatched_raw_concat(
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
-        n_obs_per_dataset=60,
+        n_obs_per_dataset=50,
+        shuffle_slice_size=10,
         shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
         load_adata=_read_lazy_x_and_obs_only_from_raw,
     )
@@ -317,6 +326,7 @@ def test_store_extension(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
+        shuffle_slice_size=10,
         shuffle=True,
     )
     # add h5ads to existing store
@@ -327,6 +337,8 @@ def test_store_extension(
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=5,
         zarr_dense_shard_size=10,
+        n_obs_per_dataset=50,
+        shuffle_slice_size=10,
     )
     adatas_on_disk = [ad.io.read_elem(g) for g in collection]
     adata = ad.concat(adatas_on_disk)

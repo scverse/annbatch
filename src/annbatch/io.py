@@ -204,7 +204,20 @@ def _create_chunks_for_shuffling(
     idxs = split_given_size(np.arange(n_obs), shuffle_slice_size)
     if shuffle:
         random.shuffle(idxs)
-    return [idx.ravel() for idx in split_given_size(idxs, max(1, shuffle_n_obs_per_dataset // shuffle_slice_size))]
+    n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_slice_size)
+    # In this case `shuffle_n_obs_per_dataset` is bigger than the size of the dataset or the slice size is probably too big.
+    if n_obs < shuffle_n_obs_per_dataset or n_slices_per_dataset <= 1:
+        chunks = [np.concatenate(idxs)]
+    else:
+        # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
+        idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
+        chunks = [
+            np.concatenate([np.arange(s.start, s.stop) for s in idx])
+            for idx in split_given_size(idxs, n_slices_per_dataset)
+        ]
+    if sum(len(idx) for idx in chunks) != n_obs or (np.sort(np.concatenate(chunks)) != np.arange(n_obs)).any():
+        raise RuntimeError(f"This should not happen, please open an issue, {np.sort(np.concatenate(chunks))}")
+    return chunks
 
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
@@ -412,6 +425,8 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
         """
+        if shuffle_slice_size > n_obs_per_dataset:
+            raise ValueError("Cannot have a large slice size than observations per dataset")
         shared_kwargs = {
             "adata_paths": adata_paths,
             "load_adata": load_adata,
@@ -498,6 +513,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
+        n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0], n_obs_per_dataset, shuffle_slice_size, shuffle=shuffle
         )
@@ -521,8 +537,8 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                     adata_chunk,
                     sparse_chunk_size=zarr_sparse_chunk_size,
                     sparse_shard_size=zarr_sparse_shard_size,
-                    dense_chunk_size=zarr_dense_chunk_size,
-                    dense_shard_size=zarr_dense_shard_size,
+                    dense_chunk_size=min(adata_chunk.shape[0], zarr_dense_chunk_size),
+                    dense_shard_size=min(adata_chunk.shape[0], zarr_dense_shard_size),
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
                 )
@@ -588,15 +604,12 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
-        if isinstance(adata_concat.X, DaskArray):
-            chunks = _create_chunks_for_shuffling(
-                adata_concat.shape[0],
-                np.ceil(len(adata_concat) / len(self._dataset_keys)),
-                shuffle_slice_size,
-                shuffle=shuffle,
-            )
-        else:
-            chunks = np.array_split(np.random.default_rng().permutation(len(adata_concat)), len(self._dataset_keys))
+        chunks = _create_chunks_for_shuffling(
+            adata_concat.shape[0],
+            np.ceil(len(adata_concat) / len(self._dataset_keys)),
+            shuffle_slice_size,
+            shuffle=shuffle,
+        )
 
         adata_concat.obs_names_make_unique()
 
@@ -619,8 +632,8 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                     adata,
                     sparse_chunk_size=zarr_sparse_chunk_size,
                     sparse_shard_size=zarr_sparse_shard_size,
-                    dense_chunk_size=zarr_dense_chunk_size,
-                    dense_shard_size=zarr_dense_shard_size,
+                    dense_chunk_size=min(adata.shape[0], zarr_dense_chunk_size),
+                    dense_shard_size=min(adata.shape[0], zarr_dense_shard_size),
                     compressors=zarr_compressor,
                     key=dataset,
                 )
