@@ -343,14 +343,14 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         shuffle_slice_size: int = 1000,
         shuffle: bool = True,
     ) -> Self:
-        """Take AnnData paths, create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per store if running for the first time).
+        """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per store if running for the first time).
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
         The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
         However, this function can also output h5 datasets and also unshuffled datasets as well.
         The var space is by default outer-joined initially, and then subsequently added datasets (i.e., on second calls to this function) are subsetted, but this behavior can be controlled by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
-        We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
+        We highly recommend making your indexes unique across files, and this function will call :meth:`AnnData.obs_names_make_unique`.
         Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_slice_size` as so many rows will be read into memory before writing to disk.
         After the dataset completes, a marker is added to the group's `attrs` to note that this dataset has been shuffled by `annbatch`.
         This is not a stable API but only for internal purposes at the moment.
@@ -402,7 +402,6 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             ...         obs=adata.obs.to_memory(),
             ...         var=adata.var.to_memory(),
             ...)
-
             >>> datasets = [
             ...     "path/to/first_adata.h5ad",
             ...     "path/to/second_adata.h5ad",
@@ -456,7 +455,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         However, this function can also output h5 datasets and also unshuffled datasets as well.
         The var space is by default outer-joined, but can be subsetted by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
-        We highly recommend making your indexes unique across files, and this function will call {meth}`AnnData.obs_names_make_unique`.
+        We highly recommend making your indexes unique across files, and this function will call :meth:`AnnData.obs_names_make_unique`.
         Memory usage should be controlled by `n_obs_per_dataset` as so many rows will be read into memory before writing to disk.
 
         Parameters
@@ -464,9 +463,9 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             adata_paths
                 Paths to the AnnData files used to create the zarr store.
             load_adata
-                Function to customize lazy-loading the invidiual input anndata files. By default, {func}`anndata.experimental.read_lazy` is used.
+                Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
-                The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a {class}`dask.array.Array`.
+                The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a :class:`dask.array.Array`.
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
@@ -493,29 +492,6 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             shuffle_slice_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_slice_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_slice_size`.
-
-        Examples
-        --------
-            >>> import anndata as ad
-            >>> from annbatch import DatasetCollection
-            # create a custom load function to only keep `.X`, `.obs` and `.var` in the output store
-            >>> def read_lazy_x_and_obs_only(path):
-            ...     adata = ad.experimental.read_lazy(path)
-            ...     return ad.AnnData(
-            ...         X=adata.X,
-            ...         obs=adata.obs.to_memory(),
-            ...         var=adata.var.to_memory(),
-            ...)
-
-            >>> datasets = [
-            ...     "path/to/first_adata.h5ad",
-            ...     "path/to/second_adata.h5ad",
-            ...     "path/to/third_adata.h5ad",
-            ... ]
-            >>> DatasetCollection("path/to/output/zarr_store.zarr").add(
-            ...    datasets,
-            ...    load_adata=read_lazy_x_and_obs_only,
-            ...)
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
@@ -582,10 +558,10 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             adata_paths
                 Paths to the anndata files to be appended to the collection of output chunks.
             load_adata
-                Function to customize loading the invidiual input anndata files. By default, {func}`anndata.read_h5ad` is used.
+                Function to customize loading the invidiual input anndata files. By default, :func:`anndata.read_h5ad` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
                 The input to the function is a path to an anndata file, and the output is an anndata object.
-                If the input data is too large to fit into memory, you should use `ad.experimental.read_lazy` instead.
+                If the input data is too large to fit into memory, you should use :func:`annndata.experimental.read_lazy` instead.
             zarr_sparse_chunk_size
                 Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
             zarr_sparse_shard_size
@@ -603,20 +579,6 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                 How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
             shuffle
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
-
-        Examples
-        --------
-            >>> import anndata as ad
-            >>> from annbatch import DatasetCollection
-            >>> datasets = [
-            ...     "path/to/first_adata.h5ad",
-            ...     "path/to/second_adata.h5ad",
-            ...     "path/to/third_adata.h5ad",
-            ... ]
-            >>> DatasetCollection("path/to/existing/preshuffled_collection.zarr").add(
-            ...     datasets,
-            ...     load_adata=ad.read_h5ad,  # replace with ad.experimental.read_lazy if data does not fit into memory
-            ...)
         """
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")

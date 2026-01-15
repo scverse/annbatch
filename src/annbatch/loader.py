@@ -228,14 +228,15 @@ class Loader[
     def add_collection(
         self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
     ):
-        """Load from an existing {class}`annbatch.DatasetCollection`
+        """Load from an existing :class:`annbatch.DatasetCollection`
 
         Parameters
         ----------
         collection
-            _description_
-        load_adata, optional
-            _description_, by default load_x_and_obs
+            The collection who on-disk datasets should be used in this loader.
+        load_adata
+            A custom load function - recall that whatever is found in :attr:`AnnData.X` and :attr:`AnnData.obs` will be yielded in batches.
+            Default is to just load `X` and `obs`.
 
         Returns
         -------
