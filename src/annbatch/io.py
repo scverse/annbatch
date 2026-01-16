@@ -198,22 +198,22 @@ def _lazy_load_anndatas(
 
 def _create_chunks_for_shuffling(
     n_obs: int,
-    shuffle_slice_size: int = 1000,
+    shuffle_chunk_size: int = 1000,
     shuffle: bool = True,
     *,
     shuffle_n_obs_per_dataset: int | None = None,
     n_chunkings: int | None = None,
 ) -> list[np.ndarray]:
-    # this splits the array up into `shuffle_slice_size` contiguous runs
-    idxs = split_given_size(np.arange(n_obs), shuffle_slice_size)
+    # this splits the array up into `shuffle_chunk_size` contiguous runs
+    idxs = split_given_size(np.arange(n_obs), shuffle_chunk_size)
     if shuffle:
         random.shuffle(idxs)
     match shuffle_n_obs_per_dataset is not None, n_chunkings is not None:
         case True, False:
-            n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_slice_size)
+            n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_chunk_size)
             use_single_chunking = n_obs <= shuffle_n_obs_per_dataset or n_slices_per_dataset <= 1
         case False, True:
-            n_slices_per_dataset = (n_obs // n_chunkings) // shuffle_slice_size
+            n_slices_per_dataset = (n_obs // n_chunkings) // shuffle_chunk_size
             use_single_chunking = n_chunkings == 1
         case _, _:
             raise ValueError("Cannot provide both shuffle_n_obs_per_dataset and n_chunkings or neither")
@@ -366,10 +366,10 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
-        shuffle_slice_size: int = 1000,
+        shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
     ) -> Self:
-        """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per store if running for the first time).
+        """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per dataset if running for the first time).
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
         The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
@@ -377,7 +377,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         The var space is by default outer-joined initially, and then subsequently added datasets (i.e., on second calls to this function) are subsetted, but this behavior can be controlled by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
         We highly recommend making your indexes unique across files, and this function will call `AnnData.obs_names_make_unique`.
-        Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_slice_size` as so many rows will be read into memory before writing to disk.
+        Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_chunk_size` as so many rows will be read into memory before writing to disk.
         After the dataset completes, a marker is added to the group's `attrs` to note that this dataset has been shuffled by `annbatch`.
         This is not a stable API but only for internal purposes at the moment.
 
@@ -412,9 +412,9 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             shuffle
                 Whether to shuffle the data before writing it to the store.
                 Ignored once the store is non-empty.
-            shuffle_slice_size
+            shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
-                `(shuffle_slice_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_slice_size`.
+                `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
 
         Examples
         --------
@@ -438,7 +438,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
         """
-        if shuffle_slice_size > n_obs_per_dataset:
+        if shuffle_chunk_size > n_obs_per_dataset:
             raise ValueError("Cannot have a large slice size than observations per dataset")
         shared_kwargs = {
             "adata_paths": adata_paths,
@@ -449,7 +449,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             "zarr_dense_shard_size": zarr_dense_shard_size,
             "zarr_compressor": zarr_compressor,
             "h5ad_compressor": h5ad_compressor,
-            "shuffle_slice_size": shuffle_slice_size,
+            "shuffle_chunk_size": shuffle_chunk_size,
             "shuffle": shuffle,
         }
         if self.is_empty:
@@ -473,10 +473,10 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
-        shuffle_slice_size: int = 1000,
+        shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
     ) -> None:
-        """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per store.
+        """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
         The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
@@ -517,9 +517,9 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                 Only applicable when adding datasets for the first time, otherwise ignored.
             shuffle
                 Whether to shuffle the data before writing it to the store.
-            shuffle_slice_size
+            shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
-                `(shuffle_slice_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_slice_size`.
+                `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
@@ -528,7 +528,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], shuffle_slice_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
+            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
         )
 
         if var_subset is None:
@@ -574,7 +574,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         zarr_dense_shard_size: int = 4_194_304,
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-        shuffle_slice_size: int = 1000,
+        shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
@@ -603,7 +603,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
             should_sparsify_output_in_memory
                 This option is for testing only appending sparse files to dense stores.
                 To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
-            shuffle_slice_size
+            shuffle_chunk_size
                 How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
             shuffle
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
@@ -614,7 +614,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 
         adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
-        if math.ceil(adata_concat.shape[0] / shuffle_slice_size) < len(self._dataset_keys):
+        if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
                 "Open an issue if the incoming anndata is so small it cannot be distributed across the on-disk data"
@@ -622,7 +622,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], shuffle_slice_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys)
+            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys)
         )
 
         adata_concat.obs_names_make_unique()

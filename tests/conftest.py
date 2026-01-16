@@ -119,6 +119,6 @@ def simple_collection(
         zarr_dense_chunk_size=10,
         zarr_dense_shard_size=20,
         n_obs_per_dataset=60,
-        shuffle_slice_size=10,
+        shuffle_chunk_size=10,
     )
     return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection
