@@ -29,7 +29,8 @@
 > [!CAUTION]
 > This package does not have a stable API.
 > However, we do not anticipate the on-disk format to change in a fully incompatible manner.
-> Small changes may occur but you should always be able to load your data somehow i.e., they will never be fully breaking.
+> Small changes to how we store the shuffled data may occur but you should always be able to load your data somehow i.e., they will never be fully breaking.
+> We will always provide lower-level APIs that should make this guarantee possible.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
