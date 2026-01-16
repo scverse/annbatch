@@ -7,6 +7,7 @@ from importlib.util import find_spec
 from itertools import islice
 from typing import TYPE_CHECKING, Protocol
 
+import anndata as ad
 import numpy as np
 import scipy as sp
 import zarr
@@ -63,50 +64,6 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 gap = out_selection[0].stop - out_selection[0].start
                 yield type(c)(c[0], c[1], (slice(total, total + gap), *out_selection[1:]), c[3])
                 total += gap
-
-
-def sample_rows(
-    x_list: list[np.ndarray],
-    obs_list: list[np.ndarray] | None,
-    indices: list[np.ndarray] | None = None,
-    *,
-    shuffle: bool = True,
-) -> Generator[tuple[np.ndarray, np.ndarray | None], None, None]:
-    """Samples rows from multiple arrays and their corresponding observation arrays.
-
-    Parameters
-    ----------
-        x_list
-            A list of numpy arrays containing the data to sample from.
-        obs_list
-            A list of numpy arrays containing the corresponding observations.
-        indices
-            the list of indexes for each element in `x_list/`
-        shuffle
-            Whether to shuffle the rows before sampling.
-
-    Yields
-    ------
-        tuple
-            A tuple containing a row from `x_list` and the corresponding row from `obs_list`.
-    """
-    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
-    cum = np.concatenate(([0], np.cumsum(lengths)))
-    total = cum[-1]
-    idxs = np.arange(total)
-    if shuffle:
-        np.random.default_rng().shuffle(idxs)
-    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
-    row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs, strict=True):
-        res = [
-            x_list[ai][ri],
-            obs_list[ai][ri] if obs_list is not None else None,
-        ]
-        if indices is not None:
-            yield (*res, indices[ai][ri])
-        else:
-            yield tuple(res)
 
 
 class WorkerHandle:  # noqa: D101
@@ -234,3 +191,10 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
                 input.shape,
             )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
+
+
+def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
+    """Load X as a sparse array or dense zarr array and obs from a group"""
+    return ad.AnnData(
+        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]), obs=ad.io.read_elem(g["obs"])
+    )

@@ -71,7 +71,7 @@ For a detailed tutorial, please see the [in-depth section of our docs][]
 Basic preprocessing:
 
 ```python
-from annbatch import create_anndata_collection
+from annbatch import DatasetCollection
 
 import zarr
 from pathlib import Path
@@ -82,13 +82,14 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
-create_anndata_collection(
+# Create a collection at the given path. The subgroups will all be anndata stores.
+collection = DatasetCollection("path/to/output/collection.zarr")
+collection.add_adatas(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    output_path="path/to/output/collection",  # a directory containing `dataset_{i}.zarr`
-    shuffle=True,  # shuffling is needed if you want to use chunked access
+    shuffle=True,  # shuffling is needed if you want to use chunked access, but is the default
 )
 ```
 
@@ -107,22 +108,20 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
+def custom_load_func(g: zarr.Group) -> ad.AnnData:
+    return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns])
+
 # This settings override ensures that you don't lose/alter your categorical codes when reading the data in!
 with ad.settings.override(remove_unused_categories=False):
     ds = Loader(
         batch_size=4096,
         chunk_size=32,
         preload_nchunks=256,
-    ).add_anndatas(
-        [
-            ad.AnnData(
-                # note that you can open an AnnData file using any type of zarr store
-                X=ad.io.sparse_dataset(zarr.open(p)["X"]),
-                obs=ad.io.read_elem(zarr.open(p)["obs"]),
-            )
-            for p in Path("path/to/output/collection").glob("*.zarr")
-        ]
     )
+    # `use_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
+    # but the `load_adata` arg can override this behavior
+    # (see `custom_load_func` above for an example of customization).
+    ds = ds.use_collection(collection)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:

@@ -49,7 +49,8 @@ optional-dependencies.doc = [
   "myst-nb>=1.1",
   "pandas",
   "scanpydoc[theme,typehints]>=0.15.3",
-  "sphinx>=8.1",
+  # https://github.com/sphinx-toolbox/sphinx-toolbox/issues/201
+  "sphinx>=8.1,<=8.2.3",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",

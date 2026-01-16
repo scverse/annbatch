@@ -24,6 +24,7 @@ from annbatch.utils import (
     _batched,
     check_lt_1,
     check_var_shapes,
+    load_x_and_obs,
     split_given_size,
     to_torch,
 )
@@ -31,8 +32,10 @@ from annbatch.utils import (
 from .compat import IterableDataset
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from types import ModuleType
+
+    from annbatch.io import DatasetCollection
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -221,6 +224,32 @@ class Loader[
             The number of variables.
         """
         return self._shapes[0][1]
+
+    def use_collection(
+        self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
+    ) -> Self:
+        """Load from an existing :class:`annbatch.DatasetCollection`.
+
+        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_anndatas` or open an issue.
+
+        Parameters
+        ----------
+        collection
+            The collection who on-disk datasets should be used in this loader.
+        load_adata
+            A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
+            Default is to just load `X` and `obs`.
+        """
+        if collection.is_empty:
+            raise ValueError("DatasetCollection is empty")
+        if getattr(self, "_collection_added", False):
+            raise RuntimeError(
+                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_anndatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_anndatas`."
+            )
+        adatas = [load_adata(g) for g in collection]
+        self.add_anndatas(adatas)
+        self._collection_added = True
+        return self
 
     def add_anndatas(
         self,
