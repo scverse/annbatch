@@ -178,7 +178,9 @@ def test_store_creation(
 ):
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
-    output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}.zarr"
+    output_path = (
+        adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}_{load_adata_lazy}.zarr"
+    )
     collection = DatasetCollection(output_path).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
