@@ -28,7 +28,8 @@
 
 > [!CAUTION]
 > This package does not have a stable API.
-> However, we do not anticipate the on-disk format to change in an incompatible manner.
+> However, we do not anticipate the on-disk format to change in a fully incompatible manner.
+> Small breaking changes may occur but you should always be able to load your data somehow.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]

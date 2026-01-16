@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Literal
 
 import anndata as ad
@@ -146,29 +147,32 @@ def test_store_addition_different_keys(
         )
 
 
-@pytest.mark.parametrize("open_store", [h5py.File, zarr.open_group])
+@pytest.mark.parametrize("open_store", [pytest.param(lambda x, mode="": x, id="h5ad"), zarr.open_group])
 def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
-    open_store: Callable[[Path], zarr.Group | h5py.Group],
+    open_store: Callable[..., zarr.Group | Path],
 ):
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = (
         adata_with_h5_path_different_var_space[1].parent
-        / f"zarr_store_creation_test_default.{'h5ad' if open_store is h5py.File else 'zarr'}"
+        / f"zarr_store_creation_test_default.{'zarr' if (is_zarr := open_store is zarr.open_group) else ''}"
     )
     store = open_store(output_path, mode="w")
-    collection = DatasetCollection(store).add_adatas(
-        [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
-    )
-    assert len(list(iter(collection))) == 1  # default n_obs_per_dataset is much more than total obs
-    assert isinstance(ad.io.read_elem(next(iter(collection))).X, sp.csr_matrix)
-    # Test directory structure to make sure nothing extraneous was written
-    if isinstance(store, zarr.Group):
-        assert sorted(glob.glob(str(output_path / "dataset_*"))) == sorted(
-            str(p) for p in (output_path).iterdir() if p.is_dir()
+    with nullcontext() if is_zarr else pytest.warns(UserWarning, match=r"Loading h5ad is currently not supported"):
+        collection = DatasetCollection(store).add_adatas(
+            [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         )
-    assert list(iter(collection)) == [store[k] for k in sorted(store.keys())]
-    assert V1_ENCODING.items() <= store.attrs.items()
+    assert isinstance(
+        ad.io.read_elem(next(iter(collection)) if is_zarr else h5py.File(next(output_path.iterdir()))).X, sp.csr_matrix
+    )
+    assert len(list(iter(collection) if is_zarr else output_path.iterdir())) == 1
+    # Test directory structure to make sure nothing extraneous was written
+    assert sorted(glob.glob(str(output_path / f"dataset_*{'.h5ad' if not is_zarr else ''}"))) == sorted(
+        str(p) for p in (output_path).iterdir() if ((p.is_dir() and is_zarr) or not is_zarr)
+    )
+    with nullcontext() if is_zarr else pytest.raises(ValueError, match=r"Cannot iterate through"):
+        assert list(iter(collection)) == [store[k] for k in sorted(store.keys())]
+        assert V1_ENCODING.items() <= store.attrs.items()
 
 
 @pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])

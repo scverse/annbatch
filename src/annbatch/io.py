@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Self
 
 import anndata as ad
 import dask.array as da
-import h5py
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
     from os import PathLike
     from typing import Any, Literal
 
+    import h5py
     from zarr.abc.codec import BytesBytesCodec
 
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
@@ -304,12 +304,12 @@ def _with_settings(func):
     return wrapper
 
 
-class DatasetCollection[T: (h5py.Group, zarr.Group)]:
+class DatasetCollection:
     """A preshuffled collection object including functionality for creating, adding to, and loading collections shuffled by `annbatch`."""
 
-    _group: T
+    _group: zarr.Group | Path
 
-    def __init__(self, group: zarr.Group | h5py.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a"):
+    def __init__(self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a"):
         """Initialization of the object at a given location.
 
         Note that if the group is a h5py/zarr object, it must have the correct permissions for any subsequent operations you plan to do.
@@ -319,16 +319,22 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         Parameters
         ----------
             group
-                The base location for a preshuffled collection
+                The base location for a preshuffled collection.
+                A :class:`zarr.Group` or path ending in `.zarr` indicates zarr as the shuffled format and otherwise a directory of `h5ad` files will be created.
         """
-        if not isinstance(group, h5py.Group | zarr.Group):
+        if not isinstance(group, zarr.Group):
             if isinstance(group, str | Path):
-                if str(group).endswith("h5ad"):
-                    self._group = h5py.File(group, mode=mode)
-                elif str(group).endswith("zarr"):
+                if str(group).endswith("zarr"):
                     self._group = zarr.open_group(group, mode=mode)
                 else:
-                    raise ValueError("String argument must end in h5ad or zarr")
+                    warnings.warn(
+                        "Loading h5ad is currently not supported and thus we cannot guarantee the funcionality of the ecosystem with h5ad files."
+                        "DatasetCollection should be able to handle shuffling but we guarantee little else."
+                        "Proceed with caution.",
+                        stacklevel=2,
+                    )
+                    self._group = Path(group)
+                    self._group.mkdir(exist_ok=True)
             else:
                 raise TypeError("group must be a zarr or hdf5 group")
         else:
@@ -336,19 +342,29 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
 
     @property
     def _dataset_keys(self) -> list[str]:
-        return sorted(
-            [k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None],
-            key=lambda x: int(x.split("_")[1]),
-        )
+        if isinstance(self._group, zarr.Group):
+            return sorted(
+                [k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None],
+                key=lambda x: int(x.split("_")[1]),
+            )
+        else:
+            raise ValueError("Cannot iterate through folder of h5ad files")
 
-    def __iter__(self) -> Generator[T]:
-        for k in self._dataset_keys:
-            yield self._group[k]
+    def __iter__(self) -> Generator[zarr.Group]:
+        if isinstance(self._group, zarr.Group):
+            for k in self._dataset_keys:
+                yield self._group[k]
+        else:
+            raise ValueError("Cannot iterate through folder of h5ad files")
 
     @property
     def is_empty(self) -> bool:
         """Wether or not there is an existing store at the group location."""
-        return not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0
+        return (
+            (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
+            if isinstance(self._group, zarr.Group)
+            else (len(list(self._group.iterdir())) == 0)
+        )
 
     @_with_settings
     def add_adatas(
@@ -555,13 +571,13 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                     key=f"{DATASET_PREFIX}_{i}",
                 )
             else:
-                ad.io.write_elem(
-                    self._group, f"{DATASET_PREFIX}_{i}", adata_chunk, dataset_kwargs={"compression": h5ad_compressor}
+                ad.io.write_h5ad(
+                    self._group / f"{DATASET_PREFIX}_{i}.h5ad",
+                    adata_chunk,
+                    dataset_kwargs={"compression": h5ad_compressor},
                 )
         if isinstance(self._group, zarr.Group):
             self._group.update_attributes(V1_ENCODING)
-        else:
-            self._group.attrs.update(V1_ENCODING)
 
     def _add_to_collection(
         self,
@@ -651,4 +667,8 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
                     key=dataset,
                 )
             else:
-                ad.io.write_elem(self._group, dataset, adata, dataset_kwargs={"compression": h5ad_compressor})
+                ad.io.write_h5ad(
+                    self._group / f"{dataset}.h5ad",
+                    adata,
+                    dataset_kwargs={"compression": h5ad_compressor},
+                )
