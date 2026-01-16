@@ -172,9 +172,9 @@ def test_store_creation_default(
 
 
 @pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
+@pytest.mark.parametrize("load_adata_lazy", [True, False], ids=["lazy", "default"])
 def test_store_creation(
-    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
-    shuffle: bool,
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path], shuffle: bool, load_adata_lazy: bool
 ):
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
@@ -189,6 +189,7 @@ def test_store_creation(
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
         shuffle=shuffle,
+        **({"load_adata": ad.experimental.read_lazy} if load_adata_lazy else {}),
     )
     assert not DatasetCollection(output_path).is_empty
     assert V1_ENCODING.items() <= zarr.open(output_path).attrs.items()
