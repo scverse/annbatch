@@ -37,6 +37,13 @@ def _round_down(num: int, divisor: int):
     return num - (num % divisor)
 
 
+def _load_obs_var_in_memory(x: PathLike[str] | str) -> ad.AnnData:
+    adata = ad.experimental.read_lazy(x)
+    adata.obs = adata.obs.to_memory()
+    adata.var = adata.var.to_memory()
+    return adata
+
+
 def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
@@ -115,9 +122,7 @@ def write_sharded(
 def _check_for_mismatched_keys(
     paths_or_anndatas: Iterable[PathLike[str] | ad.AnnData | zarr.Group | h5py.Group] | Iterable[str | ad.AnnData],
     *,
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-        x, load_annotation_index=False
-    ),
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _load_obs_var_in_memory,
 ):
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
@@ -155,9 +160,7 @@ def _check_for_mismatched_keys(
 
 def _lazy_load_anndatas(
     paths: Iterable[PathLike[str]] | Iterable[str],
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-        x, load_annotation_index=False
-    ),
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _load_obs_var_in_memory,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
@@ -355,9 +358,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         self,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         *,
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-            x, load_annotation_index=False
-        ),
+        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _load_obs_var_in_memory,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -462,9 +463,7 @@ class DatasetCollection[T: (h5py.Group, zarr.Group)]:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-            x, load_annotation_index=False
-        ),
+        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _load_obs_var_in_memory,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
