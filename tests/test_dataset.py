@@ -13,6 +13,7 @@ import scipy.sparse as sp
 import zarr
 
 from annbatch import Loader
+from annbatch.sampler import ChunkSampler
 
 try:
     from cupy import ndarray as CupyArray
@@ -24,8 +25,6 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-    from annbatch.io import DatasetCollection
 
 
 class Data(TypedDict):
@@ -84,7 +83,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     "gen_loader",
     [
         pytest.param(
-            lambda collection,
+            lambda path,
             shuffle,
             use_zarrs,
             chunk_size=chunk_size,
@@ -99,15 +98,10 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
-            ).use_collection(
-                collection,
-                **(
-                    {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
-                    if open_func is not None
-                    else {}
-                ),
+            ).add_anndatas(
+                [open_func(p, use_zarrs=use_zarrs, use_anndata=True) for p in path.glob("*.zarr")],
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-dataset_type={open_func.__name__[5:]}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=pytest.mark.skipif(
                 find_spec("cupy") is None and preload_to_gpu,
                 reason="need cupy installed",
@@ -116,7 +110,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
             for preload_to_gpu in [True, False]
-            for open_func in [open_sparse, open_dense, None]
+            for open_func in [open_sparse, open_dense]
             for elem in [
                 [
                     1,
@@ -146,19 +140,12 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     50,
                     preload_to_gpu,
                 ],  # batch size equal to in-memory size loading
-                [
-                    10,
-                    5,
-                    open_func,
-                    14,
-                    preload_to_gpu,
-                ],  # batch size does not divide in memory size evenly
             ]
         ]
     ],
 )
 def test_store_load_dataset(
-    simple_collection: tuple[ad.AnnData, DatasetCollection], *, shuffle: bool, gen_loader, use_zarrs
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs
 ):
     """
     This test verifies that the DaskDataset works correctly:
@@ -167,8 +154,8 @@ def test_store_load_dataset(
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader: Loader = gen_loader(simple_collection[1], shuffle, use_zarrs)
-    adata = simple_collection[0]
+    loader: Loader = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
+    adata = adata_with_zarr_path_same_var_space[0]
     is_dense = loader.dataset_type is zarr.Array
     n_elems = 0
     batches = []
@@ -231,11 +218,19 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
-def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
-    ds = Loader()
-    ds = ds.use_collection(simple_collection[1])
-    with pytest.raises(RuntimeError, match="You should not add multiple collections"):
-        ds.use_collection(simple_collection[1])
+def test_batch_size_does_not_divide_evenly_fails():
+    """Test that it fails if batch_size does not divide evenly into chunk_size * preload_nchunks."""
+    # chunk_size=10, preload_nchunks=5 -> in-memory size = 50
+    # batch_size=14 does not divide evenly into 50
+    with pytest.raises(ValueError, match="must be divisible by batch_size"):
+        Loader(
+            shuffle=False,
+            chunk_size=10,
+            preload_nchunks=5,
+            batch_size=14,
+            preload_to_gpu=False,
+            to_torch=False,
+        )
 
 
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
@@ -265,7 +260,7 @@ def test_to_torch(
         shuffle=False,
         chunk_size=5,
         preload_nchunks=10,
-        batch_size=42,
+        batch_size=25,
         preload_to_gpu=preload_to_gpu,
         return_index=True,
         to_torch=True,
@@ -276,14 +271,16 @@ def test_to_torch(
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], drop_last: bool):
-    # batch_size guaranteed to have leftovers to drop
-    batch_size = 42
+    # batch_size guaranteed to have last batch to drop
+    chunk_size = 14
+    preload_nchunks = 3
+    batch_size = 21
     zarr_path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     adata = ad.read_zarr(zarr_path)
     ds = Loader(
         shuffle=False,
-        chunk_size=5,
-        preload_nchunks=10,
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
         batch_size=batch_size,
         preload_to_gpu=False,
         return_index=True,
@@ -298,6 +295,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
         indices += [batch["index"]]
     total_obs = adata.shape[0]
     leftover = total_obs % batch_size
+    assert leftover != 0, f"batch_size {batch_size} must not divide evenly into {total_obs} observations"
     for batch in batches[:-1]:
         assert batch.shape[0] == batch_size
     assert batches[-1].shape[0] == (batch_size if drop_last else leftover)
@@ -412,7 +410,7 @@ def test_default_data_structures(
 ):
     # format is a smoke test for sparse
     ds = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=22, shuffle=True, return_index=False, **kwargs
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, **kwargs
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
@@ -420,3 +418,96 @@ def test_default_data_structures(
     )
     for batch in ds:
         assert isinstance(batch["data"], expected_cls)
+
+
+def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    """Test that failed validation in add_dataset doesn't modify internal state."""
+    from annbatch.sampler import Sampler
+
+    class FailOnSecondValidateSampler(Sampler):
+        """A sampler that fails validation after the first call."""
+
+        def __init__(self):
+            self._validate_count = 0
+
+        def validate(self, n_obs: int) -> None:
+            self._validate_count += 1
+            if self._validate_count > 1:
+                raise ValueError("Validation failed on second add")
+
+        @property
+        def batch_size(self) -> int:
+            return 10
+
+        @property
+        def worker_handle(self):
+            return None
+
+        def _sample(self, n_obs: int, worker_handle=None):
+            yield from []
+
+    paths = list(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    data1 = open_dense(paths[0])
+    data2 = open_dense(paths[1])
+
+    sampler = FailOnSecondValidateSampler()
+    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to_torch=False)
+
+    # First add succeeds
+    loader.add_dataset(**data1)
+
+    # Capture state before failed add
+    n_datasets_before = len(loader._train_datasets)
+    shapes_before = loader._shapes.copy()
+
+    # Second add should fail validation BEFORE modifying state
+    with pytest.raises(ValueError, match="Validation failed on second add"):
+        loader.add_dataset(**data2)
+
+    # State should be unchanged
+    assert len(loader._train_datasets) == n_datasets_before
+    assert loader._shapes == shapes_before
+
+
+def test_given_batch_sampler_samples_subset_of_combined_datasets(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+):
+    """Test given batch sampler that samples only a specific range from combined datasets.
+
+    Uses multiple zarr files from fixture, combines them, and samples a subset.
+    """
+    paths = list(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    datas = [open_dense(p) for p in paths]
+
+    # Calculate expected n_obs before creating loader
+    expected_n_obs = sum(d["dataset"].shape[0] for d in datas)
+    start_idx, end_idx = expected_n_obs // 4, expected_n_obs // 2
+
+    sampler = ChunkSampler(
+        mask=slice(start_idx, end_idx),
+        batch_size=10,
+        chunk_size=10,
+        preload_nchunks=2,
+    )
+
+    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to_torch=False, return_index=True)
+    loader.add_datasets(**concat(datas))
+
+    # Collect all yielded indices
+    all_indices = []
+    for batch in loader:
+        all_indices.append(batch["index"])
+
+    stacked_indices = np.concatenate(all_indices)
+
+    # Verify we got exactly the expected range
+    assert set(stacked_indices) == set(range(start_idx, end_idx))
+    assert len(stacked_indices) == end_idx - start_idx
+
+
+@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}])
+def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
+    """Test that providing batch_sampler with sampler args raises in constructor."""
+    chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
+    with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
+        Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)

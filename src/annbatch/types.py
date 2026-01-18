@@ -16,6 +16,23 @@ type InputInMemoryArray_T = CSRContainer | np.ndarray
 type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray | Tensor
 
 
+class LoadRequest(TypedDict):
+    """Load request from sampler.
+
+    Attributes
+    ----------
+    chunks
+        Chunks to load - a list of at most chunk_size ranged slices.
+    splits
+        How the concatenation of chunks should be split into batches.
+        A list of splits, last one may be partial (< batch_size).
+        The loader carries over partial batches to the next iteration.
+    """
+
+    chunks: list[slice]
+    splits: list[np.ndarray]
+
+
 class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
     """The output of the loader, the "data matrix" with its labels, optional, and index, also optional."""
 

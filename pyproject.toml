@@ -178,6 +178,10 @@ omit = [
   "**/test_*.py",
 ]
 
+[[tool.mypy.overrides]]
+module = [ "anndata.*", "cupyx.*", "cupy.*" ]
+ignore_missing_imports = true
+
 [tool.cruft]
 skip = [
   "tests",
