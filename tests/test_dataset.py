@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from annbatch.io import DatasetCollection
+
 
 class Data(TypedDict):
     dataset: ad.abc.CSRDataset | zarr.Array
@@ -83,7 +85,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     "gen_loader",
     [
         pytest.param(
-            lambda path,
+            lambda collection,
             shuffle,
             use_zarrs,
             chunk_size=chunk_size,
@@ -98,10 +100,15 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
-            ).add_anndatas(
-                [open_func(p, use_zarrs=use_zarrs, use_anndata=True) for p in path.glob("*.zarr")],
+            ).use_collection(
+                collection,
+                **(
+                    {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                    if open_func is not None
+                    else {}
+                ),
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-dataset_type={open_func.__name__[5:]}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=pytest.mark.skipif(
                 find_spec("cupy") is None and preload_to_gpu,
                 reason="need cupy installed",
@@ -110,7 +117,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
             for preload_to_gpu in [True, False]
-            for open_func in [open_sparse, open_dense]
+            for open_func in [open_sparse, open_dense, None]
             for elem in [
                 [
                     1,
@@ -145,7 +152,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     ],
 )
 def test_store_load_dataset(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, shuffle: bool, gen_loader, use_zarrs
+    simple_collection: tuple[ad.AnnData, DatasetCollection], *, shuffle: bool, gen_loader, use_zarrs
 ):
     """
     This test verifies that the DaskDataset works correctly:
@@ -154,8 +161,8 @@ def test_store_load_dataset(
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader: Loader = gen_loader(adata_with_zarr_path_same_var_space[1], shuffle, use_zarrs)
-    adata = adata_with_zarr_path_same_var_space[0]
+    loader: Loader = gen_loader(simple_collection[1], shuffle, use_zarrs)
+    adata = simple_collection[0]
     is_dense = loader.dataset_type is zarr.Array
     n_elems = 0
     batches = []
@@ -218,19 +225,11 @@ def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData,
         ds.add_dataset(**data)
 
 
-def test_batch_size_does_not_divide_evenly_fails():
-    """Test that it fails if batch_size does not divide evenly into chunk_size * preload_nchunks."""
-    # chunk_size=10, preload_nchunks=5 -> in-memory size = 50
-    # batch_size=14 does not divide evenly into 50
-    with pytest.raises(ValueError, match="must be divisible by batch_size"):
-        Loader(
-            shuffle=False,
-            chunk_size=10,
-            preload_nchunks=5,
-            batch_size=14,
-            preload_to_gpu=False,
-            to_torch=False,
-        )
+def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    ds = Loader()
+    ds = ds.use_collection(simple_collection[1])
+    with pytest.raises(RuntimeError, match="You should not add multiple collections"):
+        ds.use_collection(simple_collection[1])
 
 
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
