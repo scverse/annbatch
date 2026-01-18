@@ -265,7 +265,7 @@ def test_to_torch(
         to_torch=True,
     )
     ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
-    assert isinstance(next(iter(ds))["X"], torch.Tensor)
+    assert isinstance(next(iter(ds))["data"], torch.Tensor)
 
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
