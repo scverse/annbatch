@@ -17,7 +17,15 @@ from zarr import Array as ZarrArray
 
 from annbatch.sampler import ChunkSampler, Sampler
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
-from annbatch.utils import CSRContainer, MultiBasicIndexer, check_lt_1, check_var_shapes, to_torch, validate_sampler
+from annbatch.utils import (
+    CSRContainer,
+    MultiBasicIndexer,
+    check_lt_1,
+    check_var_shapes,
+    load_x_and_obs,
+    to_torch,
+    validate_sampler,
+)
 
 from .compat import IterableDataset
 
