@@ -19,14 +19,16 @@ type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyAr
 class LoadRequest(TypedDict):
     """Load request from sampler.
 
+    This is the request format Loader will expect from the sampler.
+    Not satisfying the constrains documented here may result in unexpected behavior.
+
     Attributes
     ----------
     chunks
-        Chunks to load - a list of at most chunk_size ranged slices.
+        Chunks to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
     splits
         How the concatenation of chunks should be split into batches.
-        A list of splits, last one may be partial (< batch_size).
-        The loader carries over partial batches to the next iteration.
+        A list of splits, last one may be partial but not empty i.e. 1 <= len(last_split) <= batch_size.
     """
 
     chunks: list[slice]
