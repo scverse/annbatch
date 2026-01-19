@@ -265,7 +265,7 @@ def test_to_torch(
         to_torch=True,
     )
     ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
-    assert isinstance(next(iter(ds))["X"], torch.Tensor)
+    assert isinstance(next(iter(ds))["data"], torch.Tensor)
 
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
@@ -423,7 +423,7 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     ds = Loader(
         chunk_size=10,
         preload_nchunks=4,
-        batch_size=22,
+        batch_size=20,
     ).use_collection(
         simple_collection[1],
         load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),

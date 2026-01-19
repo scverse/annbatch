@@ -290,7 +290,7 @@ class Loader[
         Parameters
         ----------
             adata
-                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
+                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
         """
         dataset = adata.X
         obs = adata.obs
@@ -311,7 +311,7 @@ class Loader[
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
+                List of :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
         """
         if obs is None:
             obs = [None] * len(datasets)
@@ -604,11 +604,6 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-
-        in_memory_data = None
-        concatenated_obs = None
-        in_memory_indices = None
-
         mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
 
         for load_request in self._batch_sampler.sample(self.n_obs):
@@ -624,6 +619,8 @@ class Loader[
             indices: None | list[np.ndarray] = self._maybe_accumulate_indices(chunks_to_load)
 
             in_memory_data = mod.vstack(chunks_converted)
+            concatenated_obs = None
+            in_memory_indices = None
             if self._obs is not None and obs is not None:
                 concatenated_obs = pd.concat(obs)
             if self._return_index and indices is not None:
@@ -684,12 +681,12 @@ class Loader[
     ) -> LoaderOutput:
         """Prepare the final output dict for a single batch."""
         index = None
-        labels = None
+        obs = None
         if self._obs is not None and concatenated_obs is not None:
-            labels = concatenated_obs.iloc[split]
+            obs = concatenated_obs.iloc[split]
         if self._return_index and in_memory_indices is not None:
             index = in_memory_indices[split]
         data = in_memory_data[split]
         if self._to_torch:
             data = to_torch(data, self._preload_to_gpu)
-        return {"data": data, "labels": labels, "index": index}
+        return {"X": data, "obs": obs, "index": index}
