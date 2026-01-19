@@ -147,29 +147,40 @@ def test_store_addition_different_keys(
         )
 
 
-@pytest.mark.parametrize("open_store", [pytest.param(lambda x, mode="": x, id="h5ad"), zarr.open_group])
+def test_h5ad_and_zarr_simultaneously(tmp_path: Path):
+    with pytest.raises(ValueError, match=r"Do not set `is_collection_h5ad` to True when also passing in a zarr Group."):
+        DatasetCollection(zarr.open_group(tmp_path / "foo.zarr"), is_collection_h5ad=True)
+
+
+@pytest.mark.parametrize("is_collection_h5ad", [True, False], ids=["h5ad", "zarr"])
 def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
-    open_store: Callable[..., zarr.Group | Path],
+    is_collection_h5ad: bool,
 ):
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = (
         adata_with_h5_path_different_var_space[1].parent
-        / f"zarr_store_creation_test_default.{'zarr' if (is_zarr := open_store is zarr.open_group) else ''}"
+        / f"{'h5ad' if is_collection_h5ad else 'zarr'}_store_creation_test_default"
     )
-    store = open_store(output_path, mode="w")
-    with nullcontext() if is_zarr else pytest.warns(UserWarning, match=r"Loading h5ad is currently not supported"):
-        collection = DatasetCollection(store).add_adatas(
-            [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
+    with pytest.warns(
+        UserWarning,
+        match=r"collections have the `.zarr` suffix"
+        if (is_zarr := not is_collection_h5ad)
+        else r"Loading h5ad is currently not supported",
+    ):
+        kwargs = {} if is_zarr else {"is_collection_h5ad": True}
+        collection = DatasetCollection(output_path, **kwargs).add_adatas(
+            [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
         )
     assert isinstance(
         ad.io.read_elem(next(iter(collection)) if is_zarr else h5py.File(next(output_path.iterdir()))).X, sp.csr_matrix
     )
     assert len(list(iter(collection) if is_zarr else output_path.iterdir())) == 1
     # Test directory structure to make sure nothing extraneous was written
-    assert sorted(glob.glob(str(output_path / f"dataset_*{'.h5ad' if not is_zarr else ''}"))) == sorted(
+    assert sorted(glob.glob(str(output_path / f"dataset_*{'.h5ad' if is_collection_h5ad else ''}"))) == sorted(
         str(p) for p in (output_path).iterdir() if ((p.is_dir() and is_zarr) or not is_zarr)
     )
+    store = zarr.open(output_path)
     with nullcontext() if is_zarr else pytest.raises(ValueError, match=r"Cannot iterate through"):
         assert list(iter(collection)) == [store[k] for k in sorted(store.keys())]
         assert V1_ENCODING.items() <= store.attrs.items()

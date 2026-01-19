@@ -113,6 +113,8 @@ zarr.config.set(
 def custom_load_func(g: zarr.Group) -> ad.AnnData:
     return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns])
 
+# A non empty collection
+collection = DatasetCollection("path/to/output/collection.zarr")
 # This settings override ensures that you don't lose/alter your categorical codes when reading the data in!
 with ad.settings.override(remove_unused_categories=False):
     ds = Loader(

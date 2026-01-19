@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning][].
 
 # [0.0.3]
 
-- Revert `h5ad` shuffling into one big store (i.e., go back to sharding into individual files) and add warning that `h5ad` is not fully supported by `annbatch`.
+- Revert `h5ad` shuffling into one big store (i.e., go back to sharding into individual files) and add warning that `h5ad` is not fully supported by `annbatch`. `is_collection_h5ad` argument to initialization of {class}`annbatch.DatasetCollection` must be passed when initializing into to use a preshuffled collection of `h5ad` files, reading or writing.
 
 ## [0.0.2]
 

@@ -309,7 +309,9 @@ class DatasetCollection:
 
     _group: zarr.Group | Path
 
-    def __init__(self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a"):
+    def __init__(
+        self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a", is_collection_h5ad: bool = False
+    ):
         """Initialization of the object at a given location.
 
         Note that if the group is a h5py/zarr object, it must have the correct permissions for any subsequent operations you plan to do.
@@ -324,7 +326,12 @@ class DatasetCollection:
         """
         if not isinstance(group, zarr.Group):
             if isinstance(group, str | Path):
-                if str(group).endswith("zarr"):
+                if not is_collection_h5ad:
+                    if not str(group).endswith(".zarr"):
+                        warnings.warn(
+                            f"It is highly recommended to make your collections have the `.zarr` suffix, got: {group}.",
+                            stacklevel=2,
+                        )
                     self._group = zarr.open_group(group, mode=mode)
                 else:
                     warnings.warn(
@@ -336,8 +343,10 @@ class DatasetCollection:
                     self._group = Path(group)
                     self._group.mkdir(exist_ok=True)
             else:
-                raise TypeError("group must be a zarr or hdf5 group")
+                raise TypeError("Group must either be a zarr group or a path")
         else:
+            if is_collection_h5ad:
+                raise ValueError("Do not set `is_collection_h5ad` to True when also passing in a zarr Group.")
             self._group = group
 
     @property
