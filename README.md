@@ -28,7 +28,9 @@
 
 > [!CAUTION]
 > This package does not have a stable API.
-> However, we do not anticipate the on-disk format to change in an incompatible manner.
+> However, we do not anticipate the on-disk format to change in a fully incompatible manner.
+> Small changes to how we store the shuffled data may occur but you should always be able to load your data somehow i.e., they will never be fully breaking.
+> We will always provide lower-level APIs that should make this guarantee possible.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
@@ -95,6 +97,9 @@ collection.add_adatas(
 
 Data loading:
 
+> [!IMPORTANT]
+> Without custom loading via `Loader.load_adata` *all* obs columns will be loaded and yielded potentially degrading performance.
+
 ```python
 from pathlib import Path
 
@@ -108,9 +113,12 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
+# WARNING: Without custom loading *all* obs columns will be loaded and yielded potentially degrading performance.
 def custom_load_func(g: zarr.Group) -> ad.AnnData:
-    return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns])
+    return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns_useful_for_training])
 
+# A non empty collection
+collection = DatasetCollection("path/to/output/collection.zarr")
 # This settings override ensures that you don't lose/alter your categorical codes when reading the data in!
 with ad.settings.override(remove_unused_categories=False):
     ds = Loader(
@@ -121,11 +129,11 @@ with ad.settings.override(remove_unused_categories=False):
     # `use_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
     # but the `load_adata` arg can override this behavior
     # (see `custom_load_func` above for an example of customization).
-    ds = ds.use_collection(collection)
+    ds = ds.use_collection(collection, load_adata = custom_load_func)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
-    ...
+    data, obs = batch["X"], batch["obs"]
 ```
 
 > [!IMPORTANT]
