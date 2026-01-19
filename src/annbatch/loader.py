@@ -23,7 +23,6 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     load_x_and_obs,
-    to_torch,
     validate_sampler,
 )
 
@@ -616,18 +615,17 @@ class Loader[
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
             chunks_converted = self._accumulate_chunks(chunks)
             # Accumulate labels and indices if possible
-            concatenated_obs: None | list[pd.DataFrame] = self._maybe_accumulate_labels(dataset_index_to_slices)
+            concatenated_obs: None | list[pd.DataFrame] = self._maybe_accumulate_obs(dataset_index_to_slices)
             in_memory_indices: None | list[np.ndarray] = self._maybe_accumulate_indices(chunks_to_load)
 
             in_memory_data = mod.vstack(chunks_converted)
 
             for split in splits:
-                yield self._prepare_output(
-                    in_memory_data=in_memory_data,
-                    concatenated_obs=concatenated_obs,
-                    in_memory_indices=in_memory_indices,
-                    split=split,
-                )
+                yield {
+                    "X": in_memory_data[split],
+                    "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
+                    "index": in_memory_indices[split] if in_memory_indices is not None else None,
+                }
 
     def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
         """Convert fetched chunks to output array format (CSR or ndarray)."""
@@ -645,7 +643,7 @@ class Loader[
                 result.append(self._np_module.asarray(chunk))
         return result
 
-    def _maybe_accumulate_labels(
+    def _maybe_accumulate_obs(
         self, dataset_index_to_slices: OrderedDict[int, list[slice]]
     ) -> list[pd.DataFrame] | None:
         """Gather obs labels for the loaded slices if possible."""
@@ -669,24 +667,3 @@ class Loader[
                 for idx in dataset_index_to_slices
             ]
         )
-
-    def _prepare_output(
-        self,
-        *,
-        in_memory_data: OutputInMemoryArray_T,
-        concatenated_obs: pd.DataFrame | None,
-        in_memory_indices: np.ndarray | None,
-        split: np.ndarray,
-    ) -> LoaderOutput:
-        """Prepare the final output dict for a single batch."""
-        index = None
-        obs = None
-        if self._obs is not None and concatenated_obs is not None:
-            obs = concatenated_obs.iloc[split]
-        if self._return_index and in_memory_indices is not None:
-            index = in_memory_indices[split]
-        data = in_memory_data[split]
-        if self._to_torch:
-            data = to_torch(data, self._preload_to_gpu)
-        print(obs)
-        return {"X": data, "obs": obs, "index": index}
