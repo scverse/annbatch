@@ -261,7 +261,7 @@ class Loader[
         Parameters
         ----------
             adatas
-                List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
+                List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
         check_lt_1([len(adatas)], ["Number of anndatas"])
         for adata in adatas:
@@ -274,7 +274,7 @@ class Loader[
         Parameters
         ----------
             adata
-                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
+                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
         dataset = adata.X
         obs = adata.obs
@@ -294,7 +294,7 @@ class Loader[
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
+                List of :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
         """
         if obs is None:
             obs = [None] * len(datasets)
@@ -310,16 +310,16 @@ class Loader[
             dataset
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
-                :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
+                :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
         """
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
                 raise ValueError(
-                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without labels"
+                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without obs"
                 )
             if self._obs is not None and obs is None:
                 raise ValueError(
-                    "Cannot add a dataset with no obs label when training datasets have already been added without labels"
+                    "Cannot add a dataset with no obs label when training datasets have already been added without obs"
                 )
             if not isinstance(dataset, self.dataset_type):
                 raise ValueError(
@@ -337,9 +337,9 @@ class Loader[
         check_var_shapes(datasets)
         self._shapes = self._shapes + [dataset.shape]
         self._train_datasets = datasets
-        if self._obs is not None:  # labels exist
+        if self._obs is not None:  # obs exist
             self._obs += [obs]
-        elif obs is not None:  # labels dont exist yet, but are being added for the first time
+        elif obs is not None:  # obs dont exist yet, but are being added for the first time
             self._obs = [obs]
         return self
 
@@ -587,7 +587,7 @@ class Loader[
 
         Yields
         ------
-            A batch of data along with its labels and index (both optional).
+            A batch of data along with its obs and index (both optional).
         """
         check_lt_1(
             [len(self._train_datasets), self.n_obs],
@@ -621,7 +621,7 @@ class Loader[
                 ]
             else:
                 chunks_converted = [self._np_module.asarray(c) for c in chunks]
-            # Accumulate labels
+            # Accumulate obs
             obs: None | list[pd.DataFrame] = None
             if self._obs is not None:
                 obs = []
@@ -672,10 +672,8 @@ class Loader[
             for i, s in enumerate(splits):
                 if s.shape[0] == self._batch_size:
                     output: LoaderOutput = {
-                        "data": to_torch(in_memory_data[s], self._preload_to_gpu)
-                        if self._to_torch
-                        else in_memory_data[s],
-                        "labels": concatenated_obs.iloc[s] if self._obs is not None else None,
+                        "X": to_torch(in_memory_data[s], self._preload_to_gpu) if self._to_torch else in_memory_data[s],
+                        "obs": concatenated_obs.iloc[s] if self._obs is not None else None,
                         "index": in_memory_indices[s] if self._return_index else None,
                     }
                     yield output
@@ -692,8 +690,8 @@ class Loader[
                         in_memory_indices = None
         if in_memory_data is not None and not self._drop_last:  # handle any leftover data
             output: LoaderOutput = {
-                "data": to_torch(in_memory_data, self._preload_to_gpu) if self._to_torch else in_memory_data,
-                "labels": concatenated_obs if self._obs is not None else None,
+                "X": to_torch(in_memory_data, self._preload_to_gpu) if self._to_torch else in_memory_data,
+                "obs": concatenated_obs if self._obs is not None else None,
                 "index": in_memory_indices if self._return_index else None,
             }
             yield output

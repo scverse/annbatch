@@ -97,6 +97,9 @@ collection.add_adatas(
 
 Data loading:
 
+> [!IMPORTANT]
+> Without custom loading via `Loader.load_adata` *all* obs columns will be loaded and yielded potentially degrading performance.
+
 ```python
 from pathlib import Path
 
@@ -130,7 +133,7 @@ with ad.settings.override(remove_unused_categories=False):
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
-    ...
+    data, obs = batch["X"], batch["obs"]
 ```
 
 > [!IMPORTANT]
