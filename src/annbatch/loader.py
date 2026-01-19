@@ -23,6 +23,7 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     load_x_and_obs,
+    to_torch,
     validate_sampler,
 )
 
@@ -631,8 +632,9 @@ class Loader[
             in_memory_data = mod.vstack(chunks_converted)
 
             for split in splits:
+                data = in_memory_data[split]
                 yield {
-                    "X": in_memory_data[split],
+                    "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                     "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
                     "index": in_memory_indices[split] if in_memory_indices is not None else None,
                 }
