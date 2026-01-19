@@ -39,8 +39,8 @@ def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) 
         group = h5py.File(adata.file.filename) if adata.file.filename is not None else zarr.open(x)
     else:
         group = x
-    # -1 indicates that all of `obs` should just be loaded, but this is probably fine going column by column.
-    # Only one column at a time will be loaded anyway so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
+    # -1 indicates that all of each `obs` column should just be loaded, but this is probably fine since it goes column by column and discards.
+    # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
     adata.obs = ad.experimental.read_elem_lazy(group["obs"], chunks=(-1,))
     for col in adata.obs.columns:
         # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
