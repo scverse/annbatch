@@ -165,7 +165,6 @@ class ChunkSampler(Sampler):
             (self._rng.permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
             self._batch_size,
         )
-        batch_indices.sort(key=len, reverse=True)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
     def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:
