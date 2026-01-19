@@ -238,7 +238,7 @@ class Loader[
             The collection who on-disk datasets should be used in this loader.
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
-            Default is to just load `X` and `obs`.
+            Default is to just load `X` and all of `obs`.
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
@@ -277,6 +277,8 @@ class Loader[
         """
         dataset = adata.X
         obs = adata.obs
+        if len(obs.columns) == 0:
+            obs = None
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
         self.add_dataset(cast("BackingArray", dataset), obs)
@@ -328,7 +330,7 @@ class Loader[
             raise TypeError(
                 "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
             )
-        if not isinstance(obs, pd.DataFrame):
+        if not isinstance(obs, pd.DataFrame) and obs is not None:
             raise TypeError("obs must be a pandas DataFrame")
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)

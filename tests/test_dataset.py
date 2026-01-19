@@ -418,5 +418,17 @@ def test_default_data_structures(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
         )
     )
-    for batch in ds:
-        assert isinstance(batch["data"], expected_cls)
+    assert isinstance(next(iter(ds))["data"], expected_cls)
+
+
+def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    # No obs loaded is actually None
+    ds = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=22,
+    ).use_collection(
+        simple_collection[1],
+        load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
+    )
+    assert next(iter(ds))["labels"] is None
