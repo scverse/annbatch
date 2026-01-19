@@ -139,12 +139,12 @@ class Loader[
     _preload_to_gpu: bool = True
     _to_torch: bool = True
     _dataset_elem_cache: dict[int, CSRDatasetElems]
-    _batch_sampler: Sampler[list[slice]]
+    _batch_sampler: Sampler
 
     def __init__(
         self,
         *,
-        batch_sampler: Sampler[list[slice]] | None = None,
+        batch_sampler: Sampler | None = None,
         chunk_size: int | None = None,
         preload_nchunks: int | None = None,
         shuffle: bool | None = None,
