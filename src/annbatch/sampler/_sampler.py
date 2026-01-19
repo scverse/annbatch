@@ -148,7 +148,7 @@ class ChunkSampler(Sampler):
             preload_nchunks,
             slice(start, stop),
             drop_last,
-        )  # stop can be None
+        )
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -207,10 +207,11 @@ class ChunkSampler(Sampler):
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_batch = split_given_size(chunks, self._preload_nchunks)
-        batch_indices = np.arange(in_memory_size)  # to avoid copies use in-place shuffling
+        batch_indices = np.arange(in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
         for batch_chunks in chunks_per_batch[:-1]:
             if self._shuffle:
+                # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
                 self._rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": batch_chunks, "splits": split_batch_indices}
