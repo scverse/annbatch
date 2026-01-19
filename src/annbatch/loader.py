@@ -128,6 +128,9 @@ class Loader[
         "shuffle": False,
         "drop_last": False,
     }
+    # TODO: these should be also presented in the documentation
+    # but this is not ideal since they are hardcoded into the docstrings
+    # maybe we should make this a public class field?
 
     _train_datasets: list[BackingArray]
     _obs: list[pd.DataFrame] | None = None
