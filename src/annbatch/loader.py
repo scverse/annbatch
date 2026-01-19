@@ -239,6 +239,7 @@ class Loader[
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
             Default is to just load `X` and all of `obs`.
+            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_adata` argument.
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
