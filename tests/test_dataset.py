@@ -293,13 +293,13 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
         batches += [batch["X"]]
         indices += [batch["index"]]
     total_obs = adata.shape[0]
-    leftover = total_obs % batch_size
-    assert leftover != 0, f"batch_size {batch_size} must not divide evenly into {total_obs} observations"
+    remainder = total_obs % batch_size
+    assert remainder != 0, f"batch_size {batch_size} must not divide evenly into {total_obs} observations"
     for batch in batches[:-1]:
         assert batch.shape[0] == batch_size
-    assert batches[-1].shape[0] == (batch_size if drop_last else leftover)
+    assert batches[-1].shape[0] == (batch_size if drop_last else remainder)
     X = sp.vstack(batches).toarray()
-    assert X.shape[0] == (total_obs - leftover if drop_last else total_obs)
+    assert X.shape[0] == (total_obs - remainder if drop_last else total_obs)
     X_expected = adata[np.concatenate(indices)].layers["sparse"].toarray()
     np.testing.assert_allclose(X, X_expected)
 
