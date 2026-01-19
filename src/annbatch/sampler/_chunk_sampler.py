@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-from abc import ABC, abstractmethod
 from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from annbatch.sampler.abc import Sampler
 from annbatch.utils import check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -16,65 +16,6 @@ if TYPE_CHECKING:
 
     from annbatch.types import LoadRequest
     from annbatch.utils import WorkerHandle
-
-
-class Sampler(ABC):
-    """Base sampler class.
-
-    Samplers control how data is batched and loaded from the underlying datasets.
-    """
-
-    def sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        """Sample load requests given the total number of observations.
-
-        Parameters
-        ----------
-        n_obs
-            The total number of observations available.
-
-        Yields
-        ------
-        LoadRequest
-            Load requests for batching data.
-        """
-        self.validate(n_obs)
-        yield from self._sample(n_obs)
-
-    @abstractmethod
-    def validate(self, n_obs: int) -> None:
-        """Validate the sampler configuration against the loader's state.
-
-        This method is called when the sampler is set on a loader.
-        Override this method to add custom validation for sampler parameters.
-
-        Parameters
-        ----------
-        n_obs
-            The total number of observations in the loader.
-
-        Raises
-        ------
-        ValueError
-            If the sampler configuration is invalid for the given n_obs.
-        """
-
-    @abstractmethod
-    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        """Implementation of the sample method.
-
-        This method is called by the sample method to perform the actual sampling after
-        validation has passed.
-
-        Parameters
-        ----------
-        n_obs
-            The total number of observations available.
-
-        Yields
-        ------
-        LoadRequest
-            Load requests for batching data.
-        """
 
 
 class ChunkSampler(Sampler):
