@@ -9,11 +9,12 @@ Let's go through the above example:
 ### Preprocessing
 
 ```python
-colleciton = DatasetCollection("path/to/output/store.zarr").add_adatas(
+create_anndata_collection(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
+    output_path="path/to/output/store",  # a directory containing `chunk_{i}.zarr`
     shuffle=True,  # shuffling is needed if you want to use chunked access
 )
 ```
@@ -32,16 +33,25 @@ See the [zarr docs on sharding][] for more information.
 #### Chunked access
 
 ```python
-# `use_collection` will automatically get everything in `X` and `obs` and yield it.
 ds = Loader(
     batch_size=4096,
     chunk_size=32,
     preload_nchunks=256,
-).use_collection(collection)
+).add_anndatas(
+    [
+        ad.AnnData(
+            # note that you can open an anndata file using any type of zarr store
+            X=ad.io.sparse_dataset(zarr.open(p)["X"]),
+            obs=ad.io.read_elem(zarr.open(p)["obs"]),
+        )
+        for p in PATH_TO_STORE.glob("*.zarr")
+    ],
+    obs_keys="label_column",
+)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
-    x, df, index = batch["X"], batch["obs"], batch["index"]
+    ...
 ```
 
 The data loader implements a chunked fetching strategy where `preload_nchunks` number of continguous-chunks of size `chunk_size` are loaded.

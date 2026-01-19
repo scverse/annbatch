@@ -25,7 +25,8 @@
    :toctree: generated/
 
     write_sharded
-    DatasetCollection
+    add_to_collection
+    create_anndata_collection
 ```
 
 (types)=
@@ -35,5 +36,5 @@
 .. autosummary::
    :toctree: generated/
 
-    types.LoaderOutput
+    types.BackingArray_T
 ```
