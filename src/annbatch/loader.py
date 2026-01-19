@@ -67,30 +67,40 @@ class Loader[
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
-    `shuffle`, and `drop_last` must not be set (they are controlled by the sampler).
+    `shuffle`, and `drop_last` must not be set (they are controlled by the `batch_sampler` instead).
 
     Parameters
     ----------
+        batch_sampler
+            A custom sampler to use for batching the data.
+            If not provided, a :class:`ChunkSampler` will be used with the following defaults:
+            - `chunk_size`: 512
+            - `preload_nchunks`: 32
+            - `batch_size`: 1
+            - `shuffle`: False
+            - `drop_last`: False
+            Mutually exclusive with the following arguments: `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, and `drop_last`.
         chunk_size
-            The obs size (i.e., axis 0) of contiguous array data to fetch.
+            The obs size (i.e., axis 0) of contiguous array data to fetch. When `batch_sampler` is not provided, this is used to determine the chunk size. Mutually exclusive with `batch_sampler`. Defaults to 512.
         preload_nchunks
-            The number of chunks of contiguous array data to fetch.
+            The number of chunks of contiguous array data to fetch. When batch_sampler is not provided, this is used to determine the preload_nchunks. Mutually exclusive with `batch_sampler`. Defaults to 32.
         shuffle
-            Whether or not to shuffle the data.
+            Whether or not to shuffle the data. When batch_sampler is not provided, this is used to determine the shuffle. Mutually exclusive with `batch_sampler`. Defaults to False.
+        batch_size
+            Batch size to yield from the dataset. When batch_sampler is not provided, this is used to determine the batch size. Mutually exclusive with `batch_sampler`. Defaults to 1.
+        drop_last
+            Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
+            If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
+            Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
+            When batch_sampler is not provided, this is used to determine the drop_last. Mutually exclusive with `batch_sampler`. Defaults to False.
         return_index
             Whether or not to yield the index on each iteration.
-        batch_size
-            Batch size to yield from the dataset.
         preload_to_gpu
             Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
             This option entails greater GPU memory usage, but is faster at least for sparse operations.
             :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
             Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
-            For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to denseify.
-        drop_last
-            Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
-            If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
-            Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
+            For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to densify.
         to_torch
             Whether to return `torch.Tensor` as the output.
             Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
