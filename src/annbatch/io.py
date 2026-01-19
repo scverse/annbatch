@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Self
 
 import anndata as ad
 import dask.array as da
+import h5py
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -27,10 +28,21 @@ if TYPE_CHECKING:
     from os import PathLike
     from typing import Any, Literal
 
-    import h5py
     from zarr.abc.codec import BytesBytesCodec
 
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
+
+
+def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
+    adata = ad.experimental.read_lazy(x, load_annotation_index=False)
+    if not isinstance(x, zarr.Group | h5py.Group):
+        group = h5py.File(adata.file.filename) if adata.file.filename is not None else zarr.open(x)
+    else:
+        group = x
+    # -1 indicates that all of `obs` should just be loaded, but this is probably fine going column by column.
+    # Only one column at a time will be loaded anyway so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
+    adata.obs = ad.experimental.read_elem_lazy(group["obs"], chunks=(-1,))
+    return adata
 
 
 def _round_down(num: int, divisor: int):
@@ -112,12 +124,10 @@ def write_sharded(
     zarr.consolidate_metadata(group.store)
 
 
-def _check_for_mismatched_keys(
-    paths_or_anndatas: Iterable[PathLike[str] | ad.AnnData | zarr.Group | h5py.Group] | Iterable[str | ad.AnnData],
+def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    paths_or_anndatas: Iterable[T | ad.AnnData],
     *,
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-        x, load_annotation_index=False
-    ),
+    load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
@@ -153,11 +163,9 @@ def _check_for_mismatched_keys(
             )
 
 
-def _lazy_load_anndatas(
-    paths: Iterable[PathLike[str]] | Iterable[str],
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-        x, load_annotation_index=False
-    ),
+def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    paths: Iterable[T],
+    load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
@@ -376,13 +384,11 @@ class DatasetCollection:
         )
 
     @_with_settings
-    def add_adatas(
+    def add_adatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
         self,
-        adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        adata_paths: Iterable[T],
         *,
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-            x, load_annotation_index=False
-        ),
+        load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
