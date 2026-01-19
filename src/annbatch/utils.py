@@ -14,6 +14,8 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from annbatch.types import OutputInMemoryArray_T
 
 
@@ -196,7 +198,7 @@ def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
     )
 
 
-def validate_sampler(get_n_obs):
+def validate_sampler(get_n_obs: Callable[..., int]):
     """Decorator that validates n_obs before modifying state.
 
     Parameters
