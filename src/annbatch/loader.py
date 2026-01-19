@@ -249,7 +249,8 @@ class Loader[
             The collection who on-disk datasets should be used in this loader.
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
-            Default is to just load `X` and `obs`.
+            Default is to just load `X` and all of `obs`.
+            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_adata` argument.
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
@@ -272,7 +273,7 @@ class Loader[
         Parameters
         ----------
             adatas
-                List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
+                List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
         check_lt_1([len(adatas)], ["Number of anndatas"])
         for adata in adatas:
@@ -289,10 +290,12 @@ class Loader[
         Parameters
         ----------
             adata
-                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing labels to yield in a :class:`pandas.DataFrame`.
+                A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
         dataset = adata.X
         obs = adata.obs
+        if len(obs.columns) == 0:
+            obs = None
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
         self.add_dataset(cast("BackingArray", dataset), obs)
@@ -308,7 +311,7 @@ class Loader[
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
+                List of :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
         """
         if obs is None:
             obs = [None] * len(datasets)
@@ -325,7 +328,7 @@ class Loader[
             dataset
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
-                :class:`~pandas.DataFrame` labels, generally from :attr:`anndata.AnnData.obs`.
+                :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
         """
         self._add_dataset_unchecked(dataset, obs)
         return self
@@ -334,11 +337,11 @@ class Loader[
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
                 raise ValueError(
-                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without labels"
+                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without obs"
                 )
             if self._obs is not None and obs is None:
                 raise ValueError(
-                    "Cannot add a dataset with no obs label when training datasets have already been added without labels"
+                    "Cannot add a dataset with no obs label when training datasets have already been added without obs"
                 )
             if not isinstance(dataset, self.dataset_type):
                 raise ValueError(
@@ -350,15 +353,15 @@ class Loader[
             raise TypeError(
                 "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
             )
-        if not isinstance(obs, pd.DataFrame):
+        if not isinstance(obs, pd.DataFrame) and obs is not None:
             raise TypeError("obs must be a pandas DataFrame")
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
         self._shapes = self._shapes + [dataset.shape]
         self._train_datasets = datasets
-        if self._obs is not None:
+        if self._obs is not None:  # obs exist
             self._obs += [obs]
-        elif obs is not None:
+        elif obs is not None:  # obs dont exist yet, but are being added for the first time
             self._obs = [obs]
         return self
 
@@ -595,7 +598,7 @@ class Loader[
 
         Yields
         ------
-            A batch of data along with its labels and index (both optional).
+            A batch of data along with its obs and index (both optional).
         """
         check_lt_1(
             [len(self._train_datasets), self.n_obs],

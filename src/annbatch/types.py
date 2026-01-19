@@ -34,8 +34,8 @@ class LoadRequest(TypedDict):
 
 
 class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
-    """The output of the loader, the "data matrix" with its labels, optional, and index, also optional."""
+    """The output of the loader, the "data matrix" with its obs, optional, and index, also optional."""
 
-    data: OutputInMemoryArray_T.__value__  # TODO: remove after sphinx 9 - myst compat
-    labels: pd.DataFrame | None
+    X: OutputInMemoryArray_T.__value__  # TODO: remove after sphinx 9 - myst compat
+    obs: pd.DataFrame | None
     index: np.ndarray | None

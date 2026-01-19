@@ -166,17 +166,17 @@ def test_store_load_dataset(
     is_dense = loader.dataset_type is zarr.Array
     n_elems = 0
     batches = []
-    labels = []
+    obs = []
     indices = []
     expected_data = adata.X if is_dense else adata.layers["sparse"].toarray()
     for batch in loader:
-        x, label, index = batch["data"], batch["labels"], batch["index"]
+        x, label, index = batch["X"], batch["obs"], batch["index"]
         n_elems += x.shape[0]
         # Check feature dimension
         assert x.shape[1] == 100
         batches += [x.get() if isinstance(x, CupyCSRMatrix | CupyArray) else x]
         if label is not None:
-            labels += [label]
+            obs += [label]
         if index is not None:
             indices += [index]
     # check that we yield all samples from the dataset
@@ -186,10 +186,10 @@ def test_store_load_dataset(
         stacked = stacked.toarray()
     if not shuffle:
         np.testing.assert_allclose(stacked, expected_data)
-        if len(labels) > 0:
+        if len(obs) > 0:
             expected_labels = adata.obs
             pd.testing.assert_frame_equal(
-                pd.concat(labels),
+                pd.concat(obs),
                 expected_labels,
             )
     else:
@@ -265,7 +265,7 @@ def test_to_torch(
         to_torch=True,
     )
     ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
-    assert isinstance(next(iter(ds))["data"], torch.Tensor)
+    assert isinstance(next(iter(ds))["X"], torch.Tensor)
 
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
@@ -290,7 +290,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     batches = []
     indices = []
     for batch in ds:
-        batches += [batch["data"]]
+        batches += [batch["X"]]
         indices += [batch["index"]]
     total_obs = adata.shape[0]
     leftover = total_obs % batch_size
@@ -315,12 +315,12 @@ def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnDa
 def _custom_collate_fn(elems):
     import torch
 
-    if isinstance(elems[0]["data"], torch.Tensor):
-        x = torch.vstack([v["data"].to_dense() for v in elems])
-    elif isinstance(elems[0]["data"], sp.csr_matrix):
-        x = sp.vstack([v["data"] for v in elems]).toarray()
+    if isinstance(elems[0]["X"], torch.Tensor):
+        x = torch.vstack([v["X"].to_dense() for v in elems])
+    elif isinstance(elems[0]["X"], sp.csr_matrix):
+        x = sp.vstack([v["X"] for v in elems]).toarray()
     else:
-        x = np.vstack([v["data"] for v in elems])
+        x = np.vstack([v["X"] for v in elems])
 
     y = np.array([v["index"] for v in elems])
 
@@ -415,8 +415,20 @@ def test_default_data_structures(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
         )
     )
-    for batch in ds:
-        assert isinstance(batch["data"], expected_cls)
+    assert isinstance(next(iter(ds))["X"], expected_cls)
+
+
+def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    # No obs loaded is actually None
+    ds = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=22,
+    ).use_collection(
+        simple_collection[1],
+        load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
+    )
+    assert next(iter(ds))["obs"] is None
 
 
 def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):

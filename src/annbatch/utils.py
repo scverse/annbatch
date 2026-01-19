@@ -110,17 +110,17 @@ class WorkerHandle:  # noqa: D101
         return chunks_split[worker_id]
 
 
-def check_lt_1(vals: list[int], labels: list[str]) -> None:
+def check_lt_1(vals: list[int], obs: list[str]) -> None:
     """Raise a ValueError if any of the values are less than one.
 
-    The format of the error is "{labels[i]} must be greater than 1, got {values[i]}"
+    The format of the error is "{obs[i]} must be greater than 1, got {values[i]}"
     and is raised based on the first found less than one value.
 
     Parameters
     ----------
         vals
             The values to check < 1
-        labels
+        obs
             The label for the value in the error if the value is less than one.
 
     Raises
@@ -131,7 +131,7 @@ def check_lt_1(vals: list[int], labels: list[str]) -> None:
         label, value = next(
             (label, value)
             for label, value, check in zip(
-                labels,
+                obs,
                 vals,
                 is_lt_1,
                 strict=True,
