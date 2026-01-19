@@ -276,7 +276,7 @@ class Loader[
         self._collection_added = True
         return self
 
-    @validate_sampler(lambda self, adatas: sum(adata.n_obs for adata in adatas))
+    @validate_sampler(lambda adatas, obs=None: sum(adata.n_obs for adata in adatas))
     def add_anndatas(
         self,
         adatas: list[ad.AnnData],
@@ -315,7 +315,7 @@ class Loader[
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
         return cast("BackingArray", dataset), obs
 
-    @validate_sampler(lambda self, datasets, obs=None: sum(ds.shape[0] for ds in datasets))
+    @validate_sampler(lambda datasets, obs=None: sum(ds.shape[0] for ds in datasets))
     def add_datasets(self, datasets: list[BackingArray], obs: list[pd.DataFrame] | None = None) -> Self:
         """Append datasets to this dataset.
 
@@ -333,7 +333,7 @@ class Loader[
             self._add_dataset_unchecked(ds, o)
         return self
 
-    @validate_sampler(lambda self, dataset, obs=None: dataset.shape[0])
+    @validate_sampler(lambda dataset, obs=None: dataset.shape[0])
     def add_dataset(self, dataset: BackingArray, obs: pd.DataFrame | None = None) -> Self:
         """Append a dataset to this dataset.
 
@@ -629,8 +629,8 @@ class Loader[
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
             chunks_converted = self._accumulate_chunks(chunks)
             # Accumulate labels and indices if possible
-            concatenated_obs: None | list[pd.DataFrame] = self._maybe_accumulate_obs(dataset_index_to_slices)
-            in_memory_indices: None | list[np.ndarray] = self._maybe_accumulate_indices(chunks_to_load)
+            concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_slices)
+            in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(chunks_to_load)
 
             in_memory_data = mod.vstack(chunks_converted)
 
@@ -658,9 +658,7 @@ class Loader[
                 result.append(self._np_module.asarray(chunk))
         return result
 
-    def _maybe_accumulate_obs(
-        self, dataset_index_to_slices: OrderedDict[int, list[slice]]
-    ) -> list[pd.DataFrame] | None:
+    def _maybe_accumulate_obs(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> pd.DataFrame | None:
         """Gather obs labels for the loaded slices if possible."""
         if self._obs is None:
             return None
@@ -671,7 +669,7 @@ class Loader[
             ]
         )
 
-    def _maybe_accumulate_indices(self, slices: list[slice]) -> list[np.ndarray] | None:
+    def _maybe_accumulate_indices(self, slices: list[slice]) -> np.ndarray | None:
         """Gather original indices for the loaded slices if possible."""
         if self._return_index is False:
             return None

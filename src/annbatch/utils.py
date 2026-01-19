@@ -196,23 +196,21 @@ def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
     )
 
 
-def validate_sampler(get_additional_n_obs):
+def validate_sampler(get_n_obs):
     """Decorator that validates n_obs before modifying state.
 
     Parameters
     ----------
-    get_additional_n_obs
-        A callable (self, *args, **kwargs) -> int that returns the number
-        of additional observations that will be added by the decorated method.'
-        For example in add_datasets, this would be lambda self, datasets: sum(dataset.shape[0] for dataset in datasets)
+    get_n_obs
+        A callable ( *args, **kwargs) -> int that returns the number of observations that will be added by the decorated method.
+        For example in add_datasets, this would be lambda datasets: sum(dataset.shape[0] for dataset in datasets)
     """
 
     def decorator(method):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
-            additional_obs = get_additional_n_obs(self, *args, **kwargs)
-            prospective_n_obs = self.n_obs + additional_obs
-            self._batch_sampler.validate(prospective_n_obs)
+            n_obs = get_n_obs(*args, **kwargs)
+            self._batch_sampler.validate(n_obs)
             return method(self, *args, **kwargs)
 
         return wrapper
