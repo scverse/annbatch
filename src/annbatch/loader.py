@@ -277,11 +277,8 @@ class Loader[
         """
         check_lt_1([len(adatas)], ["Number of anndatas"])
         for adata in adatas:
-            dataset = adata.X
-            obs = adata.obs
-            if not isinstance(dataset, BackingArray_T.__value__):
-                raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
-            self._add_dataset_unchecked(cast("BackingArray", dataset), obs)
+            dataset, obs = self._prepare_dataset_and_obs(adata)
+            self._add_dataset_unchecked(dataset, obs)
         return self
 
     def add_anndata(self, adata: ad.AnnData) -> Self:
@@ -292,14 +289,18 @@ class Loader[
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
+        dataset, obs = self._prepare_dataset_and_obs(adata)
+        self.add_dataset(dataset, obs)
+        return self
+
+    def _prepare_dataset_and_obs(self, adata: ad.AnnData) -> tuple[BackingArray, pd.DataFrame | None]:
         dataset = adata.X
         obs = adata.obs
         if len(obs.columns) == 0:
             obs = None
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
-        self.add_dataset(cast("BackingArray", dataset), obs)
-        return self
+        return cast("BackingArray", dataset), obs
 
     @validate_sampler(lambda self, datasets, obs=None: sum(ds.shape[0] for ds in datasets))
     def add_datasets(self, datasets: list[BackingArray], obs: list[pd.DataFrame] | None = None) -> Self:
@@ -615,16 +616,10 @@ class Loader[
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
             chunks_converted = self._accumulate_chunks(chunks)
             # Accumulate labels and indices if possible
-            obs: None | list[pd.DataFrame] = self._maybe_accumulate_labels(dataset_index_to_slices)
-            indices: None | list[np.ndarray] = self._maybe_accumulate_indices(chunks_to_load)
+            concatenated_obs: None | list[pd.DataFrame] = self._maybe_accumulate_labels(dataset_index_to_slices)
+            in_memory_indices: None | list[np.ndarray] = self._maybe_accumulate_indices(chunks_to_load)
 
             in_memory_data = mod.vstack(chunks_converted)
-            concatenated_obs = None
-            in_memory_indices = None
-            if self._obs is not None and obs is not None:
-                concatenated_obs = pd.concat(obs)
-            if self._return_index and indices is not None:
-                in_memory_indices = np.concatenate(indices)
 
             for split in splits:
                 yield self._prepare_output(
@@ -656,20 +651,24 @@ class Loader[
         """Gather obs labels for the loaded slices if possible."""
         if self._obs is None:
             return None
-        return [
-            self._obs[idx].iloc[np.concatenate([np.arange(s.start, s.stop) for s in slices])]
-            for idx, slices in dataset_index_to_slices.items()
-        ]
+        return pd.concat(
+            [
+                self._obs[idx].iloc[np.concatenate([np.arange(s.start, s.stop) for s in slices])]
+                for idx, slices in dataset_index_to_slices.items()
+            ]
+        )
 
     def _maybe_accumulate_indices(self, slices: list[slice]) -> list[np.ndarray] | None:
         """Gather original indices for the loaded slices if possible."""
         if self._return_index is False:
             return None
         dataset_index_to_slices = self._slices_to_slices_with_array_index(slices, use_original_space=True)
-        return [
-            np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[idx]])
-            for idx in dataset_index_to_slices
-        ]
+        return np.concatenate(
+            [
+                np.concatenate([np.arange(s.start, s.stop) for s in dataset_index_to_slices[idx]])
+                for idx in dataset_index_to_slices
+            ]
+        )
 
     def _prepare_output(
         self,
@@ -689,4 +688,5 @@ class Loader[
         data = in_memory_data[split]
         if self._to_torch:
             data = to_torch(data, self._preload_to_gpu)
+        print(obs)
         return {"X": data, "obs": obs, "index": index}
