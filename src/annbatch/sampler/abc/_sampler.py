@@ -35,9 +35,9 @@ class Sampler(ABC):
 
     @abstractmethod
     def validate(self, n_obs: int) -> None:
-        """Validate the sampler configuration against the loader's state.
+        """Validate the sampler configuration against the given n_obs.
 
-        This method is called when the sampler is set on a loader.
+        This method is called at the start of each `sample()` call.
         Override this method to add custom validation for sampler parameters.
 
         Parameters

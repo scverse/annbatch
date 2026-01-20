@@ -124,20 +124,20 @@ def test_batch_sizes_match_expected_pattern():
     all_requests = list(sampler.sample(n_obs))
     assert len(all_requests) == expected_num_load_requests
     for req_idx, load_request in enumerate(all_requests[:-1]):
-        assert np.all(len(chunk) == chunk_size for chunk in load_request["chunks"]), (
+        assert all(chunk.stop - chunk.start == chunk_size for chunk in load_request["chunks"]), (
             f"chunk size mismatch at request {req_idx}:",
             f"chunks: {load_request['chunks']}",
         )
-        assert np.all(len(split) == batch_size for split in load_request["splits"]), (
+        assert all(len(split) == batch_size for split in load_request["splits"]), (
             f"batch size mismatch at request {req_idx}:splits: {load_request['splits']}"
         )
     last_request = all_requests[-1]
     assert len(last_request["splits"]) == expected_last_num_splits, "last request num splits mismatch"
-    assert np.all(len(chunk) == expected_last_chunk_size for chunk in last_request["chunks"]), (
+    assert all(chunk.stop - chunk.start == expected_last_chunk_size for chunk in last_request["chunks"]), (
         "last request chunk size mismatch",
         f"chunks: {last_request['chunks']}",
     )
-    assert np.all(len(split) == expected_last_batch_size for split in last_request["splits"]), (
+    assert all(len(split) == expected_last_batch_size for split in last_request["splits"]), (
         "last request batch size mismatch",
         f"splits: {last_request['splits']}",
     )
