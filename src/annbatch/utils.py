@@ -14,9 +14,7 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from annbatch.types import BackingArray_T, OutputInMemoryArray_T
+    from annbatch.types import OutputInMemoryArray_T
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -198,24 +196,21 @@ def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
     )
 
 
-def validate_sampler(get_n_obs: Callable[[list[ad.AnnData | BackingArray_T] | BackingArray_T | ad.AnnData], int]):
+def validate_sampler(method):
     """Decorator that validates n_obs before modifying state.
 
-    Parameters
-    ----------
-    get_n_obs
-        A callable ( *args, **kwargs) -> int that returns the number of observations that will be added by the decorated method.
-        For example in add_datasets, this would be lambda datasets: sum(dataset.shape[0] for dataset in datasets)
+    Expects the first positional argument to be either:
+    - A single object with a `.shape` attribute
+    - A list of objects with `.shape` attributes
+
+    The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
     """
 
-    def decorator(method):
-        @wraps(method)
-        def wrapper(self, *args, **kwargs):
-            n_obs = get_n_obs(*args, **kwargs)
-            # TODO(selmanozleyen): maybe batch sampler should be public?
-            self._batch_sampler.validate(n_obs)
-            return method(self, *args, **kwargs)
+    @wraps(method)
+    def wrapper(self, first_arg: SupportsShape | list[SupportsShape], /, *args, **kwargs):
+        n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
+        # TODO(selmanozleyen): maybe batch sampler should be public?
+        self._batch_sampler.validate(n_obs)
+        return method(self, first_arg, *args, **kwargs)
 
-        return wrapper
-
-    return decorator
+    return wrapper
