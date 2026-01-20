@@ -44,8 +44,6 @@ class ChunkSampler(Sampler):
     _shuffle: bool
     _preload_nchunks: int
     _mask: slice
-    _n_chunks: int
-    _n_iters: int
     _drop_last: bool
     _rng: np.random.Generator
 
