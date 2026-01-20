@@ -95,7 +95,7 @@ def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchun
     expected_stop = stop if stop is not None else n_obs
     expected_indices = list(range(expected_start, expected_stop))
 
-    all_indices = collect_indices(sampler, n_obs, preserve_order=True)
+    all_indices = collect_indices(sampler, n_obs)
 
     # Always check coverage
     if shuffle:
@@ -239,7 +239,7 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
     """Test that n_obs changes affect sampling results appropriately."""
     sampler = ChunkSampler(mask=slice(0, None), batch_size=5, chunk_size=10, preload_nchunks=2, shuffle=False)
 
-    results = [collect_indices(sampler, n, preserve_order=True) for n in n_obs_values]
+    results = [collect_indices(sampler, n) for n in n_obs_values]
 
     for result, expected in zip(results, expected_ranges, strict=True):
         assert result == list(expected), f"result: {result} != expected: {expected}"
