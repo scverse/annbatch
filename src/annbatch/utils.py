@@ -16,7 +16,7 @@ from .compat import CupyArray, CupyCSRMatrix, Tensor
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from annbatch.types import OutputInMemoryArray_T
+    from annbatch.types import BackingArray_T, OutputInMemoryArray_T
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -198,7 +198,7 @@ def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
     )
 
 
-def validate_sampler(get_n_obs: Callable[..., int]):
+def validate_sampler(get_n_obs: Callable[[list[ad.AnnData | BackingArray_T] | BackingArray_T | ad.AnnData], int]):
     """Decorator that validates n_obs before modifying state.
 
     Parameters
@@ -212,6 +212,7 @@ def validate_sampler(get_n_obs: Callable[..., int]):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
             n_obs = get_n_obs(*args, **kwargs)
+            # TODO(selmanozleyen): maybe batch sampler should be public?
             self._batch_sampler.validate(n_obs)
             return method(self, *args, **kwargs)
 

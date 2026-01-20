@@ -140,7 +140,8 @@ class ChunkSampler(Sampler):
         # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self._shuffle:
-            self._rng.shuffle(chunk_indices)  # TODO: maybe this should be done worker-aware way?
+            # TODO(selmanozleyen): maybe this should be done worker-aware way?
+            self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
         # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_handle is not None:
