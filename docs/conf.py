@@ -133,7 +133,9 @@ nitpick_ignore = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
-    ("py:class", "annbatch.types.TypeAliasType")
+    ("py:class", "annbatch.types.TypeAliasType"),
+    # this is not exposed in the public API
+    ("py:class", "annbatch.sampler.abc._sampler.Sampler"),
 ]
 
 qualname_overrides = {
