@@ -3,10 +3,10 @@
 This module provides samplers optimized for chunk-based data access patterns.
 """
 
+from annbatch.sampler import abc
 from annbatch.sampler._chunk_sampler import ChunkSampler
-from annbatch.sampler.abc import Sampler
 
 __all__ = [
     "ChunkSampler",
-    "Sampler",
+    "abc",
 ]

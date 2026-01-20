@@ -15,7 +15,7 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from annbatch.sampler import ChunkSampler, Sampler
+from annbatch.sampler import ChunkSampler
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from annbatch.io import DatasetCollection
+    from annbatch.sampler.abc import Sampler
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -74,7 +75,7 @@ class Loader[
     ----------
         batch_sampler
             A custom sampler to use for batching the data.
-            If not provided, a :class:`ChunkSampler` will be used with the following defaults:
+            If not provided, a default chunk sampler will be used with the following defaults:
             - `chunk_size`: 512
             - `preload_nchunks`: 32
             - `batch_size`: 1
@@ -132,6 +133,7 @@ class Loader[
     # but this is not ideal since they are hardcoded into the docstrings
     # maybe we should make _COMMON_SAMPLER_ARGS a public class field?
 
+    # TODO (selmanozleyen): can't link chunk sampler to the docstring because it's not exposed in the public API
     _train_datasets: list[BackingArray]
     _obs: list[pd.DataFrame] | None = None
     _return_index: bool = False
