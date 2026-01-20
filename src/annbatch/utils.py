@@ -21,8 +21,6 @@ if TYPE_CHECKING:
     from annbatch.types import OutputInMemoryArray_T
 
 
-# typing with decorators and self:
-# https://stackoverflow.com/a/68290080
 class HasBatchSampler(Protocol):
     _batch_sampler: Sampler
 
