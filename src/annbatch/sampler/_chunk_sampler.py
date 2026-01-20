@@ -51,12 +51,12 @@ class ChunkSampler(Sampler):
 
     def __init__(
         self,
-        *,
-        batch_size: int,
         chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
         mask: slice | None = None,
         shuffle: bool = False,
-        preload_nchunks: int,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
