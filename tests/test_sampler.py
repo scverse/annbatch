@@ -180,7 +180,7 @@ def test_workers_cover_full_dataset_without_overlap(
     # All workers should have disjoint chunks
     for i in range(num_workers):
         for j in range(i + 1, num_workers):
-            assert all_worker_indices[i].isdisjoint(all_worker_indices[j])
+            assert set(all_worker_indices[i]).isdisjoint(all_worker_indices[j])
 
     # Together they cover the full dataset
     assert set().union(*all_worker_indices) == set(range(n_obs))
