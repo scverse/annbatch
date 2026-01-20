@@ -13,12 +13,12 @@ from annbatch.sampler import ChunkSampler
 
 def collect_indices(sampler, n_obs):
     """Helper to collect all indices from sampler."""
-    indices = set()
+    indices = []
     for load_request in sampler.sample(n_obs):
         assert len(load_request["splits"]) > 0, "splits must be non-empty"
         assert all(len(s) > 0 for s in load_request["splits"]), "splits must be non-empty"
         for s in load_request["chunks"]:
-            indices.update(range(s.start, s.stop))
+            indices.extend(range(s.start, s.stop))
     return indices
 
 
@@ -81,7 +81,7 @@ class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
     ],
 )
 def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchunks, shuffle):
-    """Test sampler covers exactly the expected range."""
+    """Test sampler covers exactly the expected range, and ordering is correct when not shuffled."""
     sampler = ChunkSampler(
         mask=slice(start, stop),
         batch_size=batch_size,
@@ -91,11 +91,18 @@ def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchun
         rng=np.random.default_rng(42) if shuffle else None,
     )
 
-    all_indices = collect_indices(sampler, n_obs)
-
     expected_start = start if start is not None else 0
     expected_stop = stop if stop is not None else n_obs
-    assert all_indices == set(range(expected_start, expected_stop))
+    expected_indices = list(range(expected_start, expected_stop))
+
+    all_indices = collect_indices(sampler, n_obs, preserve_order=True)
+
+    # Always check coverage
+    if shuffle:
+        assert set(all_indices) == set(expected_indices), "Sampler should cover all expected indices"
+    else:
+        assert all_indices == expected_indices, f"all_indices: {all_indices} != expected_indices: {expected_indices}"
+
     sampler.validate(n_obs)
 
 
@@ -232,7 +239,7 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
     """Test that n_obs changes affect sampling results appropriately."""
     sampler = ChunkSampler(mask=slice(0, None), batch_size=5, chunk_size=10, preload_nchunks=2, shuffle=False)
 
-    results = [collect_indices(sampler, n) for n in n_obs_values]
+    results = [collect_indices(sampler, n, preserve_order=True) for n in n_obs_values]
 
     for result, expected in zip(results, expected_ranges, strict=True):
-        assert result == set(expected)
+        assert result == list(expected), f"result: {result} != expected: {expected}"
