@@ -5,7 +5,7 @@ import warnings
 from dataclasses import dataclass
 from functools import cached_property, wraps
 from importlib.util import find_spec
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Concatenate, Protocol
 
 import anndata as ad
 import numpy as np
@@ -15,7 +15,46 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from annbatch.sampler.abc import Sampler
     from annbatch.types import OutputInMemoryArray_T
+
+
+# typing with decorators and self:
+# https://stackoverflow.com/a/68290080
+class HasBatchSampler(Protocol):
+    _batch_sampler: Sampler
+
+
+def validate_sampler[Self: HasBatchSampler, **Param, RetType](
+    method: Callable[Concatenate[Self, Param], RetType],
+) -> Callable[Concatenate[Self, Param], RetType]:
+    """Decorator that validates n_obs before modifying state.
+
+    Expects the first positional argument to be either:
+    - A single object with a `.shape` attribute
+    - A list of objects with `.shape` attributes
+
+    The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
+    """
+    sig = inspect.signature(method)
+    if len(sig.parameters) < 2:
+        raise ValueError("validate_sampler decorator expects at least two positional arguments after 'self'")
+    first_param_name = list(sig.parameters.keys())[1]
+
+    @wraps(method)
+    def wrapper(self: Self, *args: Param.args, **kwargs: Param.kwargs) -> RetType:
+        if len(args) > 0:
+            first_arg = args[0]
+        else:
+            first_arg = kwargs[first_param_name]
+
+        n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
+        self._batch_sampler.validate(n_obs)
+        return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -195,33 +234,3 @@ def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
     return ad.AnnData(
         X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]), obs=ad.io.read_elem(g["obs"])
     )
-
-
-def validate_sampler(method):
-    """Decorator that validates n_obs before modifying state.
-
-    Expects the first positional argument to be either:
-    - A single object with a `.shape` attribute
-    - A list of objects with `.shape` attributes
-
-    The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
-    """
-    # Get the first parameter name (after 'self') at decoration time
-    sig = inspect.signature(method)
-    if len(sig.parameters) < 2:
-        raise ValueError("validate_sampler decorator expects at least two positional arguments after 'self'")
-    first_param_name = list(sig.parameters.keys())[1]  # [0] is 'self'
-
-    @wraps(method)
-    def wrapper(self, *args, **kwargs):
-        # Extract from args if positional, otherwise from kwargs by name
-        if len(args) > 0:
-            first_arg = args[0]
-        else:
-            first_arg = kwargs[first_param_name]
-
-        n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
-        self._batch_sampler.validate(n_obs)
-        return method(self, *args, **kwargs)
-
-    return wrapper
