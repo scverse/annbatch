@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import warnings
 from dataclasses import dataclass
 from functools import cached_property, wraps
@@ -205,12 +206,22 @@ def validate_sampler(method):
 
     The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
     """
+    # Get the first parameter name (after 'self') at decoration time
+    sig = inspect.signature(method)
+    if len(sig.parameters) < 2:
+        raise ValueError("validate_sampler decorator expects at least two positional arguments after 'self'")
+    first_param_name = list(sig.parameters.keys())[1]  # [0] is 'self'
 
     @wraps(method)
-    def wrapper(self, first_arg: SupportsShape | list[SupportsShape], /, *args, **kwargs):
+    def wrapper(self, *args, **kwargs):
+        # Extract from args if positional, otherwise from kwargs by name
+        if len(args) > 0:
+            first_arg = args[0]
+        else:
+            first_arg = kwargs[first_param_name]
+
         n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
-        # TODO(selmanozleyen): maybe batch sampler should be public?
         self._batch_sampler.validate(n_obs)
-        return method(self, first_arg, *args, **kwargs)
+        return method(self, *args, **kwargs)
 
     return wrapper
