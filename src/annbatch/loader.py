@@ -276,7 +276,7 @@ class Loader[
         self._collection_added = True
         return self
 
-    @validate_sampler(lambda adatas, obs=None: sum(adata.n_obs for adata in adatas))
+    @validate_sampler
     def add_anndatas(
         self,
         adatas: list[ad.AnnData],
@@ -315,7 +315,7 @@ class Loader[
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
         return cast("BackingArray", dataset), obs
 
-    @validate_sampler(lambda datasets, obs=None: sum(ds.shape[0] for ds in datasets))
+    @validate_sampler
     def add_datasets(self, datasets: list[BackingArray], obs: list[pd.DataFrame] | None = None) -> Self:
         """Append datasets to this dataset.
 
@@ -333,7 +333,7 @@ class Loader[
             self._add_dataset_unchecked(ds, o)
         return self
 
-    @validate_sampler(lambda dataset, obs=None: dataset.shape[0])
+    @validate_sampler
     def add_dataset(self, dataset: BackingArray, obs: pd.DataFrame | None = None) -> Self:
         """Append a dataset to this dataset.
 
