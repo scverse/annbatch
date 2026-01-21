@@ -36,7 +36,7 @@ V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
     adata = ad.experimental.read_lazy(x, load_annotation_index=False)
     if not isinstance(x, zarr.Group | h5py.Group):
-        group = h5py.File(adata.file.filename) if adata.file.filename is not None else zarr.open(x)
+        group = h5py.File(adata.file.filename, mode="r") if adata.file.filename is not None else zarr.open(x, mode="r")
     else:
         group = x
     # -1 indicates that all of each `obs` column should just be loaded, but this is probably fine since it goes column by column and discards.
