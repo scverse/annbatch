@@ -154,7 +154,7 @@ class ChunkSampler(Sampler):
         for batch_chunks in chunks_per_batch[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
-                self._rng.shuffle(batch_indices)
+                np.random.default_rng().shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": batch_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
@@ -163,7 +163,7 @@ class ChunkSampler(Sampler):
         if self._drop_last:
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
         batch_indices = split_given_size(
-            (self._rng.permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
+            (np.random.default_rng().permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
             self._batch_size,
         )
         yield {"chunks": final_chunks, "splits": batch_indices}
