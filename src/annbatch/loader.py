@@ -241,6 +241,16 @@ class Loader[
             raise ValueError("No datasets added yet")
         return self._shapes[0][1]
 
+    @property
+    def batch_sampler(self) -> Sampler:
+        """The sampler used to generate batches.
+
+        Returns
+        -------
+            The sampler.
+        """
+        return self._batch_sampler
+
     def use_collection(
         self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
     ) -> Self:

@@ -15,6 +15,8 @@
 
     Loader
     Loader.__iter__
+
+    ChunkSampler
 ```
 
 (io-helpers)=
@@ -29,6 +31,15 @@
     DatasetCollection
 ```
 
+(abc)=
+## abc
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    abc.Sampler
+```
+
 (types)=
 ## types
 
@@ -37,4 +48,5 @@
    :toctree: generated/
 
     types.LoaderOutput
+    types.LoadRequest
 ```

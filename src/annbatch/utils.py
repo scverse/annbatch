@@ -45,7 +45,7 @@ def validate_sampler[**Param, RetType](
             first_arg = kwargs[first_param_name]
 
         n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
-        self._batch_sampler.validate(n_obs)
+        self.batch_sampler.validate(n_obs)
         return method(self, *args, **kwargs)
 
     return wrapper
