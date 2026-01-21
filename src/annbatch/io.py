@@ -44,11 +44,11 @@ def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) 
     # https://github.com/scverse/anndata/pull/2307
     for attr in ["obs", "var"]:
         if len(getattr(adata, attr).columns) > 0:
-            setattr(adata, attr, ad.experimental.read_elem_lazy(group[attr], chunks=(-1,)))
+            setattr(adata, attr, ad.experimental.read_elem_lazy(group[attr], chunks=(-1,), use_range_index=True))
             for col in getattr(adata, attr).columns:
                 # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
-                if pd.api.types.is_extension_array_dtype(adata.obs[col].dtype):
-                    adata.obs[col] = adata.obs[col].data
+                if pd.api.types.is_extension_array_dtype(getattr(adata, attr)[col].dtype):
+                    setattr(getattr(adata, attr), col, getattr(adata, attr)[col].data)
     return adata
 
 
