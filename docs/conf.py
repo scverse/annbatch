@@ -139,4 +139,5 @@ nitpick_ignore = [
 qualname_overrides = {
     "zarr.core.array.Array": "zarr.Array",
     "zarr.core.group.Group": "zarr.Group",
+    "h5py._hl.group.Group": "h5py.Group",
 }
