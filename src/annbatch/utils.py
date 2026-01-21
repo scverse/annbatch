@@ -17,17 +17,13 @@ from .compat import CupyArray, CupyCSRMatrix, Tensor
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from annbatch.sampler.abc import Sampler
+    from annbatch.loader import Loader
     from annbatch.types import OutputInMemoryArray_T
 
 
-class HasBatchSampler(Protocol):
-    _batch_sampler: Sampler
-
-
-def validate_sampler[Self: HasBatchSampler, **Param, RetType](
-    method: Callable[Concatenate[Self, Param], RetType],
-) -> Callable[Concatenate[Self, Param], RetType]:
+def validate_sampler[**Param, RetType](
+    method: Callable[Concatenate[Loader, Param], RetType],
+) -> Callable[Concatenate[Loader, Param], RetType]:
     """Decorator that validates n_obs before modifying state.
 
     Expects the first positional argument to be either:
@@ -42,7 +38,7 @@ def validate_sampler[Self: HasBatchSampler, **Param, RetType](
     first_param_name = list(sig.parameters.keys())[1]
 
     @wraps(method)
-    def wrapper(self: Self, *args: Param.args, **kwargs: Param.kwargs) -> RetType:
+    def wrapper(self: Loader, *args: Param.args, **kwargs: Param.kwargs) -> RetType:
         if len(args) > 0:
             first_arg = args[0]
         else:

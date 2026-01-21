@@ -70,21 +70,12 @@ class Loader[
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
     `shuffle`, and `drop_last` must not be set (they are controlled by the `batch_sampler` instead).
+    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`annbatch.ChunkSampler`.
 
     Parameters
     ----------
         batch_sampler
-            A custom sampler to use for batching the data.
-            If not provided, a default chunk sampler will be used with the following defaults:
-            - `chunk_size`: 512
-            - `preload_nchunks`: 32
-            - `batch_size`: 1
-            - `shuffle`: False
-            - `drop_last`: False
-            Mutually exclusive with the following arguments: `chunk_size`, `preload_nchunks`, `batch_size`, `shuffle`, and `drop_last`.
-        chunk_size
-            The obs size (i.e., axis 0) of contiguous array data to fetch. When `batch_sampler` is not provided, this is used to determine the chunk size. Mutually exclusive with `batch_sampler`. Defaults to 512.
-        preload_nchunks
+            If not provided, a default :class:`annbatch.ChunkSampler` will be used with the same defaults below.
             The number of chunks of contiguous array data to fetch. When batch_sampler is not provided, this is used to determine the preload_nchunks. Mutually exclusive with `batch_sampler`. Defaults to 32.
         shuffle
             Whether or not to shuffle the data. When batch_sampler is not provided, this is used to determine the shuffle. Mutually exclusive with `batch_sampler`. Defaults to False.
