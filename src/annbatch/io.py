@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Self
 
 import anndata as ad
 import dask.array as da
+import h5py
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -27,10 +28,32 @@ if TYPE_CHECKING:
     from os import PathLike
     from typing import Any, Literal
 
-    import h5py
     from zarr.abc.codec import BytesBytesCodec
 
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
+
+
+def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
+    adata = ad.experimental.read_lazy(x, load_annotation_index=False)
+    if not isinstance(x, zarr.Group | h5py.Group):
+        group = (
+            h5py.File(adata.file.filename, mode="r")
+            if adata.file.filename is not None
+            else zarr.open_group(x, mode="r")
+        )
+    else:
+        group = x
+    # -1 indicates that all of each `obs` column should just be loaded, but this is probably fine since it goes column by column and discards.
+    # TODO: Bug with empty columns: https://github.com/scverse/anndata/pull/2307
+    for attr in ["obs", "var"]:
+        # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
+        if len(getattr(adata, attr).columns) > 0:
+            setattr(adata, attr, ad.experimental.read_elem_lazy(group[attr], chunks=(-1,), use_range_index=True))
+            for col in getattr(adata, attr).columns:
+                # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
+                if pd.api.types.is_extension_array_dtype(getattr(adata, attr)[col].dtype):
+                    setattr(getattr(adata, attr), col, getattr(adata, attr)[col].data)
+    return adata
 
 
 def _round_down(num: int, divisor: int):
@@ -112,12 +135,10 @@ def write_sharded(
     zarr.consolidate_metadata(group.store)
 
 
-def _check_for_mismatched_keys(
-    paths_or_anndatas: Iterable[PathLike[str] | ad.AnnData | zarr.Group | h5py.Group] | Iterable[str | ad.AnnData],
+def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    paths_or_anndatas: Iterable[T | ad.AnnData],
     *,
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-        x, load_annotation_index=False
-    ),
+    load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
@@ -137,15 +158,13 @@ def _check_for_mismatched_keys(
                     key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != len(paths_or_anndatas) and num_raw_in_adata != 0:
+    if num_raw_in_adata != (num_anndatas := len(list(paths_or_anndatas))) and num_raw_in_adata != 0:
         warnings.warn(
             f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
-        elem_keys_mismatched = [
-            key for key, count in key_count.items() if (count != len(paths_or_anndatas) and count != 0)
-        ]
+        elem_keys_mismatched = [key for key, count in key_count.items() if (count != num_anndatas and count != 0)]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
                 f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
@@ -153,11 +172,9 @@ def _check_for_mismatched_keys(
             )
 
 
-def _lazy_load_anndatas(
-    paths: Iterable[PathLike[str]] | Iterable[str],
-    load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-        x, load_annotation_index=False
-    ),
+def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    paths: Iterable[T],
+    load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
@@ -183,6 +200,7 @@ def _lazy_load_anndatas(
                         categorical_cols_in_this_adata[k]
                     )
         # TODO: Probably bug in anndata, need the true index for proper outer joins (can't skirt this with fake indexes, at least not in the mixed-type regime).
+        # See: https://github.com/scverse/anndata/pull/2299
         if isinstance(adata.var, Dataset2D):
             adata.var.index = adata.var.true_index
         if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):
@@ -253,6 +271,7 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
         adata.obs = adata.obs.to_memory()
         # TODO: This is a bug in anndata?
         if "_index" in adata.obs.columns:
+            adata.obs.index = adata.obs["_index"]
             del adata.obs["_index"]
     adata = _to_categorical_obs(adata)
     if isinstance(adata.var, Dataset2D):
@@ -288,8 +307,6 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
                 getattr(adata, axis_name)[k] = elem
 
     return adata.to_memory()
-
-    return adata
 
 
 DATASET_PREFIX = "dataset"
@@ -378,11 +395,9 @@ class DatasetCollection:
     @_with_settings
     def add_adatas(
         self,
-        adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-            x, load_annotation_index=False
-        ),
+        load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -411,9 +426,9 @@ class DatasetCollection:
             adata_paths
                 Paths to the AnnData files used to create the zarr store.
             load_adata
-                Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
-                If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
-                The input to the function is a path to an anndata file, and the output is an :class:`anndata.AnnData` object.
+                Function to customize (lazy-)loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used with categoricals/nullables read into memory and `(-1)` chunks for `obs`.
+                If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
+                Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
@@ -487,9 +502,7 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = lambda x: ad.experimental.read_lazy(
-            x, load_annotation_index=False
-        ),
+        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
