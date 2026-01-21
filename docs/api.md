@@ -4,7 +4,6 @@
 .. module:: annbatch
 ```
 
-
 (loaders)=
 
 ## Loaders
