@@ -76,16 +76,19 @@ class Loader[
     ----------
         batch_sampler
             If not provided, a default :class:`annbatch.ChunkSampler` will be used with the same defaults below.
-            The number of chunks of contiguous array data to fetch. When batch_sampler is not provided, this is used to determine the preload_nchunks. Mutually exclusive with `batch_sampler`. Defaults to 32.
+        chunk_size
+            The obs size (i.e., axis 0) of contiguous array data to fetch. Mutually exclusive with `batch_sampler`. Defaults to 512.
+        preload_nchunks
+            The number of chunks of contiguous array data to fetch. Mutually exclusive with `batch_sampler`. Defaults to 32.
         shuffle
-            Whether or not to shuffle the data. When batch_sampler is not provided, this is used to determine the shuffle. Mutually exclusive with `batch_sampler`. Defaults to False.
+            Whether or not to shuffle the data. Mutually exclusive with `batch_sampler`. Defaults to False.
         batch_size
-            Batch size to yield from the dataset. When batch_sampler is not provided, this is used to determine the batch size. Mutually exclusive with `batch_sampler`. Defaults to 1.
+            Batch size to yield from the dataset. Mutually exclusive with `batch_sampler`. Defaults to 1.
         drop_last
             Set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size.
             If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
             Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
-            When batch_sampler is not provided, this is used to determine the drop_last. Mutually exclusive with `batch_sampler`. Defaults to False.
+            Mutually exclusive with `batch_sampler`. Defaults to False.
         return_index
             Whether or not to yield the index on each iteration.
         preload_to_gpu
