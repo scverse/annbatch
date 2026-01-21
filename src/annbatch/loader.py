@@ -623,7 +623,6 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
 
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
@@ -632,12 +631,10 @@ class Loader[
             dataset_index_to_slices = self._slices_to_slices_with_array_index(chunks_to_load, use_original_space=False)
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
-            chunks_converted = self._accumulate_chunks(chunks)
+            in_memory_data: OutputInMemoryArray_T = self._accumulate_chunks(chunks)
             # Accumulate labels and indices if possible
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_slices)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(chunks_to_load)
-
-            in_memory_data = mod.vstack(chunks_converted)
 
             for split in splits:
                 data = in_memory_data[split]
@@ -647,7 +644,7 @@ class Loader[
                     "index": in_memory_indices[split] if in_memory_indices is not None else None,
                 }
 
-    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
+    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> OutputInMemoryArray_T:
         """Convert fetched chunks to output array format (CSR or ndarray)."""
         result: list[OutputInMemoryArray_T] = []
         for chunk in chunks:
@@ -661,7 +658,8 @@ class Loader[
                 )
             else:
                 result.append(self._np_module.asarray(chunk))
-        return result
+        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
+        return mod.vstack(result)
 
     def _maybe_accumulate_obs(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> pd.DataFrame | None:
         """Gather obs labels for the loaded slices if possible."""
