@@ -36,13 +36,17 @@ V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
     adata = ad.experimental.read_lazy(x, load_annotation_index=False)
     if not isinstance(x, zarr.Group | h5py.Group):
-        group = h5py.File(adata.file.filename, mode="r") if adata.file.filename is not None else zarr.open(x, mode="r")
+        group = (
+            h5py.File(adata.file.filename, mode="r")
+            if adata.file.filename is not None
+            else zarr.open_group(x, mode="r")
+        )
     else:
         group = x
     # -1 indicates that all of each `obs` column should just be loaded, but this is probably fine since it goes column by column and discards.
-    # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
-    # https://github.com/scverse/anndata/pull/2307
+    # TODO: Bug with empty columns: https://github.com/scverse/anndata/pull/2307
     for attr in ["obs", "var"]:
+        # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
         if len(getattr(adata, attr).columns) > 0:
             setattr(adata, attr, ad.experimental.read_elem_lazy(group[attr], chunks=(-1,), use_range_index=True))
             for col in getattr(adata, attr).columns:
@@ -196,6 +200,7 @@ def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
                         categorical_cols_in_this_adata[k]
                     )
         # TODO: Probably bug in anndata, need the true index for proper outer joins (can't skirt this with fake indexes, at least not in the mixed-type regime).
+        # See: https://github.com/scverse/anndata/pull/2299
         if isinstance(adata.var, Dataset2D):
             adata.var.index = adata.var.true_index
         if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):
@@ -266,6 +271,7 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
         adata.obs = adata.obs.to_memory()
         # TODO: This is a bug in anndata?
         if "_index" in adata.obs.columns:
+            adata.obs.index = adata.obs["_index"]
             del adata.obs["_index"]
     adata = _to_categorical_obs(adata)
     if isinstance(adata.var, Dataset2D):
