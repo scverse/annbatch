@@ -139,7 +139,10 @@ class ChunkSampler(Sampler):
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self._shuffle:
             # TODO(selmanozleyen): maybe this should be done worker-aware way?
-            self._rng.shuffle(chunk_indices)
+            if worker_handle is None:
+                self._rng.shuffle(chunk_indices)
+            else:
+                worker_handle.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
         # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_handle is not None:
