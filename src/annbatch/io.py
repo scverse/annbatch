@@ -41,11 +41,14 @@ def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) 
         group = x
     # -1 indicates that all of each `obs` column should just be loaded, but this is probably fine since it goes column by column and discards.
     # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
-    adata.obs = ad.experimental.read_elem_lazy(group["obs"], chunks=(-1,))
-    for col in adata.obs.columns:
-        # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
-        if pd.api.types.is_extension_array_dtype(adata.obs[col].dtype):
-            adata.obs[col] = adata.obs[col].data
+    # https://github.com/scverse/anndata/pull/2307
+    for attr in ["obs", "var"]:
+        if len(getattr(adata, attr).columns) > 0:
+            setattr(adata, attr, ad.experimental.read_elem_lazy(group[attr], chunks=(-1,)))
+            for col in getattr(adata, attr).columns:
+                # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
+                if pd.api.types.is_extension_array_dtype(adata.obs[col].dtype):
+                    adata.obs[col] = adata.obs[col].data
     return adata
 
 
@@ -299,8 +302,6 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
 
     return adata.to_memory()
 
-    return adata
-
 
 DATASET_PREFIX = "dataset"
 
@@ -386,11 +387,11 @@ class DatasetCollection:
         )
 
     @_with_settings
-    def add_adatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    def add_adatas(
         self,
-        adata_paths: Iterable[T],
+        adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
-        load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
+        load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,

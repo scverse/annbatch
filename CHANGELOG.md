@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.4]
 
-- Load into memory nullables/categoricals from `obs` by default when shuffling (i.e., no custom `load_adata` argument to {meth}`annbatch.Datasetcollection.add_adatas`)
+- Load into memory nullables/categoricals from `obs` by default when shuffling (i.e., no custom `load_adata` argument to {meth}`annbatch.DatasetCollection.add_adatas`)
 
 ## [0.0.3]
 
