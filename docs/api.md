@@ -15,7 +15,6 @@
 
     Loader
     Loader.__iter__
-
     ChunkSampler
 ```
 
