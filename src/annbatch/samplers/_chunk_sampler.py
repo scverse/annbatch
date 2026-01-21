@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from annbatch.sampler.abc import Sampler
+from annbatch.abc import Sampler
 from annbatch.utils import check_lt_1, split_given_size
 
 if TYPE_CHECKING:

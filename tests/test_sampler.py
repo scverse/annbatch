@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from annbatch.sampler import ChunkSampler
+from annbatch import ChunkSampler
 
 # TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
 # but overall one must  also think about how validation can't be independent of the worker handle.

@@ -12,8 +12,8 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Loader
-from annbatch.sampler import ChunkSampler
+from annbatch import ChunkSampler, Loader
+from annbatch.abc import Sampler
 
 try:
     from cupy import ndarray as CupyArray
@@ -433,9 +433,8 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
 
 def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     """Test that failed validation in add_dataset doesn't modify internal state."""
-    from annbatch.sampler import abc
 
-    class FailOnSecondValidateSampler(abc.Sampler):
+    class FailOnSecondValidateSampler(Sampler):
         """A sampler that fails validation after the first call."""
 
         def __init__(self):
