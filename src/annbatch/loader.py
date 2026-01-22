@@ -5,7 +5,7 @@ from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
 from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
-from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
+from typing import TYPE_CHECKING, NamedTuple, Self, cast
 
 import anndata as ad
 import numpy as np
@@ -50,12 +50,12 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-def _cupy_dtype(dtype: np.dtype) -> Literal[np.float32, np.float64, np.bool]:
-    if dtype in {np.float32, np.float64, np.bool}:
+def _cupy_dtype(dtype: np.dtype) -> np.dtype:
+    if dtype in {np.dtype("float32"), np.dtype("float64"), np.dtype("bool")}:
         return dtype
     if dtype.itemsize < 4:
-        return np.float32
-    return np.float64
+        return np.dtype("float32")
+    return np.dtype("float64")
 
 
 class Loader[
