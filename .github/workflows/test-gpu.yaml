@@ -73,7 +73,7 @@ jobs:
       - name: Install annbatch
         run: |
           uv venv
-          uv pip install -e ".[cupy-cuda12,test,torch]"
+          uv pip install -e ".[cupy-cuda12,test,torch]" pytest-xdist
 
       - name: Env list
         run: uv pip list
