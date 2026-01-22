@@ -6,7 +6,7 @@ from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
 from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
-from typing import TYPE_CHECKING, NamedTuple, Self, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
 
 import anndata as ad
 import numpy as np
@@ -49,6 +49,14 @@ class CSRDatasetElems(NamedTuple):
     indptr: np.ndarray
     indices: zarr.AsyncArray
     data: zarr.AsyncArray
+
+
+def _cupy_dtype(dtype: np.dtype) -> Literal[np.float32, np.float64, np.bool]:
+    if dtype in {np.float32, np.float64, np.bool}:
+        return dtype
+    if dtype.itemsize < 4:
+        return np.float32
+    return np.float64
 
 
 class Loader[
@@ -615,6 +623,7 @@ class Loader[
                     self._sp_module.csr_matrix(
                         tuple(self._np_module.asarray(e) for e in c.elems),
                         shape=c.shape,
+                        dtype=_cupy_dtype(c.dtype) if self._preload_to_gpu else c.dtype,
                     )
                     for c in chunks
                 ]

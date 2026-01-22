@@ -12,7 +12,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Loader
+from annbatch import Loader, write_sharded
 
 try:
     from cupy import ndarray as CupyArray
@@ -435,3 +435,16 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
     )
     assert next(iter(ds))["obs"] is None
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not find_spec("cupy"), reason="need cupy installed")
+@pytest.mark.parametrize(
+    ("dtype_in", "expected"),
+    [(np.int16, np.float32), (np.int32, np.float64), (np.float32, np.float32), (np.float64, np.float64)],
+)
+def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
+    z = zarr.open(tmp_path / "foo.zarr")
+    write_sharded(z, ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr"), rng=np.random.default_rng()))
+    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2)
+    assert next(iter(loader)).dtype == expected
