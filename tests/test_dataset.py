@@ -238,6 +238,7 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ds.use_collection(simple_collection[1])
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
 @pytest.mark.parametrize(
     "preload_to_gpu",
@@ -330,6 +331,7 @@ def _custom_collate_fn(elems):
     return x, y
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_torch_multiprocess_dataloading_zarr(
@@ -400,6 +402,7 @@ def get_default_sparse() -> type:
     return expected_sparse
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize(
     ("expected_cls", "kwargs"),
     (

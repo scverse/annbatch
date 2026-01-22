@@ -150,6 +150,9 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
+[tool.pytest]
+markers = [ "gpu: mark test to run on GPU" ]
+
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
 xfail_strict = true

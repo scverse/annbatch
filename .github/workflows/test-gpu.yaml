@@ -80,7 +80,7 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run coverage run -m pytest -n auto
+          uv run coverage run -m pytest -n auto -m gpu
           uv run coverage combine
           uv run coverage xml
 
