@@ -50,6 +50,14 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
+def _cupy_dtype(dtype: np.dtype) -> np.dtype:
+    if dtype in {np.dtype("float32"), np.dtype("float64"), np.dtype("bool")}:
+        return dtype
+    if dtype.itemsize < 4:
+        return np.dtype("float32")
+    return np.dtype("float64")
+
+
 class Loader[
     BackingArray: BackingArray_T,
     InputInMemoryArray: InputInMemoryArray_T,
@@ -653,7 +661,7 @@ class Loader[
                     self._sp_module.csr_matrix(
                         tuple(self._np_module.asarray(e) for e in chunk.elems),
                         shape=chunk.shape,
-                        dtype="float64" if self._preload_to_gpu else chunk.dtype,
+                        dtype=_cupy_dtype(chunk.dtype) if self._preload_to_gpu else chunk.dtype,
                     )
                 )
             else:

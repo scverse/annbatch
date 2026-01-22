@@ -12,7 +12,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import ChunkSampler, Loader
+from annbatch import ChunkSampler, Loader, write_sharded
 from annbatch.abc import Sampler
 
 try:
@@ -232,6 +232,7 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ds.use_collection(simple_collection[1])
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
 @pytest.mark.parametrize(
     "preload_to_gpu",
@@ -327,6 +328,7 @@ def _custom_collate_fn(elems):
     return x, y
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_torch_multiprocess_dataloading_zarr(
@@ -397,6 +399,7 @@ def get_default_sparse() -> type:
     return expected_sparse
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize(
     ("expected_cls", "kwargs"),
     (
@@ -429,6 +432,22 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
     )
     assert next(iter(ds))["obs"] is None
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not find_spec("cupy"), reason="need cupy installed")
+@pytest.mark.parametrize(
+    ("dtype_in", "expected"),
+    [(np.int16, np.float32), (np.int32, np.float64), (np.float32, np.float32), (np.float64, np.float64)],
+)
+def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
+    z = zarr.open(tmp_path / "foo.zarr")
+    write_sharded(z, ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr", rng=np.random.default_rng())))
+    adata = ad.AnnData(X=ad.io.sparse_dataset(z["X"]))
+    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2, to_torch=False).add_anndata(
+        adata
+    )
+    assert next(iter(loader))["X"].dtype == expected
 
 
 def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
