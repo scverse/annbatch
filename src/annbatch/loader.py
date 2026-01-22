@@ -615,7 +615,6 @@ class Loader[
                     self._sp_module.csr_matrix(
                         tuple(self._np_module.asarray(e) for e in c.elems),
                         shape=c.shape,
-                        dtype="float64" if self._preload_to_gpu else c.dtype,
                     )
                     for c in chunks
                 ]
