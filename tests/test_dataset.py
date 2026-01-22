@@ -445,7 +445,7 @@ def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
     write_sharded(z, ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr", rng=np.random.default_rng())))
     adata = ad.AnnData(X=ad.io.sparse_dataset(z["X"]))
     loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2).add_anndata(adata)
-    assert next(iter(loader)).dtype == expected
+    assert next(iter(loader))["X"].dtype == expected
 
 
 def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
