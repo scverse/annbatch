@@ -444,7 +444,9 @@ def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
     z = zarr.open(tmp_path / "foo.zarr")
     write_sharded(z, ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr", rng=np.random.default_rng())))
     adata = ad.AnnData(X=ad.io.sparse_dataset(z["X"]))
-    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2).add_anndata(adata)
+    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2, to_torch=False).add_anndata(
+        adata
+    )
     assert next(iter(loader))["X"].dtype == expected
 
 
