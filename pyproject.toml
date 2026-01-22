@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "annbatch"
-version = "0.0.3"
+version = "0.0.4"
 description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -178,6 +178,10 @@ patch = [ "subprocess" ]
 omit = [
   "**/test_*.py",
 ]
+
+[[tool.mypy.overrides]]
+module = [ "anndata.*", "cupyx.*", "cupy.*" ]
+ignore_missing_imports = true
 
 [tool.cruft]
 skip = [

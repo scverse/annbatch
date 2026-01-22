@@ -187,13 +187,20 @@ def test_store_creation_default(
 
 
 @pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
+@pytest.mark.parametrize(
+    "load_adata", [pytest.param(None, id="default_read"), pytest.param(ad.experimental.read_lazy, id="fully_lazy")]
+)
 def test_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     shuffle: bool,
+    load_adata: Callable[[str], ad.AnnData],
 ):
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
-    output_path = adata_with_h5_path_different_var_space[1].parent / f"zarr_store_creation_test_{shuffle}.zarr"
+    output_path = (
+        adata_with_h5_path_different_var_space[1].parent
+        / f"zarr_store_creation_test_{shuffle}_{'default_read' if load_adata is None else 'custom_read'}.zarr"
+    )
     collection = DatasetCollection(output_path).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
@@ -204,6 +211,7 @@ def test_store_creation(
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
         shuffle=shuffle,
+        **({"load_adata": load_adata} if load_adata is not None else {}),
     )
     assert not DatasetCollection(output_path).is_empty
     assert V1_ENCODING.items() <= zarr.open(output_path).attrs.items()
