@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import warnings
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, wraps
 from importlib.util import find_spec
-from itertools import islice
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Concatenate, Protocol
 
 import anndata as ad
 import numpy as np
@@ -15,9 +15,40 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Callable
 
+    from annbatch.loader import Loader
     from annbatch.types import OutputInMemoryArray_T
+
+
+def validate_sampler[**Param, RetType](
+    method: Callable[Concatenate[Loader, Param], RetType],
+) -> Callable[Concatenate[Loader, Param], RetType]:
+    """Decorator that validates n_obs before modifying state.
+
+    Expects the first positional argument to be either:
+    - A single object with a `.shape` attribute
+    - A list of objects with `.shape` attributes
+
+    The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
+    """
+    sig = inspect.signature(method)
+    if len(sig.parameters) < 2:
+        raise ValueError("validate_sampler decorator expects at least two positional arguments after 'self'")
+    first_param_name = list(sig.parameters.keys())[1]
+
+    @wraps(method)
+    def wrapper(self: Loader, *args: Param.args, **kwargs: Param.kwargs) -> RetType:
+        if len(args) > 0:
+            first_arg = args[0]
+        else:
+            first_arg = kwargs[first_param_name]
+
+        n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
+        self.batch_sampler.validate(n_obs)
+        return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
@@ -32,14 +63,6 @@ class CSRContainer:
     elems: tuple[np.ndarray, np.ndarray, np.ndarray]
     shape: tuple[int, int]
     dtype: np.dtype
-
-
-def _batched[T](iterable: Iterable[T], n: int) -> Generator[list[T], None, None]:
-    if n < 1:
-        raise ValueError("n must be >= 1")
-    it = iter(iterable)
-    while batch := list(islice(it, n)):
-        yield batch
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
@@ -74,6 +97,13 @@ class WorkerHandle:  # noqa: D101
 
             return get_worker_info()
         return None
+
+    @property
+    def num_workers(self) -> int:
+        """Return the number of workers, or 1 if not in a worker context."""
+        if self._worker_info is None:
+            return 1
+        return self._worker_info.num_workers
 
     @cached_property
     def _rng(self):
