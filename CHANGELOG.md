@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning][].
 
 - Fix bug with bringing the nullable/categorical columns into memory by default
 
+
+### Breaking
+
+- Now {class}`annbatch.Loader` expects ``preload_nchunks * chunk_size % batch_size == 0`` for simplification and efficiency.
+
+### Added
+- Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
+- Exposed the older default sampling scheme as {class}`annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
+
 ## [0.0.4]
 
 - Load into memory nullables/categoricals from `obs` by default when shuffling (i.e., no custom `load_adata` argument to {meth}`annbatch.DatasetCollection.add_adatas`)
