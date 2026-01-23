@@ -52,7 +52,7 @@ def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) 
             for col in getattr(adata, attr).columns:
                 # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
                 if pd.api.types.is_extension_array_dtype(getattr(adata, attr)[col].dtype):
-                    setattr(getattr(adata, attr), col, getattr(adata, attr)[col].data)
+                    getattr(adata, attr)[col] = getattr(adata, attr)[col].data
     return adata
 
 
