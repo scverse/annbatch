@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning][].
 
 
 ### Breaking
-
 - Now {class}`annbatch.Loader` expects ``preload_nchunks * chunk_size % batch_size == 0`` for simplification and efficiency.
 
 ### Added
