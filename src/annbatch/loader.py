@@ -647,26 +647,22 @@ class Loader[
             # An IntervalIndexer with start-stop bounds of each chunk's dataset
             dataset_interval_indexer = interval_indexer_from_slices(dataset_index_to_slices.values())
             for split in splits:
+                sorted_split = np.sort(split)
                 # Get the index of the dataset for the given split relative to the in-memory data
-                dataset_locs = dataset_interval_indexer.get_indexer_for(split)
+                dataset_locs = dataset_interval_indexer.get_indexer_for(sorted_split)
                 # Get the left bound of that dataset relative to the in-memory data
                 offsets = dataset_interval_indexer.left[dataset_locs]
-                # Stack the chunks in dataset order
+                # Stack the chunks in dataset order, offseting each split by its dataset's leftmost in-memory bound
                 data = mod.vstack(
                     [
-                        chunk[np.sort(split[dataset_locs == i] - offsets[dataset_locs == i])]
+                        chunk[sorted_split[dataset_locs == i] - offsets[dataset_locs == i]]
                         for i, chunk in enumerate(in_memory_data)
                     ]
                 )
-                # shuffle globally relative to the in-memory data
-                order = np.argsort(split)
-                splits_for_data = np.empty_like(order)
-                splits_for_data[order] = np.arange(len(split))
-                data = data[splits_for_data]
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
-                    "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
-                    "index": in_memory_indices[split] if in_memory_indices is not None else None,
+                    "obs": concatenated_obs.iloc[sorted_split] if concatenated_obs is not None else None,
+                    "index": in_memory_indices[sorted_split] if in_memory_indices is not None else None,
                 }
 
     def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
