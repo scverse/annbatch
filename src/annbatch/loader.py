@@ -651,13 +651,18 @@ class Loader[
                 dataset_locs = dataset_interval_indexer.get_indexer_for(split)
                 # Get the left bound of that dataset relative to the in-memory data
                 offsets = dataset_interval_indexer.left[dataset_locs]
-                # Stack the chunks in dataset order and then shuffle globally relative to the in-memory data (hence double argsort)
+                # Stack the chunks in dataset order
                 data = mod.vstack(
                     [
                         chunk[np.sort(split[dataset_locs == i] - offsets[dataset_locs == i])]
                         for i, chunk in enumerate(in_memory_data)
                     ]
-                )[np.argsort(np.argsort(split))]
+                )
+                # shuffle globally relative to the in-memory data
+                order = np.argsort(split)
+                splits_for_data = np.empty_like(order)
+                splits_for_data[order] = np.arange(len(split))
+                data = data[splits_for_data]
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                     "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
