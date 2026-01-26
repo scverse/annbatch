@@ -22,6 +22,7 @@ from annbatch.utils import (
     MultiBasicIndexer,
     check_lt_1,
     check_var_shapes,
+    interval_indexer_from_slices,
     load_x_and_obs,
     to_torch,
     validate_sampler,
@@ -631,7 +632,7 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-
+        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
@@ -639,20 +640,32 @@ class Loader[
             dataset_index_to_slices = self._slices_to_slices_with_array_index(chunks_to_load, use_original_space=False)
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
-            in_memory_data: OutputInMemoryArray_T = self._accumulate_chunks(chunks)
+            in_memory_data = self._accumulate_chunks(chunks)
             # Accumulate labels and indices if possible
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_slices)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(chunks_to_load)
-
+            # An IntervalIndexer with start-stop bounds of each chunk's dataset
+            dataset_interval_indexer = interval_indexer_from_slices(dataset_index_to_slices.values())
             for split in splits:
-                data = in_memory_data[split]
+                sorted_split = np.sort(split)
+                # Get the index of the dataset for the given split relative to the in-memory data
+                dataset_locs = dataset_interval_indexer.get_indexer_for(sorted_split)
+                # Get the left bound of that dataset relative to the in-memory data
+                offsets = dataset_interval_indexer.left[dataset_locs]
+                # Stack the chunks in dataset order, offseting each split by its dataset's leftmost in-memory bound
+                data = mod.vstack(
+                    [
+                        chunk[sorted_split[dataset_locs == i] - offsets[dataset_locs == i]]
+                        for i, chunk in enumerate(in_memory_data)
+                    ]
+                )
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
-                    "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
-                    "index": in_memory_indices[split] if in_memory_indices is not None else None,
+                    "obs": concatenated_obs.iloc[sorted_split] if concatenated_obs is not None else None,
+                    "index": in_memory_indices[sorted_split] if in_memory_indices is not None else None,
                 }
 
-    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> OutputInMemoryArray_T:
+    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
         """Convert fetched chunks to output array format (CSR or ndarray)."""
         result: list[OutputInMemoryArray_T] = []
         for chunk in chunks:
@@ -666,8 +679,7 @@ class Loader[
                 )
             else:
                 result.append(self._np_module.asarray(chunk))
-        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
-        return mod.vstack(result)
+        return result
 
     def _maybe_accumulate_obs(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> pd.DataFrame | None:
         """Gather obs labels for the loaded slices if possible."""
