@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.5]
 
+- Don't concatenate all i/o-ed chunks in-memory, instead yielding from individual chunks as though they were concatenated (i.e., not abreaking hcange with the {class}`annbatch.abc.Sampler` API).  Should improve memory performance especially for dense data
+
+## [0.0.5]
+
 - Fix bug with bringing the nullable/categorical columns into memory by default
 
 
