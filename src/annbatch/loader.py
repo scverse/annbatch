@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 type concat_strategies = Literal["concat-shuffle", "shuffle-concat"]
 
+
 class CSRDatasetElems(NamedTuple):
     """Container for cached objects that will be indexed into to generate CSR matrices"""
 
@@ -168,7 +169,7 @@ class Loader[
         preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
-        concat_strategy: None | concat_strategies = None
+        concat_strategy: None | concat_strategies = None,
     ):
         sampler_args = {
             "chunk_size": chunk_size,

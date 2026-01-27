@@ -101,7 +101,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
-                concat_strategy=concat_strategy
+                concat_strategy=concat_strategy,
             ).use_collection(
                 collection,
                 **(
@@ -111,10 +111,13 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 ),
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}-concat_strategy={concat_strategy}",  # type: ignore[attr-defined]
-            marks=[pytest.mark.skipif(
-                is_gpu := (find_spec("cupy") is None and preload_to_gpu),
-                reason="need cupy installed",
-            )] + ([pytest.mark.gpu] if find_spec("cupy") is not None and preload_to_gpu else []),
+            marks=[
+                pytest.mark.skipif(
+                    is_gpu := (find_spec("cupy") is None and preload_to_gpu),
+                    reason="need cupy installed",
+                )
+            ]
+            + ([pytest.mark.gpu] if find_spec("cupy") is not None and preload_to_gpu else []),
         )
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu, concat_strategy in [
             elem
