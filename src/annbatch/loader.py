@@ -117,8 +117,8 @@ class Loader[
         concat_strategy
             The strategy for how in-memory, preloaded data should be concatenated and yielded.
             The two options are:
-                - `concat-shuffle`: all preloaded data is concatenated and then shuffled (higher memory usage, but faster, at least for sparse data)
-                - `shuffle-concat`: preloaded data is first shuffled chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
+            - `concat-shuffle`: all preloaded data is concatenated and then shuffled (higher memory usage, but faster, at least for sparse data)
+            - `shuffle-concat`: preloaded data is first shuffled chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
             The default is automatically chosen = `concat-shuffle` the data added to the loader is sparse and otherwise `shuffle-concat`.
 
 
