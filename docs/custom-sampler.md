@@ -43,7 +43,10 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
   ```
   **Important:** The number of samples that get loaded into memory at once, should be devisible by the batch size. Otherwise, the reminder will get dropped.
 
-- **`splits`**: A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory. Each array contains indices that map into the concatenated in-memory data. The last split may be partial (1 <= len(last_split) <= batch_size) but should not be empty.
+- **`splits`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
+  - If not supplied: batches are randomly created based on the loaded chunks.
+  - If supplied: you can control how batches are created from the in-memory chunks. Each array contains indices that map into the concatenated in-memory data.
+  - The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
 
   ```
   Example: Splitting concatenated data into batches
@@ -86,11 +89,6 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
   │  └───┴────┴────┘                                                  │
   └───────────────────────────────────────────────────────────────────┘
   ```
-
-### Controlling Batch Composition with `splits`
-
-The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
-
 
 
 ## Example 1: Implementing a `ChunkedSampler` class
