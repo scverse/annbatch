@@ -41,6 +41,7 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
   │ 200-299 │ 700-799 │  0-99   │ 500-599 │
   └─────────┴─────────┴─────────┴─────────┘
   ```
+  **Important:** The number of samples that get loaded into memory at once, should be devisible by the batch size. Otherwise, the reminder will get dropped.
 
 - **`splits`**: A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory. Each array contains indices that map into the concatenated in-memory data. The last split may be partial (1 <= len(last_split) <= batch_size) but should not be empty.
 
