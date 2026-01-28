@@ -108,7 +108,8 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
             preload_nchunks=preload_nchunks,
             open_func=open_func,
             batch_size=batch_size,
-            preload_to_gpu=preload_to_gpu: Loader(
+            preload_to_gpu=preload_to_gpu,
+            concat_strategy=concat_strategy: Loader(
                 shuffle=shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -116,6 +117,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
+                concat_strategy=concat_strategy,
             ).use_collection(
                 collection,
                 **(
@@ -124,12 +126,13 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     else {}
                 ),
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}-concat_strategy={concat_strategy}",  # type: ignore[attr-defined]
             marks=skip_if_no_cupy,
         )
-        for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
+        for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu, concat_strategy in [
             elem
             for preload_to_gpu in [True, False]
+            for concat_strategy in ["concat-shuffle", "shuffle-concat"]
             for open_func in [open_sparse, open_dense, None]
             for elem in [
                 [
@@ -138,6 +141,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     1,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # singleton chunk size
                 [
                     5,
@@ -145,6 +149,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     1,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # singleton preload
                 [
                     10,
@@ -152,6 +157,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     5,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # batch size divides total in memory size evenly
                 [
                     10,
@@ -159,6 +165,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     50,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # batch size equal to in-memory size loading
             ]
         ]
