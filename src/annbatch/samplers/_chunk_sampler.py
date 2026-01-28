@@ -93,6 +93,10 @@ class ChunkSampler(Sampler):
     def batch_size(self) -> int:
         return self._batch_size
 
+    @property
+    def shuffle(self) -> bool:
+        return self._shuffle
+
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
 

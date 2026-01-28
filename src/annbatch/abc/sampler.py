@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from annbatch.utils import split_given_size
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -36,6 +38,17 @@ class Sampler(ABC):
             The number of observations per batch.
         """
 
+    @property
+    @abstractmethod
+    def shuffle(self) -> bool:
+        """Whether to shuffle data during sampling.
+
+        Returns
+        -------
+        bool
+            True if data should be shuffled, False otherwise.
+        """
+
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests given the total number of observations.
 
@@ -60,15 +73,9 @@ class Sampler(ABC):
                 # Calculate total observations from chunks
                 total_obs = sum(chunk.stop - chunk.start for chunk in load_request["chunks"])
 
-                # Generate random permutation and split into batches
-                indices = np.random.permutation(total_obs)
-                splits = []
-                for i in range(0, total_obs, batch_size):
-                    batch_indices = indices[i : i + batch_size]
-                    if len(batch_indices) > 0:  # Ensure non-empty batches
-                        splits.append(batch_indices)
-
-                load_request["splits"] = splits
+                # Generate indices with optional shuffling and split into batches
+                indices = np.random.permutation(total_obs) if self.shuffle else np.arange(total_obs)
+                load_request["splits"] = split_given_size(indices, batch_size)
 
             yield load_request
 

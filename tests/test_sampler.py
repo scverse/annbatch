@@ -254,13 +254,18 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
 class SimpleSampler(Sampler):
     """Test sampler that yields LoadRequests without splits."""
 
-    def __init__(self, batch_size: int | None, provide_splits: bool = False):
+    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool = True):
         self._batch_size = batch_size
         self._provide_splits = provide_splits
+        self._shuffle = shuffle
 
     @property
     def batch_size(self) -> int | None:
         return self._batch_size
+
+    @property
+    def shuffle(self) -> bool:
+        return self._shuffle
 
     def validate(self, n_obs: int) -> None:
         """No validation needed for test sampler."""
@@ -342,3 +347,33 @@ def test_explicit_splits_override_automatic_batching():
         for split in load_request["splits"]:
             # Check that indices are sequential (which means auto-batching wasn't used)
             assert np.array_equal(split, np.arange(len(split)))
+
+
+def test_automatic_batching_respects_shuffle_flag():
+    """Test that automatic batching respects the shuffle parameter."""
+    batch_size = 3
+    n_obs = 25
+
+    # Test with shuffle=False - should maintain order
+    sampler_no_shuffle = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=False)
+    all_indices_no_shuffle = []
+
+    for load_request in sampler_no_shuffle.sample(n_obs):
+        for split in load_request["splits"]:
+            all_indices_no_shuffle.extend(split)
+
+    # Without shuffling, indices should be in order
+    assert all_indices_no_shuffle == list(range(n_obs)), "Without shuffle, indices should be sequential"
+
+    # Test with shuffle=True - should randomize order
+    sampler_shuffle = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=True)
+    all_indices_shuffle = []
+
+    for load_request in sampler_shuffle.sample(n_obs):
+        for split in load_request["splits"]:
+            all_indices_shuffle.extend(split)
+
+    # With shuffling, indices should be different from sequential (with very high probability)
+    # But should still cover all indices
+    assert set(all_indices_shuffle) == set(range(n_obs)), "With shuffle, all indices should be covered"
+    assert all_indices_shuffle != list(range(n_obs)), "With shuffle, indices should not be sequential"
