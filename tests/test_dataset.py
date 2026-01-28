@@ -344,7 +344,7 @@ def test_torch_multiprocess_dataloading_zarr(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], open_func, use_zarrs: bool
 ):
     """
-    Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
+    Test that Loader can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
     """
     from torch.utils.data import DataLoader
@@ -375,11 +375,6 @@ def test_torch_multiprocess_dataloading_zarr(
 
 @pytest.mark.parametrize("preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])])
 def test_3d(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool):
-    """
-    Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
-    the dataset gets yielded once.
-    """
-
     ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=preload_to_gpu)
     ds.add_datasets(
         **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
