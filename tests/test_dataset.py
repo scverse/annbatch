@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from annbatch.io import DatasetCollection
 
 skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
+skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
 
 
 class Data(TypedDict):
@@ -245,7 +246,7 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
+@skip_if_no_torch
 @pytest.mark.parametrize(
     "preload_to_gpu",
     [
@@ -338,7 +339,7 @@ def _custom_collate_fn(elems):
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
+@skip_if_no_torch
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_torch_multiprocess_dataloading_zarr(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], open_func, use_zarrs: bool
@@ -374,8 +375,18 @@ def test_torch_multiprocess_dataloading_zarr(
 
 
 @pytest.mark.parametrize("preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])])
-def test_3d(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool):
-    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=preload_to_gpu)
+@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])])
+def test_3d(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool, to_torch: bool
+):
+    ds = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        shuffle=True,
+        return_index=True,
+        preload_to_gpu=preload_to_gpu,
+        to_torch=to_torch,
+    )
     ds.add_datasets(
         **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
     )
@@ -384,11 +395,16 @@ def test_3d(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_za
     x_list, idx_list = [], []
     for batch in ds:
         x, idxs = batch["X"], batch["index"]
-        if preload_to_gpu:
+        if preload_to_gpu and not to_torch:
             import cupy as cp
 
             assert isinstance(x, cp.ndarray)
             x = x.get()
+        if to_torch:
+            import torch
+
+            assert isinstance(x, torch.Tensor)
+            x = np.array(x)
         x_list.append(x)
         idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
