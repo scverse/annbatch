@@ -437,7 +437,7 @@ class Loader[
         max_idx = index.stop
         curr_pos = 0
         slices = []
-        for idx, (n_obs, _) in enumerate(self._shapes):
+        for idx, (n_obs, *_) in enumerate(self._shapes):
             array_start = curr_pos
             array_end = curr_pos + n_obs
 
