@@ -675,7 +675,7 @@ class Loader[
                         "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
                         "index": in_memory_indices[split] if in_memory_indices is not None else None,
                     }
-            if self._concat_strategy == "shuffle-concat":
+            elif self._concat_strategy == "shuffle-concat":
                 # An IntervalIndexer with start-stop bounds of each chunk's dataset
                 dataset_interval_indexer = interval_indexer_from_slices(dataset_index_to_slices.values())
                 for split in splits:
@@ -696,6 +696,10 @@ class Loader[
                         "obs": concatenated_obs.iloc[sorted_split] if concatenated_obs is not None else None,
                         "index": in_memory_indices[sorted_split] if in_memory_indices is not None else None,
                     }
+            else:  # pragma: no cover
+                raise RuntimeError(
+                    f"Found unrecognized concatenation strategy at iteration time {self._concat_strategy}.  Please open an issue"
+                )
             # https://github.com/cupy/cupy/issues/9625
             if self._preload_to_gpu and issubclass(self.dataset_type, ad.abc.CSRDataset):
                 self._np_module.get_default_memory_pool().free_all_blocks()
