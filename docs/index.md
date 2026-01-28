@@ -112,6 +112,7 @@ However, once you have too much data to fit into memory, for whatever reason, th
 
 api.md
 zarr-configuration.md
+custom-sampler.md
 changelog.md
 contributing.md
 references.md

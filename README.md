@@ -1,4 +1,4 @@
-<!--Links at the top because this document is split for docs home page-->
+from annbatch.utils import split_given_sizefrom annbatch.types import LoadRequestfrom typing import Iterator<!--Links at the top because this document is split for docs home page-->
 
 [uv]: https://github.com/astral-sh/uv
 
@@ -103,7 +103,7 @@ Data loading:
 ```python
 from pathlib import Path
 
-from annbatch import Loader
+from annbatch import DatasetCollection, Loader
 import anndata as ad
 import zarr
 
@@ -113,9 +113,11 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
+
 # WARNING: Without custom loading *all* obs columns will be loaded and yielded potentially degrading performance.
 def custom_load_func(g: zarr.Group) -> ad.AnnData:
     return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns_useful_for_training])
+
 
 # A non empty collection
 collection = DatasetCollection("path/to/output/collection.zarr")
@@ -129,7 +131,7 @@ with ad.settings.override(remove_unused_categories=False):
     # `use_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
     # but the `load_adata` arg can override this behavior
     # (see `custom_load_func` above for an example of customization).
-    ds = ds.use_collection(collection, load_adata = custom_load_func)
+    ds = ds.use_collection(collection, load_adata=custom_load_func)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
