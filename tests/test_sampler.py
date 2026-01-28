@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from annbatch import ChunkSampler
+from annbatch.abc import Sampler
 
 # TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
 # but overall one must  also think about how validation can't be independent of the worker handle.
@@ -243,3 +244,101 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
 
     for result, expected in zip(results, expected_ranges, strict=True):
         assert result == list(expected), f"result: {result} != expected: {expected}"
+
+
+# =============================================================================
+# Automatic batching tests (when splits not provided)
+# =============================================================================
+
+
+class SimpleSampler(Sampler):
+    """Test sampler that yields LoadRequests without splits."""
+
+    def __init__(self, batch_size: int | None, provide_splits: bool = False):
+        self._batch_size = batch_size
+        self._provide_splits = provide_splits
+
+    @property
+    def batch_size(self) -> int | None:
+        return self._batch_size
+
+    def validate(self, n_obs: int) -> None:
+        """No validation needed for test sampler."""
+        pass
+
+    def _sample(self, n_obs: int):
+        """Yield a simple LoadRequest with chunks but no splits."""
+        # Create chunks of size 10
+        chunk_size = 10
+        if self._provide_splits:
+            # Provide splits explicitly - yield separate LoadRequests per chunk
+            for start in range(0, n_obs, chunk_size):
+                stop = min(start + chunk_size, n_obs)
+                indices = np.arange(stop - start)
+                yield {"chunks": [slice(start, stop)], "splits": [indices]}
+        else:
+            # Don't provide splits - yield single LoadRequest with all chunks
+            # so base class can batch across all data
+            chunks = []
+            for start in range(0, n_obs, chunk_size):
+                stop = min(start + chunk_size, n_obs)
+                chunks.append(slice(start, stop))
+            yield {"chunks": chunks}
+
+
+def test_automatic_batching_without_splits():
+    """Test that base Sampler class automatically generates splits when not provided."""
+    batch_size = 3
+    n_obs = 25
+    sampler = SimpleSampler(batch_size=batch_size, provide_splits=False)
+
+    all_indices = []
+    all_batch_sizes = []
+
+    for load_request in sampler.sample(n_obs):
+        # Verify splits were added by base class
+        assert "splits" in load_request
+        assert load_request["splits"] is not None
+        assert len(load_request["splits"]) > 0
+
+        # Collect batch sizes
+        for split in load_request["splits"]:
+            all_batch_sizes.append(len(split))
+            all_indices.extend(split)
+
+    # Verify all indices are covered (should be 0-24)
+    assert len(all_indices) == n_obs
+    assert set(all_indices) == set(range(n_obs))
+
+    # Verify batch sizes (all should be batch_size except possibly the last one)
+    for batch_sz in all_batch_sizes[:-1]:
+        assert batch_sz == batch_size
+
+    # Last batch can be smaller or equal to batch_size
+    assert all_batch_sizes[-1] <= batch_size
+    assert all_batch_sizes[-1] > 0
+
+
+def test_automatic_batching_requires_batch_size():
+    """Test that automatic batching raises error when batch_size is None."""
+    sampler = SimpleSampler(batch_size=None, provide_splits=False)
+    n_obs = 20
+
+    with pytest.raises(ValueError, match="batch_size must be set when splits are not provided"):
+        list(sampler.sample(n_obs))
+
+
+def test_explicit_splits_override_automatic_batching():
+    """Test that when splits are explicitly provided, automatic batching is not used."""
+    batch_size = 3
+    n_obs = 20
+    sampler = SimpleSampler(batch_size=batch_size, provide_splits=True)
+
+    for load_request in sampler.sample(n_obs):
+        # Verify splits exist
+        assert "splits" in load_request
+        # In our SimpleSampler with provide_splits=True, each chunk becomes one split
+        # with sequential indices (not randomly batched)
+        for split in load_request["splits"]:
+            # Check that indices are sequential (which means auto-batching wasn't used)
+            assert np.array_equal(split, np.arange(len(split)))
