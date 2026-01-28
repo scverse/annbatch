@@ -116,7 +116,7 @@ class Loader[
             Defaults to True if `torch` is installed.
         concat_strategy
             The strategy for how in-memory, preloaded data should be concatenated and yielded.
-            With `concat-shuffle, preloaded data is concatenated and then subsetted/shuffled (higher memory usage, but faster, at least for sparse data)
+            With `concat-shuffle`, preloaded data is concatenated and then subsetted/shuffled (higher memory usage, but faster, at least for sparse data)
             With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
             The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
             See
