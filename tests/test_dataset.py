@@ -374,8 +374,10 @@ def test_torch_multiprocess_dataloading_zarr(
     assert np.array_equal(x[np.argsort(idxs)], x_ref)
 
 
-@pytest.mark.parametrize("preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])])
-@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])])
+@pytest.mark.parametrize(
+    "preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])], ids=["cupy", "no_cupy"]
+)
+@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])], ids=["torch", "no_torch"])
 def test_3d(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool, to_torch: bool
 ):
@@ -404,7 +406,7 @@ def test_3d(
             import torch
 
             assert isinstance(x, torch.Tensor)
-            x = np.array(x)
+            x = np.array(x.cpu())
         x_list.append(x)
         idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
