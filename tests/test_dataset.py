@@ -28,13 +28,16 @@ if TYPE_CHECKING:
 
     from annbatch.io import DatasetCollection
 
+skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
+skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
+
 
 class Data(TypedDict):
     dataset: ad.abc.CSRDataset | zarr.Array
     obs: np.ndarray
 
 
-class ListData:
+class ListData(TypedDict):
     datasets: list[ad.abc.CSRDataset | zarr.Array]
     obs: list[np.ndarray]
 
@@ -66,6 +69,19 @@ def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata:
         }
     if use_anndata:
         return ad.AnnData(X=data["dataset"], obs=data["obs"])
+    return data
+
+
+def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
+    old_pipeline = zarr.config.get("codec_pipeline.path")
+
+    with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        if not isinstance(path, zarr.Group):
+            path = zarr.open(path)
+        data = {
+            "dataset": path["obsm"]["3d"],
+            "obs": ad.io.read_elem(path["obs"]),
+        }
     return data
 
 
@@ -109,10 +125,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 ),
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
-            marks=pytest.mark.skipif(
-                find_spec("cupy") is None and preload_to_gpu,
-                reason="need cupy installed",
-            ),
+            marks=skip_if_no_cupy,
         )
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
@@ -233,16 +246,13 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
+@skip_if_no_torch
 @pytest.mark.parametrize(
     "preload_to_gpu",
     [
         pytest.param(
             True,
-            marks=pytest.mark.skipif(
-                find_spec("cupy") is None,
-                reason="need cupy installed",
-            ),
+            marks=skip_if_no_cupy,
         ),
         False,
     ],
@@ -329,13 +339,13 @@ def _custom_collate_fn(elems):
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
+@skip_if_no_torch
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_torch_multiprocess_dataloading_zarr(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], open_func, use_zarrs: bool
 ):
     """
-    Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
+    Test that Loader can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
     """
     from torch.utils.data import DataLoader
@@ -358,6 +368,47 @@ def test_torch_multiprocess_dataloading_zarr(
         x_list.append(x)
         idx_list.append(idxs.ravel())
 
+    x = np.vstack(x_list)
+    idxs = np.concatenate(idx_list)
+
+    assert np.array_equal(x[np.argsort(idxs)], x_ref)
+
+
+@pytest.mark.parametrize(
+    "preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])], ids=["cupy", "no_cupy"]
+)
+@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])], ids=["torch", "no_torch"])
+def test_3d(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool, to_torch: bool
+):
+    ds = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        shuffle=True,
+        return_index=True,
+        preload_to_gpu=preload_to_gpu,
+        to_torch=to_torch,
+    )
+    ds.add_datasets(
+        **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
+    )
+    x_ref = adata_with_zarr_path_same_var_space[0].obsm["3d"]
+
+    x_list, idx_list = [], []
+    for batch in ds:
+        x, idxs = batch["X"], batch["index"]
+        if preload_to_gpu and not to_torch:
+            import cupy as cp
+
+            assert isinstance(x, cp.ndarray)
+            x = x.get()
+        if to_torch:
+            import torch
+
+            assert isinstance(x, torch.Tensor)
+            x = np.array(x.cpu())
+        x_list.append(x)
+        idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
     idxs = np.concatenate(idx_list)
 
@@ -435,7 +486,7 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("cupy"), reason="need cupy installed")
+@skip_if_no_cupy
 @pytest.mark.parametrize(
     ("dtype_in", "expected"),
     [(np.int16, np.float32), (np.int32, np.float64), (np.float32, np.float32), (np.float64, np.float64)],
