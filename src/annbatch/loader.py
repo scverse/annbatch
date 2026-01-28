@@ -696,7 +696,8 @@ class Loader[
                         "obs": concatenated_obs.iloc[sorted_split] if concatenated_obs is not None else None,
                         "index": in_memory_indices[sorted_split] if in_memory_indices is not None else None,
                     }
-            if self._preload_to_gpu:
+            # https://github.com/cupy/cupy/issues/9625
+            if self._preload_to_gpu and issubclass(self.dataset_type, ad.abc.CSRDataset):
                 self._np_module.get_default_memory_pool().free_all_blocks()
 
     def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
