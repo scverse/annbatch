@@ -52,7 +52,7 @@ class Sampler(ABC):
         self.validate(n_obs)
         for load_request in self._sample(n_obs):
             # If splits are not provided, generate them based on batch_size
-            if "splits" not in load_request or load_request["splits"] is None:
+            if "splits" not in load_request:
                 batch_size = self.batch_size
                 if batch_size is None:
                     raise ValueError("batch_size must be set when splits are not provided in LoadRequest")
