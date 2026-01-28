@@ -527,6 +527,10 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
             return 10
 
         @property
+        def shuffle(self) -> bool:
+            return False
+
+        @property
         def worker_handle(self):
             return None
 
