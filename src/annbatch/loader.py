@@ -445,34 +445,27 @@ class Loader[
         -------
             A slice relative to the dataset it represents as well as the index of said dataset in `sparse_datasets`.
         """
+        if self._dataset_intervals is None:
+            return []
+
         min_idx = index.start
         max_idx = index.stop
 
-        start_dataset = self._dataset_intervals.get_indexer([min_idx])[0]
-        # max_idx - 1 because intervals are [left, right) and we want the dataset containing the last element
-        end_dataset = self._dataset_intervals.get_indexer([max_idx - 1])[0]
-
-        if start_dataset == -1 or end_dataset == -1:
-            # should be unreachable
-            raise ValueError(
-                f"Indices {min_idx} and {max_idx} are outside all intervals. Something went wrong with the dataset shapes."
-            )
-
         slices = []
-        for idx in range(start_dataset, end_dataset + 1):
-            interval = self._dataset_intervals[idx]
+        overlapping_mask = self._dataset_intervals.overlaps(pd.Interval(min_idx, max_idx, closed="left"))
+        for dataset_idx in np.flatnonzero(overlapping_mask):
+            interval = self._dataset_intervals[dataset_idx]
             array_start = interval.left
             array_end = interval.right
 
             start = max(min_idx, array_start)
             stop = min(max_idx, array_end)
-            if start < stop:
-                if use_original_space:
-                    slices.append((slice(start, stop), idx))
-                else:
-                    relative_start = start - array_start
-                    relative_stop = stop - array_start
-                    slices.append((slice(relative_start, relative_stop), idx))
+            if use_original_space:
+                slices.append((slice(start, stop), dataset_idx))
+            else:
+                relative_start = start - array_start
+                relative_stop = stop - array_start
+                slices.append((slice(relative_start, relative_stop), dataset_idx))
         return slices
 
     def _slices_to_slices_with_array_index(
