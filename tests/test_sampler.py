@@ -296,7 +296,7 @@ class SimpleSampler(Sampler):
         pytest.param(3, None, id="missing_shuffle"),
     ],
 )
-def test_automatic_batching_requires_batch_size_and_shuffle(batch_size, shuffle):
+def test_automatic_batching_requires_batch_size_and_shuffle(batch_size: int, shuffle: bool):
     """Test that automatic batching raises error when batch_size or shuffle is None."""
     sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
     n_obs = 20
