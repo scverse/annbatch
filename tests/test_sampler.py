@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from annbatch import ChunkSampler
+from annbatch.abc import Sampler
 
 # TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
 # but overall one must  also think about how validation can't be independent of the worker handle.
@@ -243,3 +244,95 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
 
     for result, expected in zip(results, expected_ranges, strict=True):
         assert result == list(expected), f"result: {result} != expected: {expected}"
+
+
+# =============================================================================
+# Automatic batching tests (when splits not provided)
+# =============================================================================
+
+
+class SimpleSampler(Sampler):
+    """Test sampler that yields LoadRequests without splits."""
+
+    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool | None = True):
+        self._batch_size = batch_size
+        self._provide_splits = provide_splits
+        self._shuffle = shuffle
+
+    @property
+    def batch_size(self) -> int | None:
+        return self._batch_size
+
+    @property
+    def shuffle(self) -> bool | None:
+        return self._shuffle
+
+    def validate(self, n_obs: int) -> None:
+        """No validation needed for test sampler."""
+        pass
+
+    def _sample(self, n_obs: int):
+        """Yield LoadRequests with or without splits."""
+        chunk_size = 10
+        chunks = []
+        for start in range(0, n_obs, chunk_size):
+            stop = min(start + chunk_size, n_obs)
+            if self._provide_splits:
+                # Yield one LoadRequest per chunk with splits
+                yield {"chunks": [slice(start, stop)], "splits": [np.arange(stop - start)]}
+            else:
+                # Accumulate chunks
+                chunks.append(slice(start, stop))
+
+        # Yield accumulated chunks without splits
+        if not self._provide_splits:
+            yield {"chunks": chunks}
+
+
+@pytest.mark.parametrize(
+    "batch_size,shuffle",
+    [
+        pytest.param(None, True, id="missing_batch_size"),
+        pytest.param(3, None, id="missing_shuffle"),
+    ],
+)
+def test_automatic_batching_requires_batch_size_and_shuffle(batch_size: int, shuffle: bool):
+    """Test that automatic batching raises error when batch_size or shuffle is None."""
+    sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
+    n_obs = 20
+
+    with pytest.raises(ValueError):
+        list(sampler.sample(n_obs))
+
+
+def test_explicit_splits_override_automatic_batching():
+    """Test that explicit splits are not overridden by automatic batching."""
+    sampler = SimpleSampler(batch_size=3, provide_splits=True)
+
+    for load_request in sampler.sample(n_obs=20):
+        # Verify splits are sequential (not randomly batched)
+        for split in load_request["splits"]:
+            assert np.array_equal(split, np.arange(len(split)))
+
+
+@pytest.mark.parametrize("shuffle", [False, True])
+def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
+    """Test automatic batching generates splits and respects shuffle parameter."""
+    batch_size, n_obs = 3, 25
+    sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
+
+    all_indices = []
+    for load_request in sampler.sample(n_obs):
+        assert "splits" in load_request and load_request["splits"]
+        for split in load_request["splits"]:
+            assert 0 < len(split) <= batch_size
+            all_indices.extend(split)
+
+    # Verify coverage
+    assert set(all_indices) == set(range(n_obs))
+
+    # Verify shuffle behavior
+    if shuffle:
+        assert all_indices != list(range(n_obs)), "Indices should be shuffled"
+    else:
+        assert all_indices == list(range(n_obs)), "Indices should be sequential"
