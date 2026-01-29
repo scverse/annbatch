@@ -316,7 +316,7 @@ def test_explicit_splits_override_automatic_batching():
 
 
 @pytest.mark.parametrize("shuffle", [False, True])
-def test_automatic_batching_respects_shuffle_flag(shuffle):
+def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
     """Test automatic batching generates splits and respects shuffle parameter."""
     batch_size, n_obs = 3, 25
     sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
