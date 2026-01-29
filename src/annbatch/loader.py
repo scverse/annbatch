@@ -156,6 +156,7 @@ class Loader[
     _dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _concat_strategy: None | concat_strategies = None
+    _dataset_intervals: pd.IntervalIndex | None = None
 
     def __init__(
         self,
@@ -410,7 +411,20 @@ class Loader[
                 self._concat_strategy = "concat-shuffle"
             else:
                 self._concat_strategy = "shuffle-concat"
+        # Update the interval index for efficient dataset lookups
+        self._update_dataset_intervals()
         return self
+
+    def _update_dataset_intervals(self) -> None:
+        """Update the IntervalIndex for efficient O(log n) mapping from global indices to dataset indices."""
+        if len(self._shapes) == 0:
+            self._dataset_intervals = None
+            return
+        # Build intervals [start, end) for each dataset
+        cumsum = list(accumulate(shape[0] for shape in self._shapes))
+        starts = [0] + cumsum[:-1]
+        ends = cumsum
+        self._dataset_intervals = pd.IntervalIndex.from_arrays(starts, ends, closed="left")
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -435,11 +449,22 @@ class Loader[
         """
         min_idx = index.start
         max_idx = index.stop
-        curr_pos = 0
+
+        start_dataset = self._dataset_intervals.get_indexer([min_idx])[0]
+        # max_idx - 1 because intervals are [left, right) and we want the dataset containing the last element
+        end_dataset = self._dataset_intervals.get_indexer([max_idx - 1])[0]
+
+        if start_dataset == -1 or end_dataset == -1:
+            # should be unreachable
+            raise ValueError(
+                f"Indices {min_idx} and {max_idx} are outside all intervals. Something went wrong with the dataset shapes."
+            )
+
         slices = []
-        for idx, (n_obs, *_) in enumerate(self._shapes):
-            array_start = curr_pos
-            array_end = curr_pos + n_obs
+        for idx in range(start_dataset, end_dataset + 1):
+            interval = self._dataset_intervals[idx]
+            array_start = interval.left
+            array_end = interval.right
 
             start = max(min_idx, array_start)
             stop = min(max_idx, array_end)
@@ -450,7 +475,6 @@ class Loader[
                     relative_start = start - array_start
                     relative_stop = stop - array_start
                     slices.append((slice(relative_start, relative_stop), idx))
-            curr_pos += n_obs
         return slices
 
     def _slices_to_slices_with_array_index(
