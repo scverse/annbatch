@@ -28,9 +28,8 @@ class Sampler(ABC):
 
         Note
         ----
-        This property is only used when the `splits` argument is not supplied
-        in the {class}`annbatch.types.LoadRequest`. When `splits` are explicitly provided, they determine
-        the batch boundaries instead.
+        This property is only used when the `splits` argument is not supplied in the {class}`annbatch.types.LoadRequest`.
+        When `splits` are explicitly provided, they determine the batch boundaries instead.
 
         Returns
         -------
@@ -40,8 +39,10 @@ class Sampler(ABC):
 
     @property
     @abstractmethod
-    def shuffle(self) -> bool:
-        """Whether to shuffle data during sampling.
+    def shuffle(self) -> bool | None:
+        """Whether to shuffle in memory data during sampling.
+
+        Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in {class}`annbatch.types.LoadRequest`).
 
         Returns
         -------
@@ -69,12 +70,15 @@ class Sampler(ABC):
                 batch_size = self.batch_size
                 if batch_size is None:
                     raise ValueError("batch_size must be set when splits are not provided in LoadRequest")
+                shuffle = self.shuffle
+                if shuffle is None:
+                    raise ValueError("shuffle must be set when splits are not provided in LoadRequest")
 
                 # Calculate total observations from chunks
                 total_obs = sum(chunk.stop - chunk.start for chunk in load_request["chunks"])
 
                 # Generate indices with optional shuffling and split into batches
-                indices = np.random.permutation(total_obs) if self.shuffle else np.arange(total_obs)
+                indices = np.random.permutation(total_obs) if shuffle else np.arange(total_obs)
                 load_request["splits"] = split_given_size(indices, batch_size)
 
             yield load_request

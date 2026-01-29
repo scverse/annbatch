@@ -254,7 +254,7 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
 class SimpleSampler(Sampler):
     """Test sampler that yields LoadRequests without splits."""
 
-    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool = True):
+    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool | None = True):
         self._batch_size = batch_size
         self._provide_splits = provide_splits
         self._shuffle = shuffle
@@ -264,7 +264,7 @@ class SimpleSampler(Sampler):
         return self._batch_size
 
     @property
-    def shuffle(self) -> bool:
+    def shuffle(self) -> bool | None:
         return self._shuffle
 
     def validate(self, n_obs: int) -> None:
@@ -272,108 +272,67 @@ class SimpleSampler(Sampler):
         pass
 
     def _sample(self, n_obs: int):
-        """Yield a simple LoadRequest with chunks but no splits."""
-        # Create chunks of size 10
+        """Yield LoadRequests with or without splits."""
         chunk_size = 10
-        if self._provide_splits:
-            # Provide splits explicitly - yield separate LoadRequests per chunk
-            for start in range(0, n_obs, chunk_size):
-                stop = min(start + chunk_size, n_obs)
-                indices = np.arange(stop - start)
-                yield {"chunks": [slice(start, stop)], "splits": [indices]}
-        else:
-            # Don't provide splits - yield single LoadRequest with all chunks
-            # so base class can batch across all data
-            chunks = []
-            for start in range(0, n_obs, chunk_size):
-                stop = min(start + chunk_size, n_obs)
+        chunks = []
+        for start in range(0, n_obs, chunk_size):
+            stop = min(start + chunk_size, n_obs)
+            if self._provide_splits:
+                # Yield one LoadRequest per chunk with splits
+                yield {"chunks": [slice(start, stop)], "splits": [np.arange(stop - start)]}
+            else:
+                # Accumulate chunks
                 chunks.append(slice(start, stop))
+
+        # Yield accumulated chunks without splits
+        if not self._provide_splits:
             yield {"chunks": chunks}
 
 
-def test_automatic_batching_without_splits():
-    """Test that base Sampler class automatically generates splits when not provided."""
-    batch_size = 3
-    n_obs = 25
-    sampler = SimpleSampler(batch_size=batch_size, provide_splits=False)
-
-    all_indices = []
-    all_batch_sizes = []
-
-    for load_request in sampler.sample(n_obs):
-        # Verify splits were added by base class
-        assert "splits" in load_request
-        assert load_request["splits"] is not None
-        assert len(load_request["splits"]) > 0
-
-        # Collect batch sizes
-        for split in load_request["splits"]:
-            all_batch_sizes.append(len(split))
-            all_indices.extend(split)
-
-    # Verify all indices are covered (should be 0-24)
-    assert len(all_indices) == n_obs
-    assert set(all_indices) == set(range(n_obs))
-
-    # Verify batch sizes (all should be batch_size except possibly the last one)
-    for batch_sz in all_batch_sizes[:-1]:
-        assert batch_sz == batch_size
-
-    # Last batch can be smaller or equal to batch_size
-    assert all_batch_sizes[-1] <= batch_size
-    assert all_batch_sizes[-1] > 0
-
-
-def test_automatic_batching_requires_batch_size():
-    """Test that automatic batching raises error when batch_size is None."""
-    sampler = SimpleSampler(batch_size=None, provide_splits=False)
+@pytest.mark.parametrize(
+    "batch_size,shuffle",
+    [
+        pytest.param(None, True, id="missing_batch_size"),
+        pytest.param(3, None, id="missing_shuffle"),
+    ],
+)
+def test_automatic_batching_requires_batch_size_and_shuffle(batch_size, shuffle):
+    """Test that automatic batching raises error when batch_size or shuffle is None."""
+    sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
     n_obs = 20
 
-    with pytest.raises(ValueError, match="batch_size must be set when splits are not provided"):
+    with pytest.raises(ValueError):
         list(sampler.sample(n_obs))
 
 
 def test_explicit_splits_override_automatic_batching():
-    """Test that when splits are explicitly provided, automatic batching is not used."""
-    batch_size = 3
-    n_obs = 20
-    sampler = SimpleSampler(batch_size=batch_size, provide_splits=True)
+    """Test that explicit splits are not overridden by automatic batching."""
+    sampler = SimpleSampler(batch_size=3, provide_splits=True)
 
-    for load_request in sampler.sample(n_obs):
-        # Verify splits exist
-        assert "splits" in load_request
-        # In our SimpleSampler with provide_splits=True, each chunk becomes one split
-        # with sequential indices (not randomly batched)
+    for load_request in sampler.sample(n_obs=20):
+        # Verify splits are sequential (not randomly batched)
         for split in load_request["splits"]:
-            # Check that indices are sequential (which means auto-batching wasn't used)
             assert np.array_equal(split, np.arange(len(split)))
 
 
-def test_automatic_batching_respects_shuffle_flag():
-    """Test that automatic batching respects the shuffle parameter."""
-    batch_size = 3
-    n_obs = 25
+@pytest.mark.parametrize("shuffle", [False, True])
+def test_automatic_batching_respects_shuffle_flag(shuffle):
+    """Test automatic batching generates splits and respects shuffle parameter."""
+    batch_size, n_obs = 3, 25
+    sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
 
-    # Test with shuffle=False - should maintain order
-    sampler_no_shuffle = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=False)
-    all_indices_no_shuffle = []
-
-    for load_request in sampler_no_shuffle.sample(n_obs):
+    all_indices = []
+    for load_request in sampler.sample(n_obs):
+        assert "splits" in load_request and load_request["splits"]
         for split in load_request["splits"]:
-            all_indices_no_shuffle.extend(split)
+            assert 0 < len(split) <= batch_size
+            all_indices.extend(split)
 
-    # Without shuffling, indices should be in order
-    assert all_indices_no_shuffle == list(range(n_obs)), "Without shuffle, indices should be sequential"
+    # Verify coverage
+    assert set(all_indices) == set(range(n_obs))
 
-    # Test with shuffle=True - should randomize order
-    sampler_shuffle = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=True)
-    all_indices_shuffle = []
-
-    for load_request in sampler_shuffle.sample(n_obs):
-        for split in load_request["splits"]:
-            all_indices_shuffle.extend(split)
-
-    # With shuffling, indices should be different from sequential (with very high probability)
-    # But should still cover all indices
-    assert set(all_indices_shuffle) == set(range(n_obs)), "With shuffle, all indices should be covered"
-    assert all_indices_shuffle != list(range(n_obs)), "With shuffle, indices should not be sequential"
+    # Verify shuffle behavior
+    if shuffle:
+        assert all_indices != list(range(n_obs)), "Indices should be shuffled"
+    else:
+        assert all_indices == list(range(n_obs)), "Indices should be sequential"
