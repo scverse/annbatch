@@ -23,7 +23,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "anndata[lazy]>=0.12.6",
+  "anndata[lazy]>=0.12.9",
   "dask>=2025.9",
   "pandas>=2.2.2",
   "scipy>1.15",
