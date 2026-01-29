@@ -40,7 +40,9 @@ class Sampler(ABC):
     @property
     @abstractmethod
     def shuffle(self) -> bool | None:
-        """Whether to shuffle in memory data during sampling.
+        """Whether data is shuffled.
+        
+        If `batch_size` is provided and {attr}`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
 
         Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in {class}`annbatch.types.LoadRequest`).
 
