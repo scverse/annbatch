@@ -411,12 +411,10 @@ class Loader[
                 self._concat_strategy = "concat-shuffle"
             else:
                 self._concat_strategy = "shuffle-concat"
-        # Update the interval index for efficient dataset lookups
         self._update_dataset_intervals()
         return self
 
     def _update_dataset_intervals(self) -> None:
-        """Update the IntervalIndex for efficient O(log n) mapping from global indices to dataset indices."""
         if len(self._shapes) == 0:
             self._dataset_intervals = None
             return
