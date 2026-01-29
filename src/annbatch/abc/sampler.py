@@ -39,7 +39,7 @@ class Sampler(ABC):
 
     @property
     @abstractmethod
-    def shuffle(self) -> bool | None:
+    def shuffle(self) -> bool:
         """Whether data is shuffled.
         
         If `batch_size` is provided and {attr}`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
