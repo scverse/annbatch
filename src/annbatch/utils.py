@@ -1,36 +1,72 @@
 from __future__ import annotations
 
-import asyncio
+import inspect
+import itertools
 import warnings
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, wraps
 from importlib.util import find_spec
-from itertools import islice
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Concatenate, Protocol
 
+import anndata as ad
 import numpy as np
+import pandas as pd
 import scipy as sp
 import zarr
 
-try:
-    from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
-except ImportError:
-    CupyArray = None
-    CupyCSRMatrix = None
+from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections import OrderedDict
-    from collections.abc import Awaitable, Callable, Generator, Iterable
+    from collections.abc import Callable, Iterable
 
-    from torch import Tensor
+    from annbatch.loader import Loader
+    from annbatch.types import OutputInMemoryArray_T
 
-    from annbatch.types import InputInMemoryArray, OutputInMemoryArray
+
+def validate_sampler[**Param, RetType](
+    method: Callable[Concatenate[Loader, Param], RetType],
+) -> Callable[Concatenate[Loader, Param], RetType]:
+    """Decorator that validates n_obs before modifying state.
+
+    Expects the first positional argument to be either:
+    - A single object with a `.shape` attribute
+    - A list of objects with `.shape` attributes
+
+    The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
+    """
+    sig = inspect.signature(method)
+    if len(sig.parameters) < 2:
+        raise ValueError("validate_sampler decorator expects at least two positional arguments after 'self'")
+    first_param_name = list(sig.parameters.keys())[1]
+
+    @wraps(method)
+    def wrapper(self: Loader, *args: Param.args, **kwargs: Param.kwargs) -> RetType:
+        if len(args) > 0:
+            first_arg = args[0]
+        else:
+            first_arg = kwargs[first_param_name]
+
+        n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
+        self.batch_sampler.validate(n_obs)
+        return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
     """Wrapper around `np.split` to split up an array into `size` chunks"""
     return np.split(a, np.arange(size, len(a), size))
+
+
+def interval_indexer_from_slices(slices: Iterable[slice]) -> pd.IntervalIndex:
+    """Generate an IntervalIndex from a list of slices representing start-stop bounds."""
+    len_bounds = list(itertools.accumulate((sum(s.stop - s.start for s in v) for v in slices), initial=0))
+    starts = len_bounds[:-1]
+    ends = len_bounds[1:]
+    return pd.IntervalIndex.from_tuples(
+        list(zip(starts, ends, strict=True)),
+        closed="left",
+    )
 
 
 @dataclass
@@ -40,88 +76,6 @@ class CSRContainer:
     elems: tuple[np.ndarray, np.ndarray, np.ndarray]
     shape: tuple[int, int]
     dtype: np.dtype
-
-
-def _batched[T](iterable: Iterable[T], n: int) -> Generator[list[T], None, None]:
-    if n < 1:
-        raise ValueError("n must be >= 1")
-    it = iter(iterable)
-    while batch := list(islice(it, n)):
-        yield batch
-
-
-async def index_datasets(
-    dataset_index_to_slices: OrderedDict[int, list[slice]],
-    fetch_data: Callable[[list[slice], int], Awaitable[CSRContainer | np.ndarray]],
-) -> list[InputInMemoryArray]:
-    """Helper function meant to encapsulate asynchronous calls so that we can use the same event loop as zarr.
-
-    Parameters
-    ----------
-        dataset_index_to_slices
-            A lookup of the list-placement index of a dataset to the request slices.
-        fetch_data
-            The function to do the fetching for a given slice-dataset index pair.
-    """
-    tasks = []
-    for dataset_idx in dataset_index_to_slices.keys():
-        tasks.append(
-            fetch_data(
-                dataset_index_to_slices[dataset_idx],
-                dataset_idx,
-            )
-        )
-    return await asyncio.gather(*tasks)
-
-
-add_datasets_docstring = """\
-Append datasets to this dataset.
-
-Parameters
-----------
-    datasets
-        List of :class:`{on_disk_array_type}` objects, generally from :attr:`anndata.AnnData.X`.
-    obs
-        List of :class:`numpy.ndarray` labels, generally from :attr:`anndata.AnnData.obs`.
-"""
-
-add_dataset_docstring = """\
-Append a dataset to this dataset.
-
-Parameters
-----------
-    dataset
-        :class:`{on_disk_array_type}` object, generally from :attr:`anndata.AnnData.X`.
-    obs
-        :class:`numpy.ndarray` labels for the anndata, generally from :attr:`anndata.AnnData.obs`.
-"""
-
-
-add_anndatas_docstring = """\
-Append anndatas to this dataset.
-
-Parameters
-----------
-    anndatas
-        List of :class:`anndata.AnnData` objects, with :class:`{on_disk_array_type}` as the data matrix.
-    obs_keys
-        List of :attr:`anndata.AnnData.obs` column labels.
-    layer_keys
-        List of :attr:`anndata.AnnData.layers` keys, and if None, :attr:`anndata.AnnData.X` will be used.
-"""
-
-add_anndata_docstring = """\
-Append a anndata to this dataset.
-
-Parameters
-----------
-    anndata
-        :class:`anndata.AnnData` object, with :class:`{on_disk_array_type}` as the data matrix.
-    obs_key
-        :attr:`anndata.AnnData.obs` column labels.
-    layer_key
-        :attr:`anndata.AnnData.layers` key, and if None, :attr:`anndata.AnnData.X` will be used.
-"""
 
 
 # TODO: make this part of the public zarr or zarrs-python API.
@@ -148,50 +102,6 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-def sample_rows(
-    x_list: list[np.ndarray],
-    obs_list: list[np.ndarray] | None,
-    indices: list[np.ndarray] | None = None,
-    *,
-    shuffle: bool = True,
-) -> Generator[tuple[np.ndarray, np.ndarray | None], None, None]:
-    """Samples rows from multiple arrays and their corresponding observation arrays.
-
-    Parameters
-    ----------
-        x_list
-            A list of numpy arrays containing the data to sample from.
-        obs_list
-            A list of numpy arrays containing the corresponding observations.
-        indices
-            the list of indexes for each element in `x_list/`
-        shuffle
-            Whether to shuffle the rows before sampling.
-
-    Yields
-    ------
-        tuple
-            A tuple containing a row from `x_list` and the corresponding row from `obs_list`.
-    """
-    lengths = np.fromiter((x.shape[0] for x in x_list), dtype=int)
-    cum = np.concatenate(([0], np.cumsum(lengths)))
-    total = cum[-1]
-    idxs = np.arange(total)
-    if shuffle:
-        np.random.default_rng().shuffle(idxs)
-    arr_idxs = np.searchsorted(cum, idxs, side="right") - 1
-    row_idxs = idxs - cum[arr_idxs]
-    for ai, ri in zip(arr_idxs, row_idxs, strict=True):
-        res = [
-            x_list[ai][ri],
-            obs_list[ai][ri] if obs_list is not None else None,
-        ]
-        if indices is not None:
-            yield (*res, indices[ai][ri])
-        else:
-            yield tuple(res)
-
-
 class WorkerHandle:  # noqa: D101
     @cached_property
     def _worker_info(self):
@@ -200,6 +110,13 @@ class WorkerHandle:  # noqa: D101
 
             return get_worker_info()
         return None
+
+    @property
+    def num_workers(self) -> int:
+        """Return the number of workers, or 1 if not in a worker context."""
+        if self._worker_info is None:
+            return 1
+        return self._worker_info.num_workers
 
     @cached_property
     def _rng(self):
@@ -240,17 +157,17 @@ class WorkerHandle:  # noqa: D101
         return chunks_split[worker_id]
 
 
-def check_lt_1(vals: list[int], labels: list[str]) -> None:
+def check_lt_1(vals: list[int], obs: list[str]) -> None:
     """Raise a ValueError if any of the values are less than one.
 
-    The format of the error is "{labels[i]} must be greater than 1, got {values[i]}"
+    The format of the error is "{obs[i]} must be greater than 1, got {values[i]}"
     and is raised based on the first found less than one value.
 
     Parameters
     ----------
         vals
             The values to check < 1
-        labels
+        obs
             The label for the value in the error if the value is less than one.
 
     Raises
@@ -261,7 +178,7 @@ def check_lt_1(vals: list[int], labels: list[str]) -> None:
         label, value = next(
             (label, value)
             for label, value, check in zip(
-                labels,
+                obs,
                 vals,
                 is_lt_1,
                 strict=True,
@@ -282,7 +199,7 @@ def check_var_shapes(objs: list[SupportsShape]) -> None:
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
-def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
+def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     """Send the input data to a torch.Tensor"""
     import torch
 
@@ -317,3 +234,10 @@ def to_torch(input: OutputInMemoryArray, preload_to_gpu: bool) -> Tensor:
                 input.shape,
             )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
+
+
+def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
+    """Load X as a sparse array or dense zarr array and obs from a group"""
+    return ad.AnnData(
+        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]), obs=ad.io.read_elem(g["obs"])
+    )

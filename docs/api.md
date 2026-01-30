@@ -12,10 +12,9 @@
 .. autosummary::
    :toctree: generated/
 
-    ZarrSparseDataset
-    ZarrSparseDataset.__iter__
-    ZarrDenseDataset
-    ZarrDenseDataset.__iter__
+    Loader
+    Loader.__iter__
+    ChunkSampler
 ```
 
 (io-helpers)=
@@ -27,6 +26,25 @@
    :toctree: generated/
 
     write_sharded
-    add_to_collection
-    create_anndata_collection
+    DatasetCollection
+```
+
+(abc)=
+## abc
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    abc.Sampler
+```
+
+(types)=
+## types
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    types.LoaderOutput
+    types.LoadRequest
 ```

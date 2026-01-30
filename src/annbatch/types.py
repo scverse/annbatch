@@ -1,25 +1,44 @@
 from __future__ import annotations
 
-from types import NoneType
-from typing import TypeVar
+from typing import NotRequired, TypedDict
 
 import anndata as ad
 import numpy as np
-import zarr
+import pandas as pd  # noqa: TC002
 from scipy import sparse as sp
+from zarr import Array as ZarrArray
 
-from annbatch.utils import CSRContainer
+from .compat import CupyArray, CupyCSRMatrix, Tensor
+from .utils import CSRContainer
 
-try:
-    from cupy import ndarray as CupyArray
-    from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix  # pragma: no cover
-except ImportError:
-    CupyCSRMatrix = NoneType
-    CupyArray = NoneType
-
-OutputInMemoryArray = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray
-
-OnDiskArray = TypeVar("OnDiskArray", ad.abc.CSRDataset, zarr.Array)
+type BackingArray_T = ad.abc.CSRDataset | ZarrArray
+type InputInMemoryArray_T = CSRContainer | np.ndarray
+type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray | Tensor
 
 
-InputInMemoryArray = TypeVar("InputInMemoryArray", CSRContainer, np.ndarray)
+class LoadRequest(TypedDict):
+    """Load request from sampler.
+
+    This is the request format Loader will expect from the sampler.
+    Not satisfying the constrains documented here may result in unexpected behavior.
+
+    Attributes
+    ----------
+    chunks
+        Chunks to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
+    splits
+        How the in-memory data should be split into batches after it is read off disk and concatenated in-memory.
+        A list of splits, last one may be partial but not empty i.e. 1 <= len(last_split) <= batch_size.
+        If not provided, the sampler's batch_size property will be used to automatically generate splits.
+    """
+
+    chunks: list[slice]
+    splits: NotRequired[list[np.ndarray]]
+
+
+class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
+    """The output of the loader, the "data matrix" with its obs, optional, and index, also optional."""
+
+    X: OutputInMemoryArray_T.__value__  # TODO: remove after sphinx 9 - myst compat
+    obs: pd.DataFrame | None
+    index: np.ndarray | None

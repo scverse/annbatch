@@ -1,5 +1,5 @@
 ```{include} ../README.md
-:end-before: <!--HEADER-->
+:end-before: <!--FOOTER-->
 ```
 
 ## In Depth
@@ -9,12 +9,11 @@ Let's go through the above example:
 ### Preprocessing
 
 ```python
-create_anndata_collection(
+colleciton = DatasetCollection("path/to/output/store.zarr").add_adatas(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],
-    output_path="path/to/output/store",  # a directory containing `chunk_{i}.zarr`
     shuffle=True,  # shuffling is needed if you want to use chunked access
 )
 ```
@@ -23,32 +22,26 @@ First, you converted your existing `.h5ad` files into a zarr-backed anndata form
 In the process, the data gets shuffled and is distributed across several anndata files.
 Shuffling is important to ensure model convergence, especially because of our contiguous data fetching scheme which is not perfectly random.
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
-See the {ref}`zarr docs on sharding <zarr:user-guide-sharding>` for more information.
+See the [zarr docs on sharding][] for more information.
+
+[zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
+
 
 ### Data loading
 
 #### Chunked access
 
 ```python
-ds = ZarrSparseDataset(
+# `use_collection` will automatically get everything in `X` and `obs` and yield it.
+ds = Loader(
     batch_size=4096,
     chunk_size=32,
     preload_nchunks=256,
-).add_anndatas(
-    [
-        ad.AnnData(
-            # note that you can open an anndata file using any type of zarr store
-            X=ad.io.sparse_dataset(zarr.open(p)["X"]),
-            obs=ad.io.read_elem(zarr.open(p)["obs"]),
-        )
-        for p in PATH_TO_STORE.glob("*.zarr")
-    ],
-    obs_keys="label_column",
-)
+).use_collection(collection)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
-    ...
+    x, df, index = batch["X"], batch["obs"], batch["index"]
 ```
 
 The data loader implements a chunked fetching strategy where `preload_nchunks` number of continguous-chunks of size `chunk_size` are loaded.
@@ -69,7 +62,7 @@ With a pre-shuffled store and blocked access, your model fit should not be affec
 
 If you are interested in contributing this feature to the project or learning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
 
-If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.ZarrSparseDataset` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
+If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.Loader` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
 
 ### Speed comparison to other dataloaders
 

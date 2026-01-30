@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 from importlib.metadata import version
 
-from .dense import ZarrDenseDataset
-from .io import add_to_collection, create_anndata_collection, write_sharded
-from .sparse import ZarrSparseDataset
+from . import abc, types
+from .io import DatasetCollection, write_sharded
+from .loader import Loader
+from .samplers._chunk_sampler import ChunkSampler
 
 __version__ = version("annbatch")
 
 __all__ = [
-    "ZarrSparseDataset",
-    "ZarrDenseDataset",
+    "Loader",
+    "DatasetCollection",
+    "types",
     "write_sharded",
-    "add_to_collection",
-    "create_anndata_collection",
+    "ChunkSampler",
+    "abc",
 ]

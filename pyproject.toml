@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "annbatch"
-version = "0.0.1"
+version = "0.0.7"
 description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -23,14 +23,14 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "anndata[lazy]",
-  "dask",
-  "pandas",
+  "anndata[lazy]>=0.12.6",
+  "dask>=2025.9",
+  "pandas>=2.2.2",
   "scipy>1.15",
   # for debug logging (referenced from the issue template)
   "session-info2",
   "tqdm",
-  "zarr>=3",
+  "zarr>=3.1.4",
 ]
 optional-dependencies.cupy-cuda12 = [
   "cupy-cuda12x",
@@ -49,12 +49,14 @@ optional-dependencies.doc = [
   "myst-nb>=1.1",
   "pandas",
   "scanpydoc[theme,typehints]>=0.15.3",
-  "sphinx>=8.1",
+  # https://github.com/sphinx-toolbox/sphinx-toolbox/issues/201
+  "sphinx>=8.1,<=8.2.3",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",
   "sphinx-issues>=5.0.1",
   "sphinx-tabs",
+  "sphinx-toolbox>=3.8",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
@@ -64,7 +66,7 @@ optional-dependencies.test = [
   "pytest",
 ]
 optional-dependencies.torch = [
-  "torch",
+  "torch>=2",
 ]
 optional-dependencies.zarrs = [
   "zarrs>=0.2.1",
@@ -148,7 +150,8 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
-[tool.pytest.ini_options]
+[tool.pytest.ini_option]
+markers = [ "gpu: mark test to run on GPU" ]
 testpaths = [ "tests" ]
 xfail_strict = true
 # https://github.com/pytest-dev/pytest/issues/10965
@@ -175,6 +178,10 @@ patch = [ "subprocess" ]
 omit = [
   "**/test_*.py",
 ]
+
+[[tool.mypy.overrides]]
+module = [ "anndata.*", "cupyx.*", "cupy.*" ]
+ignore_missing_imports = true
 
 [tool.cruft]
 skip = [
