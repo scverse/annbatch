@@ -26,11 +26,12 @@
 
 # annbatch
 
-> [!CAUTION]
-> This package does not have a stable API.
-> However, we do not anticipate the on-disk format to change in a fully incompatible manner.
-> Small changes to how we store the shuffled data may occur but you should always be able to load your data somehow i.e., they will never be fully breaking.
-> We will always provide lower-level APIs that should make this guarantee possible.
+```{warning}
+This package does not have a stable API.
+However, we do not anticipate the on-disk format to change in a fully incompatible manner.
+Small changes to how we store the shuffled data may occur but you should always be able to load your data somehow i.e., they will never be fully breaking.
+We will always provide lower-level APIs that should make this guarantee possible.
+```
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
@@ -61,8 +62,9 @@ pip install annbatch
 
 We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
-> [!IMPORTANT]
-> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
+```{important}
+[zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
+```
 
 ## Detailed tutorial
 
@@ -97,8 +99,9 @@ collection.add_adatas(
 
 Data loading:
 
-> [!IMPORTANT]
-> Without custom loading via `Loader.load_adata` *all* obs columns will be loaded and yielded potentially degrading performance.
+```{important}
+Without custom loading via `Loader.load_adata` *all* obs columns will be loaded and yielded potentially degrading performance.
+```
 
 ```python
 from pathlib import Path
@@ -136,9 +139,10 @@ for batch in ds:
     data, obs = batch["X"], batch["obs"]
 ```
 
-> [!IMPORTANT]
-> For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info.
-> At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `torch.utils.data.DataLoader` class.
+```{important}
+For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info.
+At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `torch.utils.data.DataLoader` class.
+```
 
 <!--FOOTER-->
 

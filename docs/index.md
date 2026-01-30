@@ -115,8 +115,8 @@ However, once you have too much data to fit into memory, for whatever reason, th
 
 api.md
 zarr-configuration.md
+notebooks/index
 changelog.md
 contributing.md
 references.md
-notebooks/index
 ```

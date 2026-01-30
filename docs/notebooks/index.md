@@ -1,4 +1,4 @@
-# Notebooks
+# Tutorials
 
 ```{toctree}
 :hidden: false
