@@ -453,11 +453,9 @@ class Loader[
 
         slices = []
         overlapping_mask = self._dataset_intervals.overlaps(pd.Interval(min_idx, max_idx, closed="left"))
-        for dataset_idx in np.flatnonzero(overlapping_mask):
-            interval = self._dataset_intervals[dataset_idx]
-            array_start = interval.left
-            array_end = interval.right
-
+        for (array_start, array_end), dataset_idx in zip(
+            self._dataset_intervals[overlapping_mask].to_tuples(), np.flatnonzero(overlapping_mask), strict=True
+        ):
             start = max(min_idx, array_start)
             stop = min(max_idx, array_end)
             if use_original_space:
