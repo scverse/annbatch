@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import anndata as ad
 import numpy as np
@@ -29,6 +29,7 @@ class LoadRequest(TypedDict):
     splits
         How the in-memory data should be split into batches after it is read off disk and concatenated in-memory.
         A list of splits, last one may be partial but not empty i.e. 1 <= len(last_split) <= batch_size.
+        If not provided, the sampler's batch_size property will be used to automatically generate splits.
 
     Notes
     -----
@@ -43,10 +44,11 @@ class LoadRequest(TypedDict):
 
     The `splits` indices must account for this ordering. For a single dataset, the in-memory order
     naturally matches the chunk order since there's only one dataset to fetch from.
+
     """
 
     chunks: list[slice]
-    splits: list[np.ndarray]
+    splits: NotRequired[list[np.ndarray]]
 
 
 class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
