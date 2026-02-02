@@ -156,6 +156,7 @@ class Loader[
     _dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _concat_strategy: None | concat_strategies = None
+    _dataset_intervals: pd.IntervalIndex | None = None
 
     def __init__(
         self,
@@ -410,7 +411,18 @@ class Loader[
                 self._concat_strategy = "concat-shuffle"
             else:
                 self._concat_strategy = "shuffle-concat"
+        self._update_dataset_intervals()
         return self
+
+    def _update_dataset_intervals(self) -> None:
+        if len(self._shapes) == 0:
+            self._dataset_intervals = None
+            return
+        # Build intervals [start, end) for each dataset
+        cumsum = list(accumulate(shape[0] for shape in self._shapes))
+        starts = [0] + cumsum[:-1]
+        ends = cumsum
+        self._dataset_intervals = pd.IntervalIndex.from_arrays(starts, ends, closed="left")
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -433,24 +445,25 @@ class Loader[
         -------
             A slice relative to the dataset it represents as well as the index of said dataset in `sparse_datasets`.
         """
+        if self._dataset_intervals is None:
+            return []
+
         min_idx = index.start
         max_idx = index.stop
-        curr_pos = 0
-        slices = []
-        for idx, (n_obs, *_) in enumerate(self._shapes):
-            array_start = curr_pos
-            array_end = curr_pos + n_obs
 
+        slices = []
+        overlapping_mask = self._dataset_intervals.overlaps(pd.Interval(min_idx, max_idx, closed="left"))
+        for (array_start, array_end), dataset_idx in zip(
+            self._dataset_intervals[overlapping_mask].to_tuples(), np.flatnonzero(overlapping_mask), strict=True
+        ):
             start = max(min_idx, array_start)
             stop = min(max_idx, array_end)
-            if start < stop:
-                if use_original_space:
-                    slices.append((slice(start, stop), idx))
-                else:
-                    relative_start = start - array_start
-                    relative_stop = stop - array_start
-                    slices.append((slice(relative_start, relative_stop), idx))
-            curr_pos += n_obs
+            if use_original_space:
+                slices.append((slice(start, stop), dataset_idx))
+            else:
+                relative_start = start - array_start
+                relative_stop = stop - array_start
+                slices.append((slice(relative_start, relative_stop), dataset_idx))
         return slices
 
     def _slices_to_slices_with_array_index(
