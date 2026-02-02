@@ -98,7 +98,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via `Loader.load_adata` *all* obs columns will be loaded and yielded potentially degrading performance.
+> Without custom loading via {meth}`annbatch.Loader.use_collection` or `load_anndata{s}`  or `load_dataset{s}`, *all* columns of the (obs) {class}`pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path
