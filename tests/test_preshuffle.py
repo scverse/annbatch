@@ -258,8 +258,11 @@ def test_store_creation(
 
     pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0")
+    # assert chunk behavior
     assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
     assert z["X"]["indices"].chunks[0] == 10
+    # ensure proper downcasting
+    assert z["X"]["indices"].dtype == (np.uint16 if adata.X.shape[1] >= 256 else np.uint8)
 
 
 def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
