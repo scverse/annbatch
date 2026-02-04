@@ -98,6 +98,10 @@ def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchun
 
     expected_start = start if start is not None else 0
     expected_stop = stop if stop is not None else n_obs
+    if drop_last:
+        # With drop_last, only complete batches are yielded
+        total_obs = expected_stop - expected_start
+        expected_stop = expected_start + (total_obs // batch_size) * batch_size
     expected_indices = list(range(expected_start, expected_stop))
 
     all_indices = collect_indices(sampler, n_obs)
