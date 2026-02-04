@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
+from annbatch.samplers._utils import validate_batch_size
 from annbatch.utils import check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -69,18 +70,7 @@ class ChunkSampler(Sampler):
             raise ValueError("mask.start must be < mask.stop when mask.stop is specified")
 
         check_lt_1([chunk_size, preload_nchunks], ["Chunk size", "Preloaded chunks"])
-        preload_size = chunk_size * preload_nchunks
-
-        if batch_size > preload_size:
-            raise ValueError(
-                "batch_size cannot exceed chunk_size * preload_nchunks. "
-                f"Got batch_size={batch_size}, but max is {preload_size}."
-            )
-        if preload_size % batch_size != 0:
-            raise ValueError(
-                "chunk_size * preload_nchunks must be divisible by batch_size. "
-                f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
-            )
+        validate_batch_size(batch_size, chunk_size, preload_nchunks)
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
