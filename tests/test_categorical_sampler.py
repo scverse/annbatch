@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from annbatch import CategoricalSampler
+from annbatch import CategoricalSampler, StratifiedCategoricalSampler
 
 
 def collect_all_indices(sampler, n_obs):
@@ -448,3 +448,268 @@ def test_rng_reproducibility():
 
     assert indices1 == indices2, "Same seed should give same results"
     assert indices1 != indices3, "Different seeds should give different results"
+
+
+# =============================================================================
+# StratifiedCategoricalSampler tests
+# =============================================================================
+
+
+def test_stratified_basic_construction():
+    """Test basic StratifiedCategoricalSampler construction."""
+    boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
+    sampler = StratifiedCategoricalSampler(
+        category_boundaries=boundaries,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=50,
+    )
+    assert sampler.batch_size == 10
+    assert sampler.n_categories == 3
+    assert sampler.n_yields == 50
+    assert sampler.shuffle is False
+    # Default weights are uniform
+    np.testing.assert_array_equal(sampler.weights, [1.0, 1.0, 1.0])
+
+
+def test_stratified_custom_weights():
+    """Test StratifiedCategoricalSampler with custom weights."""
+    boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
+    sampler = StratifiedCategoricalSampler(
+        category_boundaries=boundaries,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=50,
+        weights=[1.0, 2.0, 3.0],
+    )
+    np.testing.assert_array_equal(sampler.weights, [1.0, 2.0, 3.0])
+    np.testing.assert_array_almost_equal(sampler.probabilities, [1 / 6, 2 / 6, 3 / 6])
+
+
+def test_stratified_n_yields_count():
+    """Test that exactly n_yields batches are yielded."""
+    boundaries = [slice(0, 100), slice(100, 200)]
+    n_yields = 25
+
+    sampler = StratifiedCategoricalSampler(
+        category_boundaries=boundaries,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=n_yields,
+        rng=np.random.default_rng(42),
+    )
+
+    batch_count = 0
+    for load_request in sampler.sample(200):
+        batch_count += len(load_request["splits"])
+
+    assert batch_count == n_yields
+
+
+def test_stratified_n_yields_invalid():
+    """Test that n_yields < 1 raises ValueError."""
+    boundaries = [slice(0, 100)]
+    with pytest.raises(ValueError, match="n_yields must be >= 1"):
+        StratifiedCategoricalSampler(
+            category_boundaries=boundaries,
+            batch_size=10,
+            chunk_size=20,
+            preload_nchunks=2,
+            n_yields=0,
+        )
+
+
+def test_stratified_weights_validation():
+    """Test weight validation errors."""
+    boundaries = [slice(0, 100), slice(100, 200)]
+
+    # Wrong length
+    with pytest.raises(ValueError, match="weights length"):
+        StratifiedCategoricalSampler(
+            category_boundaries=boundaries,
+            batch_size=10,
+            chunk_size=20,
+            preload_nchunks=2,
+            n_yields=10,
+            weights=[1.0],  # Only 1 weight for 2 categories
+        )
+
+    # Negative weights
+    with pytest.raises(ValueError, match="non-negative"):
+        StratifiedCategoricalSampler(
+            category_boundaries=boundaries,
+            batch_size=10,
+            chunk_size=20,
+            preload_nchunks=2,
+            n_yields=10,
+            weights=[1.0, -1.0],
+        )
+
+    # Zero sum
+    with pytest.raises(ValueError, match="not sum to zero"):
+        StratifiedCategoricalSampler(
+            category_boundaries=boundaries,
+            batch_size=10,
+            chunk_size=20,
+            preload_nchunks=2,
+            n_yields=10,
+            weights=[0.0, 0.0],
+        )
+
+
+def test_stratified_replacement():
+    """Test that categories are reset when exhausted (sampling with replacement)."""
+    # Small category with only 2 complete batches possible
+    boundaries = [slice(0, 20)]  # 20 obs, batch_size=10, drop_last=True -> 2 batches
+    n_yields = 10  # Request more than available
+
+    sampler = StratifiedCategoricalSampler(
+        category_boundaries=boundaries,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=1,
+        n_yields=n_yields,
+        rng=np.random.default_rng(42),
+    )
+
+    batch_count = 0
+    for load_request in sampler.sample(20):
+        batch_count += len(load_request["splits"])
+
+    # Should still yield n_yields batches due to replacement
+    assert batch_count == n_yields
+
+
+def test_stratified_each_batch_single_category():
+    """Test that each batch in stratified sampling is from a single category."""
+    boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
+    n_obs = 300
+
+    sampler = StratifiedCategoricalSampler(
+        category_boundaries=boundaries,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=50,
+        shuffle=True,
+        rng=np.random.default_rng(42),
+    )
+
+    for load_request in sampler.sample(n_obs):
+        chunks = load_request["chunks"]
+        if len(chunks) == 0:
+            continue
+
+        # Build mapping from concatenated chunk index to original index
+        chunk_indices = []
+        for chunk in chunks:
+            chunk_indices.extend(range(chunk.start, chunk.stop))
+
+        # Verify each split contains indices from only one category
+        for split in load_request["splits"]:
+            if len(split) == 0:
+                continue
+
+            first_original_idx = chunk_indices[split[0]]
+            expected_category = _get_category_for_index(first_original_idx, boundaries)
+
+            for idx in split:
+                original_idx = chunk_indices[idx]
+                split_category = _get_category_for_index(original_idx, boundaries)
+                assert split_category == expected_category
+
+
+def test_stratified_rng_reproducibility():
+    """Test that same RNG seed gives same results for stratified sampler."""
+    boundaries = [slice(0, 100), slice(100, 200)]
+
+    def get_batches(seed):
+        sampler = StratifiedCategoricalSampler(
+            category_boundaries=boundaries,
+            batch_size=10,
+            chunk_size=20,
+            preload_nchunks=2,
+            n_yields=20,
+            shuffle=True,
+            rng=np.random.default_rng(seed),
+        )
+        return collect_flat_indices(sampler, 200)
+
+    indices1 = get_batches(42)
+    indices2 = get_batches(42)
+    indices3 = get_batches(99)
+
+    assert indices1 == indices2, "Same seed should give same results"
+    assert indices1 != indices3, "Different seeds should give different results"
+
+
+def test_stratified_from_pandas():
+    """Test StratifiedCategoricalSampler.from_pandas construction."""
+    categories = pd.Categorical(["A"] * 50 + ["B"] * 30 + ["C"] * 20)
+
+    sampler = StratifiedCategoricalSampler.from_pandas(
+        categories,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=30,
+    )
+
+    assert sampler.n_categories == 3
+    assert sampler.category_sizes == [50, 30, 20]
+    assert sampler.n_yields == 30
+
+
+def test_stratified_from_pandas_with_weights():
+    """Test StratifiedCategoricalSampler.from_pandas with custom weights."""
+    categories = pd.Categorical(["A"] * 50 + ["B"] * 30 + ["C"] * 20)
+
+    sampler = StratifiedCategoricalSampler.from_pandas(
+        categories,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=30,
+        weights=[3.0, 2.0, 1.0],
+    )
+
+    np.testing.assert_array_equal(sampler.weights, [3.0, 2.0, 1.0])
+
+
+def test_stratified_uniform_weights_distribution():
+    """Test that uniform weights sample categories roughly equally."""
+    boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
+    n_obs = 300
+    n_yields = 300  # Large number for statistical significance
+
+    sampler = StratifiedCategoricalSampler(
+        category_boundaries=boundaries,
+        batch_size=10,
+        chunk_size=20,
+        preload_nchunks=2,
+        n_yields=n_yields,
+        rng=np.random.default_rng(42),
+    )
+
+    # Count batches per category
+    category_counts = [0, 0, 0]
+    for load_request in sampler.sample(n_obs):
+        chunks = load_request["chunks"]
+        chunk_indices = []
+        for chunk in chunks:
+            chunk_indices.extend(range(chunk.start, chunk.stop))
+
+        for split in load_request["splits"]:
+            if len(split) > 0:
+                first_idx = chunk_indices[split[0]]
+                cat = _get_category_for_index(first_idx, boundaries)
+                category_counts[cat] += 1
+
+    # With uniform weights, each category should get roughly 1/3 of batches
+    # Allow 20% tolerance for randomness
+    expected = n_yields / 3
+    for count in category_counts:
+        assert abs(count - expected) < expected * 0.3, f"Category count {count} too far from expected {expected}"

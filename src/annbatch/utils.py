@@ -103,6 +103,20 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
 
 
 class WorkerHandle:  # noqa: D101
+    _seed_seq: np.random.SeedSequence | None
+
+    def __init__(self, seed_seq: np.random.SeedSequence | None = None):
+        """Initialize WorkerHandle with optional SeedSequence for worker-specific RNGs.
+
+        Parameters
+        ----------
+        seed_seq
+            Optional SeedSequence for spawning worker-specific RNGs.
+            If provided, worker_rng will spawn from this sequence.
+            If None, worker_rng uses torch's worker seed (unique per worker).
+        """
+        self._seed_seq = seed_seq
+
     @cached_property
     def _worker_info(self):
         if find_spec("torch"):
@@ -118,25 +132,62 @@ class WorkerHandle:  # noqa: D101
             return 1
         return self._worker_info.num_workers
 
+    @property
+    def worker_id(self) -> int:
+        """Return the current worker ID, or 0 if not in a worker context."""
+        if self._worker_info is None:
+            return 0
+        return self._worker_info.id
+
     @cached_property
-    def _rng(self):
+    def _shared_rng(self) -> np.random.Generator:
+        """RNG with same seed across workers - for chunk ordering."""
         if self._worker_info is None:
             return np.random.default_rng()
         else:
-            # This is used for the _get_chunks function
-            # Use the same seed for all workers that the resulting splits are the same across workers
+            # Use the same seed for all workers so chunk ordering is deterministic
             # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
             return np.random.default_rng(self._worker_info.seed - self._worker_info.id)
 
+    @cached_property
+    def worker_rng(self) -> np.random.Generator:
+        """RNG unique to this worker - for batch shuffling and stratified sampling."""
+        if self._worker_info is None:
+            if self._seed_seq is None:
+                return np.random.default_rng()
+            return np.random.default_rng(self._seed_seq)
+        else:
+            if self._seed_seq is None:
+                # Use torch's worker seed (already unique per worker)
+                return np.random.default_rng(self._worker_info.seed)
+            else:
+                # Spawn from provided seed sequence
+                spawned = self._seed_seq.spawn(self._worker_info.num_workers)
+                return np.random.default_rng(spawned[self._worker_info.id])
+
     def shuffle(self, obj: np.typing.ArrayLike) -> None:
-        """Perform in-place shuffle.
+        """Perform in-place shuffle using shared RNG (same across workers).
+
+        Use this for chunk ordering where all workers need the same order.
 
         Parameters
         ----------
             obj
                 The object to be shuffled
         """
-        self._rng.shuffle(obj)
+        self._shared_rng.shuffle(obj)
+
+    def shuffle_worker(self, obj: np.typing.ArrayLike) -> None:
+        """Perform in-place shuffle using worker-specific RNG.
+
+        Use this for batch shuffling where each worker should shuffle differently.
+
+        Parameters
+        ----------
+            obj
+                The object to be shuffled
+        """
+        self.worker_rng.shuffle(obj)
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
         """Get a chunk of an incoming array accordnig to the current worker id.

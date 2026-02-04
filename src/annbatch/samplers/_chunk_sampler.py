@@ -47,6 +47,7 @@ class ChunkSampler(Sampler):
     _mask: slice
     _drop_last: bool
     _rng: np.random.Generator
+    _seed_seq: np.random.SeedSequence
 
     def __init__(
         self,
@@ -71,7 +72,16 @@ class ChunkSampler(Sampler):
 
         check_lt_1([chunk_size, preload_nchunks], ["Chunk size", "Preloaded chunks"])
         validate_batch_size(batch_size, chunk_size, preload_nchunks)
-        self._rng = rng or np.random.default_rng()
+
+        # Store seed sequence for spawning worker-specific RNGs
+        if rng is None:
+            self._seed_seq = np.random.SeedSequence()
+            self._rng = np.random.default_rng(self._seed_seq)
+        else:
+            # Create seed sequence from provided RNG for worker spawning
+            self._seed_seq = np.random.SeedSequence(rng.integers(2**63))
+            self._rng = rng
+
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
             preload_nchunks,
@@ -117,7 +127,8 @@ class ChunkSampler(Sampler):
             from annbatch.utils import WorkerHandle
 
             if get_worker_info() is not None:
-                worker_handle = WorkerHandle()
+                # Pass seed_seq so WorkerHandle can spawn worker-specific RNGs
+                worker_handle = WorkerHandle(seed_seq=self._seed_seq)
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
@@ -136,14 +147,15 @@ class ChunkSampler(Sampler):
         # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self._shuffle:
-            if worker_handle is None:
-                self._rng.shuffle(chunk_indices)
-            else:
-                worker_handle.shuffle(chunk_indices)
+            self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
         # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_handle is not None:
             chunks = worker_handle.get_part_for_worker(chunks)
+
+        # Batch shuffling: use worker-specific RNG (different per worker)
+        batch_rng = worker_handle.worker_rng if worker_handle is not None else self._rng
+
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
@@ -151,22 +163,21 @@ class ChunkSampler(Sampler):
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
-                # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
-                np.random.default_rng().shuffle(batch_indices)
+                batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
         final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
-        if total_obs_in_last_batch == 0: # pragma: no cover
+        if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
         if self._drop_last:
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
-        # Skip yielding if there are no observations (can happen with drop_last=True and last request is empty)
+            # Skip yielding if there are no observations (can happen with drop_last=True and last request is empty)
             if total_obs_in_last_batch == 0:
                 return
         batch_indices = split_given_size(
-            (np.random.default_rng().permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
+            (batch_rng.permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
             self._batch_size,
         )
         yield {"chunks": final_chunks, "splits": batch_indices}
