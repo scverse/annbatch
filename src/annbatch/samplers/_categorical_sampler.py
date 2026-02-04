@@ -43,8 +43,6 @@ class CategoricalSampler(Sampler):
         Whether to shuffle chunk and index order within each category.
     preload_nchunks
         Number of chunks to load per iteration.
-    drop_last
-        Whether to drop the last incomplete batch per category.
     rng
         Random number generator for shuffling.
 
@@ -88,7 +86,6 @@ class CategoricalSampler(Sampler):
         batch_size: int,
         *,
         shuffle: bool = False,
-        drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
         check_lt_1([len(category_boundaries)], ["Number of categories"])
@@ -115,6 +112,7 @@ class CategoricalSampler(Sampler):
         child_rngs = self._rng.spawn(len(category_boundaries))
 
         # Create a ChunkSampler for each category, using its boundary as the mask
+        # Always use drop_last=True internally
         self._category_samplers = [
             ChunkSampler(
                 chunk_size=chunk_size,
@@ -122,7 +120,7 @@ class CategoricalSampler(Sampler):
                 batch_size=batch_size,
                 mask=boundary,
                 shuffle=shuffle,
-                drop_last=drop_last,
+                drop_last=True,
                 rng=child_rng,
             )
             for boundary, child_rng in zip(category_boundaries, child_rngs, strict=True)
@@ -137,7 +135,6 @@ class CategoricalSampler(Sampler):
         batch_size: int,
         *,
         shuffle: bool = False,
-        drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ) -> CategoricalSampler:
         """Create a CategoricalSampler from a pandas Categorical or Series.
@@ -158,8 +155,6 @@ class CategoricalSampler(Sampler):
             Number of observations per batch.
         shuffle
             Whether to shuffle chunk and index order within each category.
-        drop_last
-            Whether to drop the last incomplete batch per category.
         rng
             Random number generator for shuffling.
 
@@ -220,7 +215,6 @@ class CategoricalSampler(Sampler):
             preload_nchunks=preload_nchunks,
             batch_size=batch_size,
             shuffle=shuffle,
-            drop_last=drop_last,
             rng=rng,
         )
 
@@ -272,34 +266,84 @@ class CategoricalSampler(Sampler):
         """Sample load requests, ensuring each batch is from a single category.
 
         The sampling strategy:
-        1. Create iterators for each category's ChunkSampler
-        2. Sample categories proportionally to their remaining size
-        3. Yield load requests from sampled category until exhausted
+        1. Collect all load requests from each category sampler
+        2. Flatten into individual batches: (chunk_group_id, batch_index_within_group)
+        3. Shuffle the batch order across categories
+        4. Group batches by their chunk_group_id and yield combined load requests
         """
-        # Create iterators for each category sampler
-        category_iterators: list[Iterator[LoadRequest] | None] = [
-            sampler._sample(n_obs) for sampler in self._category_samplers
-        ]
-        # Track remaining sizes (approximate by category size, decremented as we yield)
-        remaining_sizes = np.array(self.category_sizes, dtype=float)
+        batch_size = self._category_samplers[0]._batch_size
 
-        # Keep sampling until all categories are exhausted
-        while np.any(remaining_sizes > 0):
-            # Sample category with probability proportional to remaining size
-            probs = remaining_sizes / remaining_sizes.sum()
-            cat_idx = self._rng.choice(len(category_iterators), p=probs)
+        # Collect all chunk groups: list of (chunks, n_batches)
+        # chunk_group_id is the index into this list
+        all_chunk_groups: list[tuple[list[slice], int]] = []
 
-            iterator = category_iterators[cat_idx]
-            if iterator is None:
-                remaining_sizes[cat_idx] = 0
-                continue
+        for sampler in self._category_samplers:
+            for load_request in sampler._sample(n_obs):
+                chunks = list(load_request["chunks"])
+                # Count only non-empty splits (drop_last may produce empty final split)
+                n_batches = sum(1 for s in load_request["splits"] if len(s) > 0)
+                if n_batches > 0:
+                    all_chunk_groups.append((chunks, n_batches))
 
-            try:
-                load_request = next(iterator)
-                # Update remaining size based on what we just yielded
-                yielded_obs = sum(chunk.stop - chunk.start for chunk in load_request["chunks"])
-                remaining_sizes[cat_idx] = max(0, remaining_sizes[cat_idx] - yielded_obs)
-                yield load_request
-            except StopIteration:
-                category_iterators[cat_idx] = None
-                remaining_sizes[cat_idx] = 0
+        if not all_chunk_groups:
+            return
+
+        # Flatten into individual batches: (chunk_group_id, batch_index_within_group)
+        all_batches: list[tuple[int, int]] = []
+
+        for group_id, (chunks, n_batches) in enumerate(all_chunk_groups):
+            for batch_idx in range(n_batches):
+                all_batches.append((group_id, batch_idx))
+
+        if not all_batches:
+            return
+
+        # Shuffle the batch order
+        batch_order = np.arange(len(all_batches))
+        self._rng.shuffle(batch_order)
+
+        # Group batches that share the same chunk_group_id together
+        # Yield one load request per unique set of chunk groups
+        batches_per_load = len(self._category_samplers)
+
+        for i in range(0, len(batch_order), batches_per_load):
+            selected_batch_indices = batch_order[i : i + batches_per_load]
+
+            # Collect unique chunk groups needed for this load request
+            # Map: chunk_group_id -> (chunks, list of batch indices within that group)
+            groups_in_load: dict[int, list[int]] = {}
+            for batch_idx in selected_batch_indices:
+                group_id, batch_num = all_batches[batch_idx]
+                if group_id not in groups_in_load:
+                    groups_in_load[group_id] = []
+                groups_in_load[group_id].append(batch_num)
+
+            # Build combined load request
+            combined_chunks: list[slice] = []
+            combined_splits: list[np.ndarray] = []
+
+            # Track offset for each chunk group in the combined data
+            group_offsets: dict[int, int] = {}
+            current_offset = 0
+
+            # First pass: add chunks and compute offsets
+            for group_id in groups_in_load:
+                chunks, _ = all_chunk_groups[group_id]
+                group_offsets[group_id] = current_offset
+                combined_chunks.extend(chunks)
+                current_offset += sum(c.stop - c.start for c in chunks)
+
+            # Second pass: create splits
+            for batch_idx in selected_batch_indices:
+                group_id, batch_num = all_batches[batch_idx]
+                offset = group_offsets[group_id]
+
+                # Create split indices
+                start_idx = batch_num * batch_size
+                end_idx = start_idx + batch_size
+                split_indices = np.arange(start_idx, end_idx) + offset
+                if self._category_samplers[0]._shuffle:
+                    self._rng.shuffle(split_indices)
+                combined_splits.append(split_indices)
+
+            yield {"chunks": combined_chunks, "splits": combined_splits}

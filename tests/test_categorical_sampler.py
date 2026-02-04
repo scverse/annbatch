@@ -21,11 +21,17 @@ def collect_all_indices(sampler, n_obs):
 
 
 def collect_flat_indices(sampler, n_obs):
-    """Helper to collect all indices flattened."""
+    """Helper to collect all indices flattened from splits (the actual batch indices)."""
     indices = []
     for load_request in sampler.sample(n_obs):
+        # Build chunk indices mapping (indices into concatenated chunk data -> original indices)
+        chunk_indices = []
         for chunk in load_request["chunks"]:
-            indices.extend(range(chunk.start, chunk.stop))
+            chunk_indices.extend(range(chunk.start, chunk.stop))
+        # Collect actual batch indices from splits
+        for split in load_request["splits"]:
+            for idx in split:
+                indices.append(chunk_indices[idx])
     return indices
 
 
@@ -206,8 +212,13 @@ def _get_category_for_index(index: int, boundaries: list[slice]) -> int:
         pytest.param([slice(0, 30), slice(30, 60), slice(60, 90), slice(90, 120)], id="many_categories"),
     ],
 )
-def test_each_load_request_from_single_category(boundaries, shuffle):
-    """Test that each load request contains chunks from a single category."""
+def test_each_split_from_single_category(boundaries, shuffle):
+    """Test that each split (batch) within a load request is from a single category.
+
+    Note: The CategoricalSampler combines batches from multiple categories into
+    a single load request for efficiency, but each split within that request
+    should only contain indices from a single category.
+    """
     n_obs = boundaries[-1].stop
 
     sampler = CategoricalSampler(
@@ -220,38 +231,31 @@ def test_each_load_request_from_single_category(boundaries, shuffle):
     )
 
     for load_request in sampler.sample(n_obs):
-        # Check all chunks are from the same category
         chunks = load_request["chunks"]
         if len(chunks) == 0:
             continue
 
-        # Find which category this load request belongs to based on first chunk
-        first_chunk_start = chunks[0].start
-        category_idx = _get_category_for_index(first_chunk_start, boundaries)
-        category_boundary = boundaries[category_idx]
-
-        # Verify ALL chunks are within the same category boundary
-        for chunk in chunks:
-            assert chunk.start >= category_boundary.start, (
-                f"Chunk start {chunk.start} outside category {category_idx} boundary {category_boundary}"
-            )
-            assert chunk.stop <= category_boundary.stop, (
-                f"Chunk stop {chunk.stop} outside category {category_idx} boundary {category_boundary}"
-            )
-
-        # Also verify all indices in splits map back to the same category
-        # The splits are indices into the concatenated chunks, so we need to map them back
+        # Build mapping from concatenated chunk index to original index
         chunk_indices = []
         for chunk in chunks:
             chunk_indices.extend(range(chunk.start, chunk.stop))
 
+        # Verify each split contains indices from only one category
         for split in load_request["splits"]:
+            if len(split) == 0:
+                continue
+
+            # Get the category of the first index in this split
+            first_original_idx = chunk_indices[split[0]]
+            expected_category = _get_category_for_index(first_original_idx, boundaries)
+
+            # Verify all indices in this split belong to the same category
             for idx in split:
                 original_idx = chunk_indices[idx]
                 split_category = _get_category_for_index(original_idx, boundaries)
-                assert split_category == category_idx, (
+                assert split_category == expected_category, (
                     f"Split index {idx} (original {original_idx}) belongs to category {split_category}, "
-                    f"but load request is for category {category_idx}"
+                    f"but expected category {expected_category}"
                 )
 
 
@@ -352,16 +356,15 @@ def test_invalid_batch_size_raises(batch_size, chunk_size, preload_nchunks, erro
 # =============================================================================
 
 
-def test_drop_last_removes_incomplete_batches():
-    """Test that drop_last removes incomplete batches."""
-    # 45 obs, batch_size 10 -> should get 4 complete batches (40 obs) with drop_last=True
+def test_drop_last_enforced():
+    """Test that incomplete batches are always dropped (drop_last is enforced)."""
+    # 45 obs, batch_size 10 -> should get 4 complete batches (40 obs)
     boundaries = [slice(0, 45)]
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
         chunk_size=20,
         preload_nchunks=2,
-        drop_last=True,
     )
 
     total_obs = 0
@@ -369,26 +372,7 @@ def test_drop_last_removes_incomplete_batches():
         for split in load_request["splits"]:
             total_obs += len(split)
 
-    assert total_obs == 40, "drop_last should remove incomplete batch"
-
-
-def test_no_drop_last_keeps_incomplete_batches():
-    """Test that drop_last=False keeps incomplete batches."""
-    boundaries = [slice(0, 45)]
-    sampler = CategoricalSampler(
-        category_boundaries=boundaries,
-        batch_size=10,
-        chunk_size=20,
-        preload_nchunks=2,
-        drop_last=False,
-    )
-
-    total_obs = 0
-    for load_request in sampler.sample(45):
-        for split in load_request["splits"]:
-            total_obs += len(split)
-
-    assert total_obs == 45, "should keep all observations"
+    assert total_obs == 40, "should drop incomplete batch"
 
 
 # =============================================================================
@@ -397,24 +381,20 @@ def test_no_drop_last_keeps_incomplete_batches():
 
 
 def test_splits_have_correct_batch_size():
-    """Test that splits have correct batch sizes."""
+    """Test that splits have correct batch sizes (all complete batches)."""
     boundaries = [slice(0, 100)]
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
         chunk_size=20,
         preload_nchunks=2,
-        drop_last=False,
     )
 
     for load_request in sampler.sample(100):
         splits = load_request["splits"]
-        # All splits except possibly the last should have batch_size elements
-        for split in splits[:-1]:
+        # All splits should have exactly batch_size elements (drop_last is enforced)
+        for split in splits:
             assert len(split) == 10
-        # Last split should have 1 to batch_size elements
-        if splits:
-            assert 1 <= len(splits[-1]) <= 10
 
 
 # =============================================================================
