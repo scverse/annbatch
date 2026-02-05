@@ -195,6 +195,44 @@ def test_workers_cover_full_dataset_without_overlap(
     assert set().union(*all_worker_indices) == set(range(n_obs))
 
 
+def test_batch_shuffle_is_reproducible():
+    """Test that batch shuffling is reproducible when using ChunkSampler directly.
+
+    This test fails on main because batch shuffling used `np.random.default_rng()` (unseeded).
+    With the fix, it uses the sampler's seeded `_rng` instead, making it reproducible.
+    """
+    n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
+    seed = 42
+
+    def collect_splits(sampler):
+        all_splits = []
+        for load_request in sampler.sample(n_obs):
+            for split in load_request["splits"]:
+                all_splits.append(split.tolist())
+        return all_splits
+
+    # Run twice with same seed - should get identical batch ordering
+    sampler1 = ChunkSampler(
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        batch_size=batch_size,
+        shuffle=True,
+        rng=np.random.default_rng(seed),
+    )
+    splits1 = collect_splits(sampler1)
+
+    sampler2 = ChunkSampler(
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        batch_size=batch_size,
+        shuffle=True,
+        rng=np.random.default_rng(seed),
+    )
+    splits2 = collect_splits(sampler2)
+
+    assert splits1 == splits2, "Batch shuffling should be reproducible with same seed"
+
+
 # =============================================================================
 # Validation tests
 # =============================================================================
