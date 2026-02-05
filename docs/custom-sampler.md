@@ -132,6 +132,8 @@ class InOrderSampler(Sampler):
 
 
 ## Example 2: Implementing a `RandomSampler` class
+
+Here we have a sampler that just samples single observations off disk. This is extremely inefficient but instructive (see below for performance considerations):
 ```python
 from annbatch.abc import Sampler
 from collections.abc import Iterator
