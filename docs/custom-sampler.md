@@ -152,37 +152,63 @@ class RandomSampler(Sampler):
 
 ## Performance Considerations
 
-When implementing a custom sampler, it's crucial to consider **disk access patterns** to ensure efficient data loading. The performance of your sampler heavily depends on how it accesses data from disk-backed arrays.
+When implementing a custom sampler, it's crucial to consider **disk access patterns** to ensure efficient data loading.
+The performance of your sampler heavily depends on how it accesses data from disk-backed arrays.
 
-### Efficient vs. Inefficient Access Patterns
+### The Core Strategy: Blocked Reads + In-Memory Shuffling
 
-**✅ Example 1 (ChunkedSampler) - Efficient:**
-- Loads **contiguous chunks** of data: `[slice(0,100), slice(100,200), slice(200,300)]`
-- Minimizes disk seeks by reading sequential blocks
-- Takes advantage of chunk-based storage formats
-- Optimal for Zarr arrays where data is stored in chunks
+The key to efficient sampling from disk-backed arrays is to **read data in contiguous blocks** and then **shuffle in memory**.
+This approach minimizes expensive disk seeks while still providing randomness in your batches.
 
 ```
-Disk access pattern (sequential):
-Read chunk 0 → Read chunk 1 → Read chunk 2 → ...
-└─────────┴─────────┴─────────┘
-     Fast sequential reads
+Recommended pattern:
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  1. Read contiguous block(s) from disk       →      2. Shuffle in memory         │
+│                                                                                  │
+│     Disk (sequential reads per block)                Memory (shuffled together)  │
+│  ┌─────────┐                                      ┌──────────────────────┐       │
+│  │ Block A │  ═══════════════╗                    │ C₂ A₃ B₁ A₁ C₄ B₃   │       │
+│  └─────────┘                 ║                    │ B₂ C₁ A₅ B₄ A₂ C₃   │       │
+│  ┌─────────┐                 ╠══════════════>     │ A₄ B₅ C₅ A₆ B₆ C₆   │       │
+│  │ Block B │  ═══════════════╣                    └──────────────────────┘       │
+│  └─────────┘                 ║                               ↓                   │
+│  ┌─────────┐                 ║                                                   │
+│  │ Block C │  ═══════════════╝                    [Batch 1] [Batch 2] [Batch 3]  │
+│  └─────────┘                                                                     │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**❌ Example 2 (RandomSampler) - Inefficient:**
-- Loads **individual random observations**: `[slice(42,43), slice(789,790), slice(15,16)]`
-- Causes many small disk seeks across the entire dataset
-- Each observation may require loading an entire chunk just to extract one element
-- Significantly slower for large datasets
+**Why this matters:**
+- **Fast:** Sequential disk reads are significantly faster than random reads
+- **Efficient:** Takes advantage of how chunked storage formats (like Zarr) organize data
+- **Scalable:** Performance doesn't degrade as dataset size grows
+
+### Avoid: Plain Random Reads
+
+Reading individual random observations directly from disk is inefficient:
 
 ```
-Disk access pattern (random):
-Read obs 42 → Read obs 789 → Read obs 15 → ...
-    └────────────┴────────────┴────────┘
-    Many random disk seeks (SLOW!)
+Anti-pattern (slow):
+Read obs 42 → Read obs 789 → Read obs 15 → Read obs 456 → ...
+    └────────────┴────────────┴────────────┴───────────┘
+    Many random disk seeks across the entire dataset
 ```
 
-### Best Practices
+Each random read may:
+- Require loading an entire chunk just to extract one element
+- Cause the disk head to seek to a completely different location
+- Result in cache misses and wasted I/O bandwidth
 
-1. **Load contiguous chunks** whenever possible load data in contiguous chunks and not just indviudal samples
-2. **Preshuffle data** during dataset creation if you need random access patterns during training
+### The Randomness Trade-off
+
+Chunked reading comes with an inherent trade-off: **reduced randomness**.
+When you load contiguous blocks and shuffle in memory, samples within a batch are more likely to come from the same block(s).
+This means:
+
+- Samples in a batch may be **correlated** (e.g., neighboring cells, adjacent time points)
+- You get **local randomness** (within blocks) but not **global randomness** (across the entire dataset)
+
+**Mitigation strategies:**
+1. **Preshuffle your data** during dataset creation to break up correlations
+2. **Load multiple random chunks** per batch to increase diversity (see `chunks` parameter)
+3. **Use larger in-memory buffers** to shuffle across more blocks
