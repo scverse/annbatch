@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,6 +9,7 @@ import pandas as pd
 
 from annbatch.abc import Sampler
 from annbatch.samplers._chunk_sampler import ChunkSampler
+from annbatch.samplers._utils import get_worker_handle, is_in_worker
 from annbatch.utils import check_lt_1
 
 if TYPE_CHECKING:
@@ -279,13 +279,10 @@ class CategoricalSampler(Sampler):
             sampler.validate(n_obs)
 
         # Check for worker usage - CategoricalSampler doesn't support workers
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
-
-            if get_worker_info() is not None:
-                raise ValueError(
-                    "CategoricalSampler does not support multiple workers. Use num_workers=0 in your DataLoader."
-                )
+        if is_in_worker():
+            raise ValueError(
+                "CategoricalSampler does not support multiple workers. Use num_workers=0 in your DataLoader."
+            )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests, ensuring each batch is from a single category.
@@ -503,8 +500,8 @@ class StratifiedCategoricalSampler(CategoricalSampler):
     ) -> StratifiedCategoricalSampler:
         """Create a StratifiedCategoricalSampler from a pandas Categorical or Series.
 
-        The data is assumed to be sorted by category. This method computes the
-        boundaries for each category based on where values change.
+        This extends :meth:`CategoricalSampler.from_pandas` with additional
+        parameters for stratified sampling.
 
         Parameters
         ----------
@@ -530,9 +527,15 @@ class StratifiedCategoricalSampler(CategoricalSampler):
         -------
         StratifiedCategoricalSampler
             A sampler configured with boundaries derived from the categorical.
+
+        Raises
+        ------
+        ValueError
+            If the data is not sorted by category.
+        TypeError
+            If the input is not a Categorical or categorical Series.
         """
         boundaries = cls._boundaries_from_pandas(categorical)
-
         return cls(
             category_boundaries=boundaries,
             chunk_size=chunk_size,
@@ -566,14 +569,7 @@ class StratifiedCategoricalSampler(CategoricalSampler):
 
     def _get_worker_handle(self) -> WorkerHandle | None:
         """Get WorkerHandle for worker-specific RNGs."""
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
-
-            from annbatch.utils import WorkerHandle
-
-            if get_worker_info() is not None:
-                return WorkerHandle(self._rng)
-        return None
+        return get_worker_handle(self._rng)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests using stratified sampling with replacement.

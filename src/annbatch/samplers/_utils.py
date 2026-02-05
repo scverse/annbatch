@@ -2,6 +2,49 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from annbatch.utils import WorkerHandle
+
+
+def is_in_worker() -> bool:
+    """Check if currently running inside a torch DataLoader worker.
+
+    Returns
+    -------
+    bool
+        True if inside a DataLoader worker, False otherwise.
+    """
+    if find_spec("torch"):
+        from torch.utils.data import get_worker_info
+
+        return get_worker_info() is not None
+    return False
+
+
+def get_worker_handle(rng: np.random.Generator) -> WorkerHandle | None:
+    """Get a WorkerHandle if running inside a torch DataLoader worker.
+
+    Parameters
+    ----------
+    rng
+        The RNG to spawn worker-specific RNGs from.
+
+    Returns
+    -------
+    WorkerHandle | None
+        A WorkerHandle if inside a DataLoader worker, None otherwise.
+    """
+    if is_in_worker():
+        from annbatch.utils import WorkerHandle
+
+        return WorkerHandle(rng)
+    return None
+
 
 def validate_batch_size(batch_size: int, chunk_size: int, preload_nchunks: int) -> None:
     """Validate batch_size against chunk_size and preload_nchunks constraints.

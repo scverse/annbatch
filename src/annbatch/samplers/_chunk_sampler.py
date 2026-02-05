@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import math
-from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._utils import validate_batch_size
+from annbatch.samplers._utils import get_worker_handle, validate_batch_size
 from annbatch.utils import check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -111,14 +110,7 @@ class ChunkSampler(Sampler):
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
 
     def _get_worker_handle(self) -> WorkerHandle | None:
-        worker_handle = None
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
-
-            from annbatch.utils import WorkerHandle
-
-            if get_worker_info() is not None:
-                worker_handle = WorkerHandle(self._rng)
+        worker_handle = get_worker_handle(self._rng)
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
