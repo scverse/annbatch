@@ -196,7 +196,7 @@ Read obs 42 → Read obs 789 → Read obs 15 → Read obs 456 → ...
 
 Each random read may:
 - Require loading an entire chunk just to extract one element (whereas sequential reads will use most if not all elements from every chunk)
-- Cause the disk head to seek to a completely different location
+- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`annbatch.ChunkSampler`)
 
 ### The Randomness Trade-off
 
