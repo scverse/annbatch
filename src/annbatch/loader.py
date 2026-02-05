@@ -354,6 +354,9 @@ class Loader[
         var = adata.var
         if len(obs.columns) == 0:
             obs = None
+        if not isinstance(dataset, BackingArray_T.__value__):
+            raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
+
         return cast("BackingArray", dataset), obs, var
 
     @validate_sampler
