@@ -102,7 +102,7 @@ from annbatch.types import LoadRequest
 import numpy as np
 
 
-class ChunkedSampler(Sampler):
+class InOrderSampler(Sampler):
 
     def __init__(self, batch_size: int, chunk_size: int):
         self.batch_size = batch_size
