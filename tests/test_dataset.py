@@ -101,30 +101,24 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     "gen_loader",
     [
         pytest.param(
-            lambda collection,
-            shuffle,
-            use_zarrs,
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            open_func=open_func,
-            batch_size=batch_size,
-            preload_to_gpu=preload_to_gpu,
-            concat_strategy=concat_strategy: Loader(
-                shuffle=shuffle,
-                chunk_size=chunk_size,
-                preload_nchunks=preload_nchunks,
-                return_index=True,
-                batch_size=batch_size,
-                preload_to_gpu=preload_to_gpu,
-                to_torch=False,
-                concat_strategy=concat_strategy,
-            ).use_collection(
-                collection,
-                **(
-                    {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
-                    if open_func is not None
-                    else {}
-                ),
+            lambda collection, shuffle, use_zarrs, chunk_size=chunk_size, preload_nchunks=preload_nchunks, open_func=open_func, batch_size=batch_size, preload_to_gpu=preload_to_gpu, concat_strategy=concat_strategy: (
+                Loader(
+                    shuffle=shuffle,
+                    chunk_size=chunk_size,
+                    preload_nchunks=preload_nchunks,
+                    return_index=True,
+                    batch_size=batch_size,
+                    preload_to_gpu=preload_to_gpu,
+                    to_torch=False,
+                    concat_strategy=concat_strategy,
+                ).use_collection(
+                    collection,
+                    **(
+                        {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                        if open_func is not None
+                        else {}
+                    ),
+                )
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}-concat_strategy={concat_strategy}",  # type: ignore[attr-defined]
             marks=skip_if_no_cupy,
@@ -602,3 +596,20 @@ def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
     with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
+
+
+def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    ds1 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds2 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds1.use_collection(
+        simple_collection[1],
+    )
+    ds2.use_collection(
+        simple_collection[1],
+    )
+    for batch1, batch2 in zip(ds1, ds2, strict=True):
+        np.testing.assert_equal(batch1["X"], batch2["X"])
