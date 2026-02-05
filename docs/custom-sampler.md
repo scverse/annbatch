@@ -16,7 +16,7 @@ This is the abstract base class that all samplers must inherit from. You need to
 
 A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` contains:
 
-- **`chunks`**: A list of slices that define which chunks to load from disk. Each slice should have a range up to the chunk_size (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
+- **{attr}`~annbatch.types.LoadRequest.chunks`**: A list of slices that define which contiguous chunks of memory to load from disk. Each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
 
   ```
   Example: Loading random chunks from a large array
