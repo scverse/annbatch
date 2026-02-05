@@ -102,19 +102,37 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-class WorkerHandle:  # noqa: D101
-    def __init__(self, seed: int | None = None):
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
+class WorkerHandle:
+    """Handle for torch DataLoader worker context.
 
-            self._worker_info = get_worker_info()
-            # Each worker gets its own RNG from spawned seed sequence for reproducible batch shuffling
-            seq = np.random.SeedSequence(self._worker_info.seed)
-            self.rngs = [np.random.default_rng(s) for s in seq.spawn(self._worker_info.num_workers)]
-            self._rng = self.rngs[self._worker_info.id]
+    This class should only be instantiated inside a torch DataLoader worker process
+    (i.e., when `torch.utils.data.get_worker_info()` returns a non-None value).
+    It provides worker-specific RNG and partitioning utilities.
+
+    Parameters
+    ----------
+    rng
+        The RNG to spawn worker-specific RNGs from. If provided, uses its bit_generator's
+        seed sequence to spawn independent streams for each worker. If None, falls back
+        to using torch's worker seed.
+
+    The RNG is created using `SeedSequence.spawn()` to ensure each worker has an
+    independent but reproducible random stream, following numpy's recommended
+    pattern for parallel random number generation.
+    """
+
+    def __init__(self, rng: np.random.Generator | None = None):
+        """Initialize WorkerHandle. Must be called from within a torch DataLoader worker."""
+        from torch.utils.data import get_worker_info
+
+        self._worker_info = get_worker_info()
+        # Each worker gets its own RNG spawned from the sampler's RNG for reproducible batch shuffling
+        if rng is not None:
+            bit_generators = rng.bit_generator.spawn(self._worker_info.num_workers)
         else:
-            self._worker_info = None
-            self._rng = np.random.default_rng(seed)
+            seq = np.random.SeedSequence(self._worker_info.seed).spawn(self._worker_info.num_workers)
+            bit_generators = seq
+        self._rng = np.random.default_rng(bit_generators[self._worker_info.id])
 
     @property
     def rng(self) -> np.random.Generator:
@@ -123,13 +141,11 @@ class WorkerHandle:  # noqa: D101
 
     @property
     def num_workers(self) -> int:
-        """Return the number of workers, or 1 if not in a worker context."""
-        if self._worker_info is None:
-            return 1
+        """Return the number of workers."""
         return self._worker_info.num_workers
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        """Get a chunk of an incoming array accordnig to the current worker id.
+        """Get a chunk of an incoming array according to the current worker id.
 
         Parameters
         ----------
@@ -138,10 +154,8 @@ class WorkerHandle:  # noqa: D101
 
         Returns
         -------
-            A evenly split part of the ray corresponding to how many workers there are.
+            An evenly split part of the array corresponding to this worker.
         """
-        if self._worker_info is None:
-            return obj
         num_workers, worker_id = self._worker_info.num_workers, self._worker_info.id
         chunks_split = np.array_split(obj, num_workers)
         return chunks_split[worker_id]

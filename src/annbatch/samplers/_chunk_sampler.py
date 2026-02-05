@@ -127,7 +127,7 @@ class ChunkSampler(Sampler):
             from annbatch.utils import WorkerHandle
 
             if get_worker_info() is not None:
-                worker_handle = WorkerHandle()
+                worker_handle = WorkerHandle(self._rng)
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
