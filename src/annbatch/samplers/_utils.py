@@ -56,12 +56,13 @@ def validate_batch_size(batch_size: int, chunk_size: int, preload_nchunks: int) 
     chunk_size
         Size of each chunk.
     preload_nchunks
-        Number of chunks to preload.
+        Number of chunks to load per iteration.
 
     Raises
     ------
     ValueError
-        If batch_size exceeds preload_size or preload_size is not divisible by batch_size.
+        If batch_size exceeds the total loaded size (chunk_size * preload_nchunks)
+        or if the total loaded size is not divisible by batch_size.
     """
     preload_size = chunk_size * preload_nchunks
 

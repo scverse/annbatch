@@ -23,8 +23,9 @@ class CategoricalSampler(Sampler):
     """Categorical sampler for group-stratified batched data access.
 
     This sampler ensures each batch contains observations from a single category/group.
-    It samples from categories proportionally to their size, yielding batches where
-    all observations belong to the same category.
+    It iterates through all categories, yielding all batches exactly once per epoch.
+    The batch order is shuffled across categories, but each individual batch contains
+    observations from only one category.
 
     The sampler assumes data is sorted by category, with boundaries provided as slices.
     For convenience, use :meth:`from_pandas` to construct from a pandas Categorical.
@@ -288,10 +289,11 @@ class CategoricalSampler(Sampler):
         """Sample load requests, ensuring each batch is from a single category.
 
         The sampling strategy:
-        1. Collect all load requests from each category sampler
+        1. Collect all load requests from each category sampler into chunk groups
         2. Flatten into individual batches: (chunk_group_id, batch_index_within_group)
-        3. Shuffle the batch order across categories
-        4. Group batches by their chunk_group_id and yield combined load requests
+        3. Shuffle the batch order across all categories
+        4. Group n_categories batches together per load request and
+           combine chunks from the selected batches into a single load request
         """
         batch_size = self._category_samplers[0]._batch_size
 
@@ -313,7 +315,7 @@ class CategoricalSampler(Sampler):
         # Flatten into individual batches: (chunk_group_id, batch_index_within_group)
         all_batches: list[tuple[int, int]] = []
 
-        for group_id, (chunks, n_batches) in enumerate(all_chunk_groups):
+        for group_id, (_, n_batches) in enumerate(all_chunk_groups):
             for batch_idx in range(n_batches):
                 all_batches.append((group_id, batch_idx))
 
@@ -372,16 +374,17 @@ class CategoricalSampler(Sampler):
 
 
 class StratifiedCategoricalSampler(CategoricalSampler):
-    """Stratified sampler with uniform default weights and multi-worker support.
+    """Stratified categorical sampler with configurable weights and multi-worker support.
 
     Samples categories according to weights (uniform by default), yielding
-    n_yields batches total. Supports multi-worker DataLoaders by splitting
-    n_yields across workers.
+    exactly ``n_yields`` batches total. Supports multi-worker DataLoaders by splitting
+    ``n_yields`` across workers.
 
     Unlike :class:`CategoricalSampler`, this sampler:
+    - Yields a fixed number of batches (``n_yields``) rather than exhausting all data
     - Samples with replacement (categories reset when exhausted)
     - Supports multi-worker DataLoaders
-    - Uses uniform weights by default (not proportional to category size)
+    - Allows configurable sampling weights (uniform by default)
 
     Parameters
     ----------
