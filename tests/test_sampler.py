@@ -29,14 +29,18 @@ class MockWorkerHandle:
     def __init__(self, worker_id: int, num_workers: int, seed: int = 42):
         self.worker_id = worker_id
         self._num_workers = num_workers
-        self._rng = np.random.default_rng(seed)
+        # Each worker gets its own RNG from spawned seed sequence (mirrors real WorkerHandle)
+        seq = np.random.SeedSequence(seed)
+        rngs = [np.random.default_rng(s) for s in seq.spawn(num_workers)]
+        self._rng = rngs[worker_id]
+
+    @property
+    def rng(self) -> np.random.Generator:
+        return self._rng
 
     @property
     def num_workers(self) -> int:
         return self._num_workers
-
-    def shuffle(self, obj):
-        self._rng.shuffle(obj)
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
         return np.array_split(obj, self._num_workers)[self.worker_id]
