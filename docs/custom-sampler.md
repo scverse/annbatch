@@ -95,7 +95,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
 
 ## Example 1: Implementing a `ChunkedSampler` class
 
-This example demonstrates an efficient sampler that loads contiguous chunks of data from disk:
+This example demonstrates creating a simple sampler that only loads sequential, non-random chunks of data from disk and yields them in-order:
 
 ```python
 from annbatch.abc import Sampler
