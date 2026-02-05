@@ -172,6 +172,8 @@ class ChunkSampler(Sampler):
         if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
         if self._drop_last:
+            if total_obs_in_last_batch < self._batch_size:
+                return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
             # Skip yielding if there are no observations (can happen with drop_last=True and last request is empty)
             if total_obs_in_last_batch == 0:
