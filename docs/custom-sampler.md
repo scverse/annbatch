@@ -12,7 +12,7 @@ This is the abstract base class that all samplers must inherit from. You need to
 
 - **`validate(n_obs: int) -> None`**: Validates the sampler configuration against the given number of observations. Override this method to add custom validation for your sampler parameters. It should raise a `ValueError` if the configuration is invalid.
 
-### 2. `annbatch.types.LoadRequest`
+### 2. {class}`annbatch.types.LoadRequest`
 
 A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` contains:
 
