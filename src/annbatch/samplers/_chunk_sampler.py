@@ -47,7 +47,6 @@ class ChunkSampler(Sampler):
     _mask: slice
     _drop_last: bool
     _rng: np.random.Generator
-    _seed_seq: np.random.SeedSequence
 
     def __init__(
         self,
@@ -73,15 +72,7 @@ class ChunkSampler(Sampler):
         check_lt_1([chunk_size, preload_nchunks], ["Chunk size", "Preloaded chunks"])
         validate_batch_size(batch_size, chunk_size, preload_nchunks)
 
-        # Store seed sequence for spawning worker-specific RNGs
-        if rng is None:
-            self._seed_seq = np.random.SeedSequence()
-            self._rng = np.random.default_rng(self._seed_seq)
-        else:
-            # Create seed sequence from provided RNG for worker spawning
-            self._seed_seq = np.random.SeedSequence(rng.integers(2**63))
-            self._rng = rng
-
+        self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
             preload_nchunks,
@@ -127,8 +118,7 @@ class ChunkSampler(Sampler):
             from annbatch.utils import WorkerHandle
 
             if get_worker_info() is not None:
-                # Pass seed_seq so WorkerHandle can spawn worker-specific RNGs
-                worker_handle = WorkerHandle(seed_seq=self._seed_seq)
+                worker_handle = WorkerHandle(self._rng)
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
@@ -154,7 +144,7 @@ class ChunkSampler(Sampler):
             chunks = worker_handle.get_part_for_worker(chunks)
 
         # Batch shuffling: use worker-specific RNG (different per worker)
-        batch_rng = worker_handle.worker_rng if worker_handle is not None else self._rng
+        batch_rng = worker_handle.rng if worker_handle is not None else self._rng
 
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks

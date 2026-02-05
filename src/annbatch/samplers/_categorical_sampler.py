@@ -10,12 +10,13 @@ import pandas as pd
 
 from annbatch.abc import Sampler
 from annbatch.samplers._chunk_sampler import ChunkSampler
-from annbatch.utils import WorkerHandle, check_lt_1
+from annbatch.utils import check_lt_1
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
     from annbatch.types import LoadRequest
+    from annbatch.utils import WorkerHandle
 
 
 class CategoricalSampler(Sampler):
@@ -432,7 +433,6 @@ class StratifiedCategoricalSampler(CategoricalSampler):
 
     _n_yields: int
     _weights: np.ndarray
-    _seed_seq: np.random.SeedSequence
 
     def __init__(
         self,
@@ -446,13 +446,6 @@ class StratifiedCategoricalSampler(CategoricalSampler):
         shuffle: bool = False,
         rng: np.random.Generator | None = None,
     ):
-        # Create seed sequence for spawning worker-specific RNGs
-        if rng is None:
-            self._seed_seq = np.random.SeedSequence()
-            rng = np.random.default_rng(self._seed_seq.spawn(1)[0])
-        else:
-            self._seed_seq = np.random.SeedSequence(rng.integers(2**63))
-
         super().__init__(
             category_boundaries,
             chunk_size,
@@ -572,12 +565,14 @@ class StratifiedCategoricalSampler(CategoricalSampler):
         # NOTE: Multi-worker IS supported for stratified (unlike parent CategoricalSampler)
 
     def _get_worker_handle(self) -> WorkerHandle | None:
-        """Get WorkerHandle with seed_seq for worker-specific RNGs."""
+        """Get WorkerHandle for worker-specific RNGs."""
         if find_spec("torch"):
             from torch.utils.data import get_worker_info
 
+            from annbatch.utils import WorkerHandle
+
             if get_worker_info() is not None:
-                return WorkerHandle(seed_seq=self._seed_seq)
+                return WorkerHandle(self._rng)
         return None
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
@@ -586,7 +581,6 @@ class StratifiedCategoricalSampler(CategoricalSampler):
         Categories are sampled according to weights (uniform by default).
         When a category is exhausted, its iterator is reset (sampling with replacement).
         """
-        # Get worker handle (contains worker_rng)
         worker_handle = self._get_worker_handle()
 
         if worker_handle is not None:
@@ -597,7 +591,7 @@ class StratifiedCategoricalSampler(CategoricalSampler):
             if worker_id < (self._n_yields % num_workers):
                 worker_n_yields += 1
             # Use worker-specific RNG from handle
-            worker_rng = worker_handle.worker_rng
+            worker_rng = worker_handle.rng
         else:
             worker_n_yields = self._n_yields
             worker_rng = self._rng

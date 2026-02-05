@@ -4,7 +4,7 @@ import inspect
 import itertools
 import warnings
 from dataclasses import dataclass
-from functools import cached_property, wraps
+from functools import wraps
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Concatenate, Protocol
 
@@ -102,95 +102,55 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-class WorkerHandle:  # noqa: D101
-    _seed_seq: np.random.SeedSequence | None
+class WorkerHandle:
+    """Handle for torch DataLoader worker context.
 
-    def __init__(self, seed_seq: np.random.SeedSequence | None = None):
-        """Initialize WorkerHandle with optional SeedSequence for worker-specific RNGs.
+    This class should only be instantiated inside a torch DataLoader worker process
+    (i.e., when `torch.utils.data.get_worker_info()` returns a non-None value).
+    It provides worker-specific RNG and partitioning utilities.
 
-        Parameters
-        ----------
-        seed_seq
-            Optional SeedSequence for spawning worker-specific RNGs.
-            If provided, worker_rng will spawn from this sequence.
-            If None, worker_rng uses torch's worker seed (unique per worker).
-        """
-        self._seed_seq = seed_seq
+    Parameters
+    ----------
+    rng
+        The RNG to spawn worker-specific RNGs from. If provided, uses its bit_generator's
+        seed sequence to spawn independent streams for each worker. If None, falls back
+        to using torch's worker seed.
 
-    @cached_property
-    def _worker_info(self):
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
+    The RNG is created using `SeedSequence.spawn()` to ensure each worker has an
+    independent but reproducible random stream, following numpy's recommended
+    pattern for parallel random number generation.
+    """
 
-            return get_worker_info()
-        return None
+    def __init__(self, rng: np.random.Generator | None = None):
+        """Initialize WorkerHandle. Must be called from within a torch DataLoader worker."""
+        from torch.utils.data import get_worker_info
+
+        self._worker_info = get_worker_info()
+        # Each worker gets its own RNG spawned from the sampler's RNG for reproducible batch shuffling
+        if rng is not None:
+            bit_generators = rng.bit_generator.spawn(self._worker_info.num_workers)
+        else:
+            seq = np.random.SeedSequence(self._worker_info.seed).spawn(self._worker_info.num_workers)
+            bit_generators = seq
+        self._rng = np.random.default_rng(bit_generators[self._worker_info.id])
+
+    @property
+    def rng(self) -> np.random.Generator:
+        """Return the RNG for the current worker."""
+        return self._rng
 
     @property
     def num_workers(self) -> int:
-        """Return the number of workers, or 1 if not in a worker context."""
-        if self._worker_info is None:
-            return 1
+        """Return the number of workers."""
         return self._worker_info.num_workers
 
     @property
     def worker_id(self) -> int:
-        """Return the current worker ID, or 0 if not in a worker context."""
-        if self._worker_info is None:
-            return 0
+        """Return the current worker ID."""
         return self._worker_info.id
 
-    @cached_property
-    def _shared_rng(self) -> np.random.Generator:
-        """RNG with same seed across workers - for chunk ordering."""
-        if self._worker_info is None:
-            return np.random.default_rng()
-        else:
-            # Use the same seed for all workers so chunk ordering is deterministic
-            # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            return np.random.default_rng(self._worker_info.seed - self._worker_info.id)
-
-    @cached_property
-    def worker_rng(self) -> np.random.Generator:
-        """RNG unique to this worker - for batch shuffling and stratified sampling."""
-        if self._worker_info is None:
-            if self._seed_seq is None:
-                return np.random.default_rng()
-            return np.random.default_rng(self._seed_seq)
-        else:
-            if self._seed_seq is None:
-                # Use torch's worker seed (already unique per worker)
-                return np.random.default_rng(self._worker_info.seed)
-            else:
-                # Spawn from provided seed sequence
-                spawned = self._seed_seq.spawn(self._worker_info.num_workers)
-                return np.random.default_rng(spawned[self._worker_info.id])
-
-    def shuffle(self, obj: np.typing.ArrayLike) -> None:
-        """Perform in-place shuffle using shared RNG (same across workers).
-
-        Use this for chunk ordering where all workers need the same order.
-
-        Parameters
-        ----------
-            obj
-                The object to be shuffled
-        """
-        self._shared_rng.shuffle(obj)
-
-    def shuffle_worker(self, obj: np.typing.ArrayLike) -> None:
-        """Perform in-place shuffle using worker-specific RNG.
-
-        Use this for batch shuffling where each worker should shuffle differently.
-
-        Parameters
-        ----------
-            obj
-                The object to be shuffled
-        """
-        self.worker_rng.shuffle(obj)
-
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        """Get a chunk of an incoming array accordnig to the current worker id.
+        """Get a chunk of an incoming array according to the current worker id.
 
         Parameters
         ----------
@@ -199,10 +159,8 @@ class WorkerHandle:  # noqa: D101
 
         Returns
         -------
-            A evenly split part of the ray corresponding to how many workers there are.
+            An evenly split part of the array corresponding to this worker.
         """
-        if self._worker_info is None:
-            return obj
         num_workers, worker_id = self._worker_info.num_workers, self._worker_info.id
         chunks_split = np.array_split(obj, num_workers)
         return chunks_split[worker_id]
