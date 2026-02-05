@@ -8,7 +8,7 @@ To implement a custom sampler, you need to understand two key components:
 
 This is the abstract base class that all samplers must inherit from. You need to implement:
 
-- **`_sample(n_obs: int) -> Iterator[LoadRequest]`** (required): The core sampling logic that generates load requests. This method receives the total number of observations and yields `LoadRequest` objects that specify how data should be loaded and batched.
+- **{meth}`annbatch.abc.Sampler._sample`**: The core sampling logic that generates load requests. This method receives the total number of observations and yields {class}`annbatch.types.LoadRequest that specify how data should be loaded and batched.  See below for more information.  The outer {meth}`annbatch.abc.Sampler.sample` that wraps this implemented method calls {meth}`annbatch.abc.Sampler.validate` at runtime.
 
 - **`validate(n_obs: int) -> None`** (optional): Validates the sampler configuration against the given number of observations. Override this method to add custom validation for your sampler parameters. It should raise a `ValueError` if the configuration is invalid.
 
@@ -102,7 +102,7 @@ from annbatch.types import LoadRequest
 import numpy as np
 
 
-class ChunkedSampler(Sampler):
+class InOrderSampler(Sampler):
 
     def __init__(self, batch_size: int, chunk_size: int):
         self.batch_size = batch_size
