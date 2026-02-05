@@ -4,7 +4,7 @@
 
 To implement a custom sampler, you need to understand two key components:
 
-### 1. `annbatch.abc.Sampler`
+### 1. {class}`annbatch.abc.Sampler`
 
 This is the abstract base class that all samplers must inherit from. You need to implement:
 
