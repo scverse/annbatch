@@ -100,6 +100,8 @@ class Loader[
             If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
             Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
             Mutually exclusive with `batch_sampler`. Defaults to False.
+        rng
+            Random number generator for shuffling. Mutually exclusive with `batch_sampler`. Defaults to `np.random.default_rng()` if not provided.
         return_index
             Whether or not to yield the index on each iteration.
         preload_to_gpu
@@ -120,8 +122,6 @@ class Loader[
             With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
             The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
             See
-        rng
-            Random number generator for shuffling. Mutually exclusive with `batch_sampler`.
 
 
     Examples
