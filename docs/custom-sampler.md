@@ -208,7 +208,7 @@ This means:
 - Samples in a batch may be **correlated** (e.g., neighboring cells, adjacent time points)
 - You get **local randomness** (within blocks) but not **global randomness** (across the entire dataset)
 
-**Mitigation strategies:**
-1. **Preshuffle your data** during dataset creation to break up correlations
-2. **Load multiple random chunks** per batch to increase diversity (see `chunks` parameter)
-3. **Use larger in-memory buffers** to shuffle across more blocks
+That is why `annbatch` provides tools to:
+1. **Preshuffle your data** during dataset creation to break up correlations via {class}`~annbatch.DatasetCollection`
+2. **Load multiple random chunks** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.ChunkSampler`)
+3. **Use larger in-memory buffers** to shuffle across more blocks (accelerated via `preload_to_gpu` argument to {class}`~annbatch.Loader`)
