@@ -590,7 +590,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     assert len(stacked_indices) == end_idx - start_idx
 
 
-@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}])
+@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
 def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
     chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)

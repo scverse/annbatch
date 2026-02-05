@@ -80,7 +80,7 @@ class Loader[
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
-    `shuffle`, and `drop_last` must not be set (they are controlled by the `batch_sampler` instead).
+    `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
     When providing these arguments and no `batch_sampler`, they are used to construct a :class:`annbatch.ChunkSampler`.
 
     Parameters
@@ -121,7 +121,7 @@ class Loader[
             The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
             See
         rng
-            Random number generator for shuffling. Mutually exclusive with `batch_sampler`. Defaults to `np.random.default_rng()`.
+            Random number generator for shuffling. Mutually exclusive with `batch_sampler`.
 
 
     Examples
@@ -144,6 +144,7 @@ class Loader[
         "batch_size": 1,
         "shuffle": False,
         "drop_last": False,
+        "rng": np.random.default_rng(),
     }
     # TODO(selmanozleyen): these should be also presented in the documentation
     # but this is not ideal since they are hardcoded into the docstrings
@@ -181,7 +182,7 @@ class Loader[
             "batch_size": batch_size,
             "shuffle": shuffle,
             "drop_last": drop_last,
-            "rng": rng or np.random.default_rng(),
+            "rng": rng,
         }
         if batch_sampler is not None:
             if any(v is not None for v in sampler_args.values()):
