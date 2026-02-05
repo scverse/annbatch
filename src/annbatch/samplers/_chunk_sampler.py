@@ -146,10 +146,8 @@ class ChunkSampler(Sampler):
         # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self._shuffle:
-            if worker_handle is None:
-                self._rng.shuffle(chunk_indices)
-            else:
-                worker_handle.shuffle(chunk_indices)
+            # Use sampler's RNG for chunk ordering - same across all workers
+            self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
         # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_handle is not None:
@@ -159,10 +157,11 @@ class ChunkSampler(Sampler):
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
+        batch_rng = worker_handle.rng if worker_handle is not None else self._rng
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
-                np.random.default_rng().shuffle(batch_indices)
+                batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
@@ -174,10 +173,10 @@ class ChunkSampler(Sampler):
             if total_obs_in_last_batch < self._batch_size:
                 return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
-        batch_indices = split_given_size(
-            (np.random.default_rng().permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
-            self._batch_size,
+        indices = (
+            batch_rng.permutation(total_obs_in_last_batch) if self._shuffle else np.arange(total_obs_in_last_batch)
         )
+        batch_indices = split_given_size(indices, self._batch_size)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
     def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:

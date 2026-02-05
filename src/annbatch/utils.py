@@ -4,7 +4,7 @@ import inspect
 import itertools
 import warnings
 from dataclasses import dataclass
-from functools import cached_property, wraps
+from functools import wraps
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Concatenate, Protocol
 
@@ -103,13 +103,23 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
 
 
 class WorkerHandle:  # noqa: D101
-    @cached_property
-    def _worker_info(self):
+    def __init__(self, seed: int | None = None):
         if find_spec("torch"):
             from torch.utils.data import get_worker_info
 
-            return get_worker_info()
-        return None
+            self._worker_info = get_worker_info()
+            # Each worker gets its own RNG from spawned seed sequence for reproducible batch shuffling
+            seq = np.random.SeedSequence(self._worker_info.seed)
+            self.rngs = [np.random.default_rng(s) for s in seq.spawn(self._worker_info.num_workers)]
+            self._rng = self.rngs[self._worker_info.id]
+        else:
+            self._worker_info = None
+            self._rng = np.random.default_rng(seed)
+
+    @property
+    def rng(self) -> np.random.Generator:
+        """Return the RNG for the current worker."""
+        return self._rng
 
     @property
     def num_workers(self) -> int:
@@ -117,26 +127,6 @@ class WorkerHandle:  # noqa: D101
         if self._worker_info is None:
             return 1
         return self._worker_info.num_workers
-
-    @cached_property
-    def _rng(self):
-        if self._worker_info is None:
-            return np.random.default_rng()
-        else:
-            # This is used for the _get_chunks function
-            # Use the same seed for all workers that the resulting splits are the same across workers
-            # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            return np.random.default_rng(self._worker_info.seed - self._worker_info.id)
-
-    def shuffle(self, obj: np.typing.ArrayLike) -> None:
-        """Perform in-place shuffle.
-
-        Parameters
-        ----------
-            obj
-                The object to be shuffled
-        """
-        self._rng.shuffle(obj)
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
         """Get a chunk of an incoming array accordnig to the current worker id.
