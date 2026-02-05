@@ -168,12 +168,12 @@ class ChunkSampler(Sampler):
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
         final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
-        if total_obs_in_last_batch == 0: # pragma: no cover
+        if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
         if self._drop_last:
-        if total_obs_in_last_batch < self._batch_size:
-            return
-        total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
+            if total_obs_in_last_batch < self._batch_size:
+                return
+            total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
         batch_indices = split_given_size(
             (np.random.default_rng().permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
             self._batch_size,
