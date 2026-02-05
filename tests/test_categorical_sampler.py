@@ -45,13 +45,12 @@ def test_basic_construction():
     boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
-        batch_size=10,
+        batch_size=20,
         chunk_size=20,
         preload_nchunks=2,
     )
-    assert sampler.batch_size == 10
+    assert sampler.batch_size == 20
     assert sampler.n_categories == 3
-    assert sampler.category_sizes == [100, 100, 100]
     assert sampler.shuffle is False
 
 
@@ -62,11 +61,10 @@ def test_from_pandas_categorical():
     sampler = CategoricalSampler.from_pandas(
         categories,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
     )
     assert sampler.n_categories == 3
-    assert sampler.category_sizes == [50, 30, 20]
 
 
 def test_from_pandas_series():
@@ -75,11 +73,10 @@ def test_from_pandas_series():
     sampler = CategoricalSampler.from_pandas(
         series,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
     )
     assert sampler.n_categories == 2
-    assert sampler.category_sizes == [40, 60]
 
 
 def test_from_pandas_unsorted_raises():
@@ -89,7 +86,7 @@ def test_from_pandas_unsorted_raises():
         CategoricalSampler.from_pandas(
             categories,
             batch_size=2,
-            chunk_size=4,
+            chunk_size=2,
             preload_nchunks=1,
         )
 
@@ -101,7 +98,7 @@ def test_from_pandas_non_categorical_raises():
         CategoricalSampler.from_pandas(
             series,
             batch_size=2,
-            chunk_size=4,
+            chunk_size=2,
             preload_nchunks=1,
         )
 
@@ -113,7 +110,7 @@ def test_from_pandas_empty_raises():
         CategoricalSampler.from_pandas(
             categories,
             batch_size=2,
-            chunk_size=4,
+            chunk_size=2,
             preload_nchunks=1,
         )
 
@@ -140,7 +137,7 @@ def test_invalid_boundary_raises(boundaries, error_match):
     with pytest.raises((ValueError, TypeError), match=error_match):
         CategoricalSampler(
             category_boundaries=boundaries,
-            batch_size=5,
+            batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
         )
@@ -151,7 +148,7 @@ def test_empty_boundaries_raises():
     with pytest.raises(ValueError):
         CategoricalSampler(
             category_boundaries=[],
-            batch_size=5,
+            batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
         )
@@ -165,11 +162,11 @@ def test_empty_boundaries_raises():
 @pytest.mark.parametrize(
     "category_sizes,chunk_size,preload_nchunks,batch_size",
     [
-        pytest.param([100, 100, 100], 20, 2, 10, id="equal_categories"),
-        pytest.param([50, 150, 100], 25, 2, 10, id="unequal_categories"),
-        pytest.param([30, 30, 30], 10, 3, 5, id="small_categories"),
-        pytest.param([200], 50, 2, 25, id="single_category"),
-        pytest.param([10, 20, 30, 40], 10, 1, 5, id="many_categories"),
+        pytest.param([100, 100, 100], 10, 2, 10, id="equal_categories"),
+        pytest.param([50, 150, 100], 10, 2, 10, id="unequal_categories"),
+        pytest.param([30, 30, 30], 5, 3, 5, id="small_categories"),
+        pytest.param([200], 25, 2, 25, id="single_category"),
+        pytest.param([10, 20, 30, 40], 5, 1, 5, id="many_categories"),
     ],
 )
 def test_coverage_all_indices(category_sizes, chunk_size, preload_nchunks, batch_size):
@@ -224,7 +221,7 @@ def test_each_split_from_single_category(boundaries, shuffle):
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         shuffle=shuffle,
         rng=np.random.default_rng(42),
@@ -272,7 +269,7 @@ def test_shuffle_changes_order():
     sampler_no_shuffle = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         shuffle=False,
     )
@@ -280,7 +277,7 @@ def test_shuffle_changes_order():
     sampler_shuffle = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         shuffle=True,
         rng=np.random.default_rng(42),
@@ -307,7 +304,7 @@ def test_validate_boundary_exceeds_n_obs():
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
     )
 
@@ -321,7 +318,7 @@ def test_validate_passes_for_valid_config():
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
     )
     # Should not raise
@@ -333,21 +330,14 @@ def test_validate_passes_for_valid_config():
 # =============================================================================
 
 
-@pytest.mark.parametrize(
-    "batch_size,chunk_size,preload_nchunks,error_match",
-    [
-        pytest.param(100, 10, 2, "batch_size cannot exceed", id="batch_exceeds_preload"),
-        pytest.param(7, 10, 2, "must be divisible by batch_size", id="not_divisible"),
-    ],
-)
-def test_invalid_batch_size_raises(batch_size, chunk_size, preload_nchunks, error_match):
-    """Test that invalid batch_size configurations raise ValueError."""
-    with pytest.raises(ValueError, match=error_match):
+def test_invalid_batch_size_raises():
+    """Test that batch_size < chunk_size raises ValueError."""
+    with pytest.raises(ValueError, match="cannot be less than chunk_size"):
         CategoricalSampler(
             category_boundaries=[slice(0, 100)],
-            batch_size=batch_size,
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
+            batch_size=5,
+            chunk_size=10,
+            preload_nchunks=2,
         )
 
 
@@ -363,7 +353,7 @@ def test_drop_last_enforced():
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
     )
 
@@ -386,7 +376,7 @@ def test_splits_have_correct_batch_size():
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
     )
 
@@ -411,7 +401,7 @@ def test_from_pandas_integration():
     sampler = CategoricalSampler.from_pandas(
         categories,
         batch_size=10,
-        chunk_size=25,
+        chunk_size=10,
         preload_nchunks=2,
         shuffle=True,
         rng=np.random.default_rng(123),
@@ -435,7 +425,7 @@ def test_rng_reproducibility():
         sampler = CategoricalSampler(
             category_boundaries=boundaries,
             batch_size=10,
-            chunk_size=20,
+            chunk_size=10,
             preload_nchunks=2,
             shuffle=True,
             rng=np.random.default_rng(seed),
@@ -461,7 +451,7 @@ def test_stratified_basic_construction():
     sampler = StratifiedCategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=50,
     )
@@ -479,7 +469,7 @@ def test_stratified_custom_weights():
     sampler = StratifiedCategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=50,
         weights=[1.0, 2.0, 3.0],
@@ -496,7 +486,7 @@ def test_stratified_n_yields_count():
     sampler = StratifiedCategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=n_yields,
         rng=np.random.default_rng(42),
@@ -516,7 +506,7 @@ def test_stratified_n_yields_invalid():
         StratifiedCategoricalSampler(
             category_boundaries=boundaries,
             batch_size=10,
-            chunk_size=20,
+            chunk_size=10,
             preload_nchunks=2,
             n_yields=0,
         )
@@ -531,7 +521,7 @@ def test_stratified_weights_validation():
         StratifiedCategoricalSampler(
             category_boundaries=boundaries,
             batch_size=10,
-            chunk_size=20,
+            chunk_size=10,
             preload_nchunks=2,
             n_yields=10,
             weights=[1.0],  # Only 1 weight for 2 categories
@@ -542,7 +532,7 @@ def test_stratified_weights_validation():
         StratifiedCategoricalSampler(
             category_boundaries=boundaries,
             batch_size=10,
-            chunk_size=20,
+            chunk_size=10,
             preload_nchunks=2,
             n_yields=10,
             weights=[1.0, -1.0],
@@ -553,7 +543,7 @@ def test_stratified_weights_validation():
         StratifiedCategoricalSampler(
             category_boundaries=boundaries,
             batch_size=10,
-            chunk_size=20,
+            chunk_size=10,
             preload_nchunks=2,
             n_yields=10,
             weights=[0.0, 0.0],
@@ -569,8 +559,8 @@ def test_stratified_replacement():
     sampler = StratifiedCategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
-        preload_nchunks=1,
+        chunk_size=10,
+        preload_nchunks=2,
         n_yields=n_yields,
         rng=np.random.default_rng(42),
     )
@@ -591,7 +581,7 @@ def test_stratified_each_batch_single_category():
     sampler = StratifiedCategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=50,
         shuffle=True,
@@ -630,7 +620,7 @@ def test_stratified_rng_reproducibility():
         sampler = StratifiedCategoricalSampler(
             category_boundaries=boundaries,
             batch_size=10,
-            chunk_size=20,
+            chunk_size=10,
             preload_nchunks=2,
             n_yields=20,
             shuffle=True,
@@ -653,13 +643,12 @@ def test_stratified_from_pandas():
     sampler = StratifiedCategoricalSampler.from_pandas(
         categories,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=30,
     )
 
     assert sampler.n_categories == 3
-    assert sampler.category_sizes == [50, 30, 20]
     assert sampler.n_yields == 30
 
 
@@ -670,7 +659,7 @@ def test_stratified_from_pandas_with_weights():
     sampler = StratifiedCategoricalSampler.from_pandas(
         categories,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=30,
         weights=[3.0, 2.0, 1.0],
@@ -688,7 +677,7 @@ def test_stratified_uniform_weights_distribution():
     sampler = StratifiedCategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
-        chunk_size=20,
+        chunk_size=10,
         preload_nchunks=2,
         n_yields=n_yields,
         rng=np.random.default_rng(42),

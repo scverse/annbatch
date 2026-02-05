@@ -92,6 +92,10 @@ class CategoricalSampler(Sampler):
         rng: np.random.Generator | None = None,
     ):
         check_lt_1([len(category_boundaries)], ["Number of categories"])
+        if batch_size < chunk_size:
+            raise ValueError(
+                f"batch_size ({batch_size}) cannot be less than chunk_size ({chunk_size}) because each batch must be from one category."
+            )
 
         for i, boundary in enumerate(category_boundaries):
             if not isinstance(boundary, slice):
@@ -292,7 +296,7 @@ class CategoricalSampler(Sampler):
 
     @staticmethod
     def _iter_batches(
-        sampler: ChunkSampler, n_obs: int, batches_per_load: int
+        sampler: ChunkSampler, n_obs: int, chunks_per_batch: int
     ) -> Iterator[tuple[list[slice], np.ndarray]]:
         """Yield (chunks, split) for each batch from a sampler.
 
@@ -314,7 +318,7 @@ class CategoricalSampler(Sampler):
         """
         for load_request in sampler._sample(n_obs):
             chunks = load_request["chunks"]
-            yield from batched(chunks, batches_per_load)
+            yield from batched(chunks, chunks_per_batch)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests, ensuring each batch is from a single category.
@@ -325,14 +329,15 @@ class CategoricalSampler(Sampler):
         3. Group n_categories batches together per load request
         """
         batches_per_load = int((self._preload_nchunks * self._chunk_size) // self._batch_size)
-        batch_generators = [self._iter_batches(sampler, n_obs, batches_per_load) for sampler in self._category_samplers]
+        chunks_per_batch = int(self._batch_size / self._chunk_size)
+        batch_generators = [self._iter_batches(sampler, n_obs, chunks_per_batch) for sampler in self._category_samplers]
         # simulate the category order
         category_order = np.concatenate([np.full(n, i) for i, n in enumerate(self._n_batches_per_category)])
         if self._shuffle:
             self._rng.shuffle(category_order)
 
         # Pre-allocate batch indices array for in-place shuffling
-        batch_indices = np.arange(self._batch_size)
+        batch_indices = [np.arange(self._batch_size) + i * self._batch_size for i in range(batches_per_load)]
 
         for cat_idxs in batched(category_order, batches_per_load):
             chunks = [chunk for cat_idx in cat_idxs for chunk in next(batch_generators[cat_idx])]
@@ -340,9 +345,8 @@ class CategoricalSampler(Sampler):
             splits = []
             for batch_num in range(len(cat_idxs)):
                 if self._shuffle:
-                    self._rng.shuffle(batch_indices)
-                offset = batch_num * self._batch_size
-                splits.append(batch_indices.copy() + offset)
+                    self._rng.shuffle(batch_indices[batch_num])
+                splits.append(batch_indices[batch_num])
             yield {"chunks": chunks, "splits": splits}
 
 
