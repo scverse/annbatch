@@ -53,7 +53,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
 
   ```
 
-  Concatenated in-memory data from chunks (400 observations):
+  Concatenated in-memory data (top row) from chunks (bottom row) of 400 observations:
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  0   1   2   3  ...  99 100 101  ...  199 200  ...  299 300  ...  399   │
   │                                                                         │
