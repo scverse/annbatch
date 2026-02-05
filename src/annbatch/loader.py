@@ -120,6 +120,8 @@ class Loader[
             With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
             The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
             See
+        rng
+            Random number generator for shuffling. Mutually exclusive with `batch_sampler`. Defaults to `np.random.default_rng()`.
 
 
     Examples
@@ -171,6 +173,7 @@ class Loader[
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
         concat_strategy: None | concat_strategies = None,
+        rng: np.random.Generator | None = None,
     ):
         sampler_args = {
             "chunk_size": chunk_size,
@@ -178,6 +181,7 @@ class Loader[
             "batch_size": batch_size,
             "shuffle": shuffle,
             "drop_last": drop_last,
+            "rng": rng or np.random.default_rng(),
         }
         if batch_sampler is not None:
             if any(v is not None for v in sampler_args.values()):
