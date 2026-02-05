@@ -183,10 +183,7 @@ Recommended pattern:
 ```
 
 
-### Avoid: Plain Random Reads
-
-Reading individual random observations directly from disk is inefficient:
-
+This strategy stands in contrast to fully random reads:
 ```
 Anti-pattern (slow):
 Read obs 42 → Read obs 789 → Read obs 15 → Read obs 456 → ...
