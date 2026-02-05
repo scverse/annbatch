@@ -21,7 +21,7 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
   ```
   Example: Loading random chunks from a large array
 
-  Full collection (virtual conncatentation of all on disk files) (e.g., 1000 observations, chunk_size=100):
+  Full collection (virtual conncatentation of all on disk files) (e.g., 1000 observations, on-disk chunk_size=100):
   ┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
   │ Chunk 0 │ Chunk 1 │ Chunk 2 │ Chunk 3 │ Chunk 4 │ Chunk 5 │ Chunk 6 │ Chunk 7 │ Chunk 8 │ Chunk 9 │
   │  0-99   │ 100-199 │ 200-299 │ 300-399 │ 400-499 │ 500-599 │ 600-699 │ 700-799 │ 800-899 │ 900-999 │
