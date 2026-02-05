@@ -52,7 +52,6 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   - The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
 
   ```
-  Example: Splitting concatenated data into batches
 
   Concatenated in-memory data from chunks (400 observations):
   ┌─────────────────────────────────────────────────────────────────────────┐
