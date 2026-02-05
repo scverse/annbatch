@@ -41,7 +41,11 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
   │ 200-299 │ 700-799 │  0-99   │ 500-599 │
   └─────────┴─────────┴─────────┴─────────┘
   ```
-  **Important:** The number of samples that get loaded into memory at once, should be devisible by the batch size. Otherwise, the reminder will get dropped.
+  Note: The chunks are purely virtual and are defined by the user through the `chunks` argument.
+  They don't necessarily need to with the underlying zarr chunks.
+
+  **Important:** The number of samples that get loaded into memory at once, must be devisible by the batch size.
+  Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
 
 - **`splits`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
   - If not supplied: batches are randomly created based on the loaded chunks.
