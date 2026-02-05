@@ -182,10 +182,6 @@ Recommended pattern:
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why this matters:**
-- **Fast:** Sequential disk reads are significantly faster than random reads
-- **Efficient:** Takes advantage of how chunked storage formats (like Zarr) organize data
-- **Scalable:** Performance doesn't degrade as dataset size grows
 
 ### Avoid: Plain Random Reads
 
