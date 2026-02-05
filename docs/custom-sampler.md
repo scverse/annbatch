@@ -60,9 +60,9 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   │  [Chunk 200-299]    [Chunk 700-799]   [Chunk 0-99]   [Chunk 500-599]    │
   └─────────────────────────────────────────────────────────────────────────┘
 
-  LoadRequest with splits = [np.array([0,50,150,250]),
+  `LoadRequest` with splits for batch size of 4 = [np.array([0,50,150,250]),
                              np.array([1,51,151,251]),
-                             np.array([2,52,152])]:
+                             np.array([2,52,152]), ...]:
 
   Batch 1 (4 observations):
   ┌───────────────────────────────────────────────────────────────────┐
