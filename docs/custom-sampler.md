@@ -161,7 +161,7 @@ The performance of your sampler heavily depends on how it accesses data from dis
 
 ### The Core Strategy: Blocked Reads + In-Memory Shuffling
 
-The key to efficient sampling from disk-backed arrays is to **read data in contiguous blocks** and then **shuffle in memory**.
+The key to efficient sampling from disk-backed arrays is to **read data from many contiguous blocks** (i.e., more than your batch size generally) and then **shuffle in memory**.
 This approach minimizes expensive disk seeks while still providing randomness in your batches.
 
 ```
