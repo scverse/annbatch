@@ -19,7 +19,6 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
 - **{attr}`~annbatch.types.LoadRequest.chunks`**: A list of slices that define which contiguous chunks of memory to load from disk. Each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
 
   ```
-  Example: Loading random chunks from a large array
 
   Full collection (virtual conncatentation of all on disk files) (e.g., 1000 observations, on-disk chunk_size=100):
   ┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
