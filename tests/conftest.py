@@ -34,6 +34,7 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
     for shard in range(n_shards):
         adata = ad.AnnData(
             X=np.random.random((n_cells_per_shard, feature_dim)).astype("f4"),
+            var=pd.DataFrame(index=[f"gene_{i}" for i in range(feature_dim)]),
             obs=pd.DataFrame(
                 {"label": np.random.default_rng().integers(0, 5, size=n_cells_per_shard)},
                 index=np.arange(n_cells_per_shard).astype(str),

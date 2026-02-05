@@ -236,8 +236,10 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
-def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
+def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
     """Load X as a sparse array or dense zarr array and obs from a group"""
     return ad.AnnData(
-        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]), obs=ad.io.read_elem(g["obs"])
+        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
+        obs=ad.io.read_elem(g["obs"]),
+        var=ad.io.read_elem(g["var"]),
     )
