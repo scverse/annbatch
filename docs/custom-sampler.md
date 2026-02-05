@@ -4,7 +4,7 @@
 
 To implement a custom sampler, you need to understand two key components:
 
-### 1. `annbatch.abc.Sampler`
+### 1. {class}`annbatch.abc.Sampler`
 
 This is the abstract base class that all samplers must inherit from. You need to implement:
 
@@ -12,14 +12,13 @@ This is the abstract base class that all samplers must inherit from. You need to
 
 - **`validate(n_obs: int) -> None`**: Validates the sampler configuration against the given number of observations. Override this method to add custom validation for your sampler parameters. It should raise a `ValueError` if the configuration is invalid.
 
-### 2. `annbatch.types.LoadRequest`
+### 2. {class}`annbatch.types.LoadRequest`
 
-A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` contains:
+This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifies how data should be loaded. Each `LoadRequest` contains:
 
 - **{attr}`~annbatch.types.LoadRequest.chunks`**: A list of slices that define which contiguous chunks of memory to load from disk. Each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
 
   ```
-  Example: Loading random chunks from a large array
 
   Full collection (virtual conncatentation of all on disk files) (e.g., 1000 observations, on-disk chunk_size=100):
   ┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
@@ -47,24 +46,23 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
   **Important:** The number of samples that get loaded into memory at once, must be devisible by the batch size.
   Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
 
-- **`splits`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
+- **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
   - If not supplied: batches are randomly created based on the loaded chunks.
   - If supplied: you can control how batches are created from the in-memory chunks. Each array contains indices that map into the concatenated in-memory data.
   - The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
 
   ```
-  Example: Splitting concatenated data into batches
 
-  Concatenated in-memory data from chunks (400 observations):
+  Concatenated in-memory data (top row) from chunks (bottom row) of 400 observations:
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  0   1   2   3  ...  99 100 101  ...  199 200  ...  299 300  ...  399   │
   │                                                                         │
   │  [Chunk 200-299]    [Chunk 700-799]   [Chunk 0-99]   [Chunk 500-599]    │
   └─────────────────────────────────────────────────────────────────────────┘
 
-  LoadRequest with splits = [np.array([0,50,150,250]),
+  `LoadRequest` with splits for batch size of 4 = [np.array([0,50,150,250]),
                              np.array([1,51,151,251]),
-                             np.array([2,52,152])]:
+                             np.array([2,52,152]), ...]:
 
   Batch 1 (4 observations):
   ┌───────────────────────────────────────────────────────────────────┐
@@ -97,7 +95,7 @@ A `TypedDict` that specifies how data should be loaded. Each `LoadRequest` conta
 
 ## Example 1: Implementing a `ChunkedSampler` class
 
-This example demonstrates an efficient sampler that loads contiguous chunks of data from disk:
+This example demonstrates creating a simple sampler that only loads sequential, non-random chunks of data from disk and yields them in-order:
 
 ```python
 from annbatch.abc import Sampler
@@ -134,6 +132,8 @@ class InOrderSampler(Sampler):
 
 
 ## Example 2: Implementing a `RandomSampler` class
+
+Here we have a sampler that just samples single observations off disk. This is extremely inefficient but instructive (see below for performance considerations):
 ```python
 from annbatch.abc import Sampler
 from collections.abc import Iterator
@@ -161,8 +161,8 @@ The performance of your sampler heavily depends on how it accesses data from dis
 
 ### The Core Strategy: Chunked Reads + In-Memory Shuffling
 
-The key to efficient sampling from disk-backed arrays is to **read data in contiguous chunks** and then **shuffle in memory**.
-This approach minimizes expensive disk seeks while still providing randomness in your batches.
+The key to efficient sampling from disk-backed arrays is to **read data from many contiguous chunks** (i.e., more than your batch size generally) and then **shuffle in memory**.
+This approach minimizes expensive disk seeks (via sequential reads), improves speed via parallelization (by prefetching many batches), and gives sufficient randomness in your batches (because all that data will be shuffled).
 
 ```
 Recommended pattern:
@@ -182,15 +182,8 @@ Recommended pattern:
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why this matters:**
-- **Fast:** Sequential disk reads are significantly faster than random reads
-- **Efficient:** Takes advantage of how chunked storage formats (like Zarr) organize data
-- **Scalable:** Performance doesn't degrade as dataset size grows
 
-### Avoid: Plain Random Reads
-
-Reading individual random observations directly from disk is inefficient:
-
+This strategy stands in contrast to fully random reads:
 ```
 Anti-pattern (slow):
 Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
