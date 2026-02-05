@@ -159,26 +159,26 @@ class RandomSampler(Sampler):
 When implementing a custom sampler, it's crucial to consider **disk access patterns** to ensure efficient data loading.
 The performance of your sampler heavily depends on how it accesses data from disk-backed arrays.
 
-### The Core Strategy: Blocked Reads + In-Memory Shuffling
+### The Core Strategy: Chunked Reads + In-Memory Shuffling
 
-The key to efficient sampling from disk-backed arrays is to **read data in contiguous blocks** and then **shuffle in memory**.
+The key to efficient sampling from disk-backed arrays is to **read data in contiguous chunks** and then **shuffle in memory**.
 This approach minimizes expensive disk seeks while still providing randomness in your batches.
 
 ```
 Recommended pattern:
 ┌──────────────────────────────────────────────────────────────────────────────────┐
-│  1. Read contiguous block(s) from disk       →      2. Shuffle in memory         │
+│  1. Read contiguous chunk(s) from disk       →      2. Shuffle in memory         │
 │                                                                                  │
-│     Disk (sequential reads per block)                Memory (shuffled together)  │
-│  ┌─────────┐                                      ┌──────────────────────┐       │
-│  │ Block A │  ═══════════════╗                    │ C₂ A₃ B₁ A₁ C₄ B₃   │       │
-│  └─────────┘                 ║                    │ B₂ C₁ A₅ B₄ A₂ C₃   │       │
-│  ┌─────────┐                 ╠══════════════>     │ A₄ B₅ C₅ A₆ B₆ C₆   │       │
-│  │ Block B │  ═══════════════╣                    └──────────────────────┘       │
-│  └─────────┘                 ║                               ↓                   │
-│  ┌─────────┐                 ║                                                   │
-│  │ Block C │  ═══════════════╝                    [Batch 1] [Batch 2] [Batch 3]  │
-│  └─────────┘                                                                     │
+│     Disk (sequential reads per chunk)                Memory (shuffled together)  │
+│  ┌───────────────┐                                ┌──────────────────────┐       │
+│  │ Chunk 0: 0-3  │  ═══════════╗                  │  8  2 11  0  5  9    │       │
+│  └───────────────┘             ║                  │ 10  1  4  7  3  6    │       │
+│  ┌───────────────┐             ╠═══════════════>  └──────────────────────┘       │
+│  │ Chunk 1: 4-7  │  ═══════════╣                             ↓                   │
+│  └───────────────┘             ║                       yield batches             │
+│  ┌───────────────┐             ║                                                 │
+│  │ Chunk 2: 8-11 │  ═══════════╝                  [8 2] [11 0] [5 9] ...         │
+│  └───────────────┘                                                               │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -193,8 +193,8 @@ Reading individual random observations directly from disk is inefficient:
 
 ```
 Anti-pattern (slow):
-Read obs 42 → Read obs 789 → Read obs 15 → Read obs 456 → ...
-    └────────────┴────────────┴────────────┴───────────┘
+Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
+    └──────────────┴──────────────┴──────────────┴──────────────┘
     Many random disk seeks across the entire dataset
 ```
 
