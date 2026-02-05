@@ -197,7 +197,6 @@ Read obs 42 → Read obs 789 → Read obs 15 → Read obs 456 → ...
 Each random read may:
 - Require loading an entire chunk just to extract one element (whereas sequential reads will use most if not all elements from every chunk)
 - Cause the disk head to seek to a completely different location
-- Result in cache misses and wasted I/O bandwidth
 
 ### The Randomness Trade-off
 
