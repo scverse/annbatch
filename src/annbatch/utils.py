@@ -147,6 +147,11 @@ class WorkerHandle:
         """Return the number of workers."""
         return self._worker_info.num_workers
 
+    @property
+    def worker_id(self) -> int:
+        """Worker ID."""
+        return self._worker_info.id
+
 
 def check_lt_1(vals: list[int], obs: list[str]) -> None:
     """Raise a ValueError if any of the values are less than one.
