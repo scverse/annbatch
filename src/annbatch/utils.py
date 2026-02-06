@@ -5,7 +5,6 @@ import itertools
 import warnings
 from dataclasses import dataclass
 from functools import wraps
-from importlib.util import find_spec
 from typing import TYPE_CHECKING, Concatenate, Protocol
 
 import anndata as ad
@@ -143,22 +142,6 @@ class WorkerHandle:
     def num_workers(self) -> int:
         """Return the number of workers."""
         return self._worker_info.num_workers
-
-    def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        """Get a chunk of an incoming array according to the current worker id.
-
-        Parameters
-        ----------
-            obj
-                Incoming array
-
-        Returns
-        -------
-            An evenly split part of the array corresponding to this worker.
-        """
-        num_workers, worker_id = self._worker_info.num_workers, self._worker_info.id
-        chunks_split = np.array_split(obj, num_workers)
-        return chunks_split[worker_id]
 
 
 def check_lt_1(vals: list[int], obs: list[str]) -> None:

@@ -44,9 +44,6 @@ class MockWorkerHandle:
     def num_workers(self) -> int:
         return self._num_workers
 
-    def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        return np.array_split(obj, self._num_workers)[self.worker_id]
-
 
 class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
     def set_mock_worker_info(self, worker_id: int, num_workers: int):
