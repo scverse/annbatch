@@ -103,30 +103,20 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
 
 def _spawn_worker_rng(
     rng: np.random.Generator | None,
-    num_workers: int,
     worker_id: int,
 ) -> np.random.Generator:
-    """Spawn a worker-specific RNG from a parent RNG.
+    """Create a worker-specific RNG using the sequence-of-integers seeding pattern.
 
-    Parameters
-    ----------
-    rng
-        Parent RNG to spawn from. If None, creates a fresh unseeded RNG
-        (total randomness).
-    num_workers
-        Total number of workers.
-    worker_id
-        ID of the current worker.
-
-    Returns
-    -------
-    A deterministic, independent RNG for this worker.
+    Uses NumPy's recommended approach for parallel RNG: seeding with
+    ``[worker_id, root_seed]`` to create independent streams without
+    spawning overhead. See:
+    https://numpy.org/doc/stable/reference/random/parallel.html#sequence-of-integer-seeds
     """
     if rng is not None:
-        generators = rng.spawn(num_workers)
-    else:  # rng=None means total randomness
-        generators = np.random.default_rng().spawn(num_workers)
-    return generators[worker_id]
+        root_seed = rng.integers(np.iinfo(np.int64).max)  # 0 to max int64
+        return np.random.default_rng([worker_id, root_seed])
+    else:
+        return np.random.default_rng()
 
 
 class WorkerHandle:
@@ -139,11 +129,8 @@ class WorkerHandle:
     Parameters
     ----------
     rng
-        The RNG to spawn worker-specific RNGs from. If None, uses total randomness.
+        The RNG to derive worker-specific RNGs from. If None, uses a fresh unseeded RNG.
 
-    The RNG is created using `Generator.spawn()` to ensure each worker has an
-    independent but reproducible random stream, following numpy's recommended
-    pattern for parallel random number generation.
     """
 
     def __init__(self, rng: np.random.Generator | None = None):
@@ -151,7 +138,7 @@ class WorkerHandle:
         from torch.utils.data import get_worker_info
 
         self._worker_info = get_worker_info()
-        self._rng = _spawn_worker_rng(rng, self._worker_info.num_workers, self._worker_info.id)
+        self._rng = _spawn_worker_rng(rng, self._worker_info.id)
 
     @property
     def rng(self) -> np.random.Generator:

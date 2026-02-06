@@ -30,7 +30,7 @@ class MockWorkerHandle:
     def __init__(self, worker_id: int, num_workers: int, rng: np.random.Generator | None = None):
         self.worker_id = worker_id
         self._num_workers = num_workers
-        self._rng = _spawn_worker_rng(rng, num_workers, worker_id)
+        self._rng = _spawn_worker_rng(rng, worker_id)
 
     @property
     def rng(self) -> np.random.Generator:
