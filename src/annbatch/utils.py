@@ -113,7 +113,7 @@ def _spawn_worker_rng(
     https://numpy.org/doc/stable/reference/random/parallel.html#sequence-of-integer-seeds
     """
     if rng is not None:
-        root_seed = rng.integers(np.iinfo(np.int64).max)  # 0 to max int64
+        root_seed = rng.integers(np.iinfo(np.int64).max)
         return np.random.default_rng([worker_id, root_seed])
     else:
         return np.random.default_rng()
