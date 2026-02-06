@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import numpy as np
