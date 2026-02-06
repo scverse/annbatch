@@ -142,3 +142,16 @@ qualname_overrides = {
     "zarr.core.group.Group": "zarr.Group",
     "h5py._hl.group.Group": "h5py.Group",
 }
+
+
+def skip_private_abstract_methods(app, what, name, obj, skip, options):  # noqa: D103
+    # Include private methods if they are abstract
+    if name.startswith("_"):
+        if getattr(obj, "__isabstractmethod__", False):
+            return False  # do NOT skip
+        return True
+    return skip  # fallback to default behavior
+
+
+def setup(app):  # noqa: D103
+    app.connect("autodoc-skip-member", skip_private_abstract_methods)

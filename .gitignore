@@ -20,3 +20,6 @@ __pycache__/
 # docs
 /docs/generated/
 /docs/_build/
+
+# PyCharm
+.idea/
