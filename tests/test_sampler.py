@@ -198,11 +198,7 @@ def test_workers_cover_full_dataset_without_overlap(
 
 
 def test_batch_shuffle_is_reproducible():
-    """Test that batch shuffling is reproducible when using ChunkSampler directly.
-
-    This test fails on main because batch shuffling used `np.random.default_rng()` (unseeded).
-    With the fix, it uses the sampler's seeded `_rng` instead, making it reproducible.
-    """
+    """Test that batch shuffling is reproducible when using ChunkSampler directly."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
     seed = 42
 
