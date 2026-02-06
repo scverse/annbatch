@@ -7,6 +7,7 @@ import pytest
 
 from annbatch import ChunkSampler
 from annbatch.abc import Sampler
+from annbatch.utils import _spawn_worker_rng
 
 # TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
 # but overall one must  also think about how validation can't be independent of the worker handle.
@@ -29,12 +30,7 @@ class MockWorkerHandle:
     def __init__(self, worker_id: int, num_workers: int, rng: np.random.Generator | None = None):
         self.worker_id = worker_id
         self._num_workers = num_workers
-        # Each worker gets its own RNG spawned from the sampler's RNG (mirrors real WorkerHandle)
-        if rng is not None:
-            generators = rng.spawn(num_workers)
-        else:  # passing no `rng` means you want total randomness, don’t set a seed here.
-            generators = np.random.default_rng().spawn(num_workers)
-        self._rng = generators[worker_id]
+        self._rng = _spawn_worker_rng(rng, num_workers, worker_id)
 
     @property
     def rng(self) -> np.random.Generator:

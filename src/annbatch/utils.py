@@ -101,6 +101,34 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
+def _spawn_worker_rng(
+    rng: np.random.Generator | None,
+    num_workers: int,
+    worker_id: int,
+) -> np.random.Generator:
+    """Spawn a worker-specific RNG from a parent RNG.
+
+    Parameters
+    ----------
+    rng
+        Parent RNG to spawn from. If None, creates a fresh unseeded RNG
+        (total randomness).
+    num_workers
+        Total number of workers.
+    worker_id
+        ID of the current worker.
+
+    Returns
+    -------
+    A deterministic, independent RNG for this worker.
+    """
+    if rng is not None:
+        generators = rng.spawn(num_workers)
+    else:  # rng=None means total randomness
+        generators = np.random.default_rng().spawn(num_workers)
+    return generators[worker_id]
+
+
 class WorkerHandle:
     """Handle for torch DataLoader worker context.
 
@@ -111,11 +139,9 @@ class WorkerHandle:
     Parameters
     ----------
     rng
-        The RNG to spawn worker-specific RNGs from. If provided, uses its bit_generator's
-        seed sequence to spawn independent streams for each worker. If None, falls back
-        to using torch's worker seed.
+        The RNG to spawn worker-specific RNGs from. If None, uses total randomness.
 
-    The RNG is created using `SeedSequence.spawn()` to ensure each worker has an
+    The RNG is created using `Generator.spawn()` to ensure each worker has an
     independent but reproducible random stream, following numpy's recommended
     pattern for parallel random number generation.
     """
@@ -125,13 +151,7 @@ class WorkerHandle:
         from torch.utils.data import get_worker_info
 
         self._worker_info = get_worker_info()
-        # Each worker gets its own RNG spawned from the sampler's RNG for reproducible batch shuffling
-        if rng is not None:
-            bit_generators = rng.bit_generator.spawn(self._worker_info.num_workers)
-        else:
-            seq = np.random.SeedSequence(self._worker_info.seed).spawn(self._worker_info.num_workers)
-            bit_generators = seq
-        self._rng = np.random.default_rng(bit_generators[self._worker_info.id])
+        self._rng = _spawn_worker_rng(rng, self._worker_info.num_workers, self._worker_info.id)
 
     @property
     def rng(self) -> np.random.Generator:
