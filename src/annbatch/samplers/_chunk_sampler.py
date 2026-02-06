@@ -155,9 +155,6 @@ class ChunkSampler(Sampler):
             # Use sampler's RNG for chunk ordering - same across all workers
             self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
-        # Worker sharding: each worker gets a disjoint subset of chunks
-        if self._shuffle:
-            self._rng.shuffle(chunks)
         if worker_info is not None:
             chunks = np.array_split(chunks, worker_info.num_workers)[worker_info.id]
         # Set up the iterator for chunks and the batch indices for splits
