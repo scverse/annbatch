@@ -124,7 +124,7 @@ class WorkerHandle:
 
     This class should only be instantiated inside a torch DataLoader worker process
     (i.e., when `torch.utils.data.get_worker_info()` returns a non-None value).
-    It provides worker-specific RNG and partitioning utilities.
+    It provides worker-specific RNGs.
 
     Parameters
     ----------
@@ -134,7 +134,6 @@ class WorkerHandle:
     """
 
     def __init__(self, rng: np.random.Generator | None = None):
-        """Initialize WorkerHandle. Must be called from within a torch DataLoader worker."""
         from torch.utils.data import get_worker_info
 
         self._worker_info = get_worker_info()
