@@ -107,9 +107,7 @@ def _spawn_worker_rng(
 ) -> np.random.Generator:
     """Create a worker-specific RNG using the sequence-of-integers seeding pattern.
 
-    Uses NumPy's recommended approach for parallel RNG: seeding with
-    ``[worker_id, root_seed]`` to create independent streams without
-    spawning overhead. See:
+    Uses NumPy's recommended approach for multi-process RNG. See:
     https://numpy.org/doc/stable/reference/random/parallel.html#sequence-of-integer-seeds
     """
     if rng is not None:
