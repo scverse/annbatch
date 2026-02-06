@@ -7,6 +7,7 @@ import pytest
 
 from annbatch import ChunkSampler
 from annbatch.abc import Sampler
+from annbatch.utils import _spawn_worker_rng
 
 # TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
 # but overall one must  also think about how validation can't be independent of the worker handle.
@@ -29,12 +30,7 @@ class MockWorkerHandle:
     def __init__(self, worker_id: int, num_workers: int, rng: np.random.Generator | None = None):
         self.worker_id = worker_id
         self._num_workers = num_workers
-        # Each worker gets its own RNG spawned from the sampler's RNG (mirrors real WorkerHandle)
-        if rng is not None:
-            bit_generators = rng.bit_generator.spawn(num_workers)
-        else:
-            bit_generators = np.random.SeedSequence(42).spawn(num_workers)
-        self._rng = np.random.default_rng(bit_generators[worker_id])
+        self._rng = _spawn_worker_rng(rng, worker_id)
 
     @property
     def rng(self) -> np.random.Generator:
@@ -43,9 +39,6 @@ class MockWorkerHandle:
     @property
     def num_workers(self) -> int:
         return self._num_workers
-
-    def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        return np.array_split(obj, self._num_workers)[self.worker_id]
 
 
 class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
@@ -205,11 +198,7 @@ def test_workers_cover_full_dataset_without_overlap(
 
 
 def test_batch_shuffle_is_reproducible():
-    """Test that batch shuffling is reproducible when using ChunkSampler directly.
-
-    This test verifies batch shuffling uses the sampler's seeded `_rng` instead of
-    an unseeded `np.random.default_rng()`, making it reproducible.
-    """
+    """Test that batch shuffling is reproducible when using ChunkSampler directly."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
     seed = 42
 

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._utils import get_worker_handle, validate_batch_size
+from annbatch.samplers._utils import validate_batch_size
 from annbatch.utils import check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -110,7 +110,14 @@ class ChunkSampler(Sampler):
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
 
     def _get_worker_handle(self) -> WorkerHandle | None:
-        worker_handle = get_worker_handle(self._rng)
+        worker_handle = None
+        if find_spec("torch"):
+            from torch.utils.data import get_worker_info
+
+            from annbatch.utils import WorkerHandle
+
+            if get_worker_info() is not None:
+                worker_handle = WorkerHandle(self._rng)
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
@@ -129,22 +136,23 @@ class ChunkSampler(Sampler):
         # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self._shuffle:
+            # Use sampler's RNG for chunk ordering - same across all workers
             self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
         # Worker sharding: each worker gets a disjoint subset of chunks
+        if self._shuffle:
+            self._rng.shuffle(chunks)
         if worker_handle is not None:
-            chunks = worker_handle.get_part_for_worker(chunks)
-
-        # Batch shuffling: use worker-specific RNG (different per worker)
-        batch_rng = worker_handle.rng if worker_handle is not None else self._rng
-
+            chunks = np.array_split(chunks, worker_handle.num_workers)[worker_handle.worker_id]
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
+        batch_rng = worker_handle.rng if worker_handle is not None else self._rng
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
+                # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
                 batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
@@ -157,13 +165,10 @@ class ChunkSampler(Sampler):
             if total_obs_in_last_batch < self._batch_size:
                 return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
-            # Skip yielding if there are no observations (can happen with drop_last=True and last request is empty)
-            if total_obs_in_last_batch == 0:
-                return
-        batch_indices = split_given_size(
-            (batch_rng.permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
-            self._batch_size,
+        indices = (
+            batch_rng.permutation(total_obs_in_last_batch) if self._shuffle else np.arange(total_obs_in_last_batch)
         )
+        batch_indices = split_given_size(indices, self._batch_size)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
     def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:
