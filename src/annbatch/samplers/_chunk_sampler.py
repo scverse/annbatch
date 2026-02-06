@@ -89,6 +89,14 @@ class ChunkSampler(Sampler):
             drop_last,
         )
 
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    @property
+    def shuffle(self) -> bool:
+        return self._shuffle
+
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
 
@@ -148,22 +156,26 @@ class ChunkSampler(Sampler):
             chunks = worker_handle.get_part_for_worker(chunks)
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks
-        chunks_per_batch = split_given_size(chunks, self._preload_nchunks)
+        chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
-        for batch_chunks in chunks_per_batch[:-1]:
+        for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
-                np.random.default_rng().shuffle(batch_indices)
+                self._rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
-            yield {"chunks": batch_chunks, "splits": split_batch_indices}
+            yield {"chunks": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
-        final_chunks = chunks_per_batch[-1]
+        final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
+        if total_obs_in_last_batch == 0:  # pragma: no cover
+            raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
         if self._drop_last:
+            if total_obs_in_last_batch < self._batch_size:
+                return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
         batch_indices = split_given_size(
-            (np.random.default_rng().permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
+            (self._rng.permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
             self._batch_size,
         )
         yield {"chunks": final_chunks, "splits": batch_indices}

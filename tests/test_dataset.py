@@ -28,13 +28,16 @@ if TYPE_CHECKING:
 
     from annbatch.io import DatasetCollection
 
+skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
+skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
+
 
 class Data(TypedDict):
     dataset: ad.abc.CSRDataset | zarr.Array
     obs: np.ndarray
 
 
-class ListData:
+class ListData(TypedDict):
     datasets: list[ad.abc.CSRDataset | zarr.Array]
     obs: list[np.ndarray]
 
@@ -69,6 +72,19 @@ def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata:
     return data
 
 
+def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
+    old_pipeline = zarr.config.get("codec_pipeline.path")
+
+    with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
+        if not isinstance(path, zarr.Group):
+            path = zarr.open(path)
+        data = {
+            "dataset": path["obsm"]["3d"],
+            "obs": ad.io.read_elem(path["obs"]),
+        }
+    return data
+
+
 def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     return (
         {
@@ -92,7 +108,8 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
             preload_nchunks=preload_nchunks,
             open_func=open_func,
             batch_size=batch_size,
-            preload_to_gpu=preload_to_gpu: Loader(
+            preload_to_gpu=preload_to_gpu,
+            concat_strategy=concat_strategy: Loader(
                 shuffle=shuffle,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -100,6 +117,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 batch_size=batch_size,
                 preload_to_gpu=preload_to_gpu,
                 to_torch=False,
+                concat_strategy=concat_strategy,
             ).use_collection(
                 collection,
                 **(
@@ -108,15 +126,13 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     else {}
                 ),
             ),
-            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
-            marks=pytest.mark.skipif(
-                find_spec("cupy") is None and preload_to_gpu,
-                reason="need cupy installed",
-            ),
+            id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}-concat_strategy={concat_strategy}",  # type: ignore[attr-defined]
+            marks=skip_if_no_cupy,
         )
-        for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
+        for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu, concat_strategy in [
             elem
             for preload_to_gpu in [True, False]
+            for concat_strategy in ["concat-shuffle", "shuffle-concat"]
             for open_func in [open_sparse, open_dense, None]
             for elem in [
                 [
@@ -125,6 +141,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     1,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # singleton chunk size
                 [
                     5,
@@ -132,6 +149,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     1,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # singleton preload
                 [
                     10,
@@ -139,6 +157,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     5,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # batch size divides total in memory size evenly
                 [
                     10,
@@ -146,6 +165,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     open_func,
                     50,
                     preload_to_gpu,
+                    concat_strategy,
                 ],  # batch size equal to in-memory size loading
             ]
         ]
@@ -233,16 +253,13 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("torch"), reason="need torch installed")
+@skip_if_no_torch
 @pytest.mark.parametrize(
     "preload_to_gpu",
     [
         pytest.param(
             True,
-            marks=pytest.mark.skipif(
-                find_spec("cupy") is None,
-                reason="need cupy installed",
-            ),
+            marks=skip_if_no_cupy,
         ),
         False,
     ],
@@ -329,13 +346,13 @@ def _custom_collate_fn(elems):
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("torch"), reason="Need torch installed.")
+@skip_if_no_torch
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_torch_multiprocess_dataloading_zarr(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], open_func, use_zarrs: bool
 ):
     """
-    Test that the ZarrDatasets can be used with PyTorch's DataLoader in a multiprocess context and that each element of
+    Test that Loader can be used with PyTorch's DataLoader in a multiprocess context and that each element of
     the dataset gets yielded once.
     """
     from torch.utils.data import DataLoader
@@ -358,6 +375,47 @@ def test_torch_multiprocess_dataloading_zarr(
         x_list.append(x)
         idx_list.append(idxs.ravel())
 
+    x = np.vstack(x_list)
+    idxs = np.concatenate(idx_list)
+
+    assert np.array_equal(x[np.argsort(idxs)], x_ref)
+
+
+@pytest.mark.parametrize(
+    "preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])], ids=["cupy", "no_cupy"]
+)
+@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])], ids=["torch", "no_torch"])
+def test_3d(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool, to_torch: bool
+):
+    ds = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        shuffle=True,
+        return_index=True,
+        preload_to_gpu=preload_to_gpu,
+        to_torch=to_torch,
+    )
+    ds.add_datasets(
+        **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
+    )
+    x_ref = adata_with_zarr_path_same_var_space[0].obsm["3d"]
+
+    x_list, idx_list = [], []
+    for batch in ds:
+        x, idxs = batch["X"], batch["index"]
+        if preload_to_gpu and not to_torch:
+            import cupy as cp
+
+            assert isinstance(x, cp.ndarray)
+            x = x.get()
+        if to_torch:
+            import torch
+
+            assert isinstance(x, torch.Tensor)
+            x = np.array(x.cpu())
+        x_list.append(x)
+        idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
     idxs = np.concatenate(idx_list)
 
@@ -435,7 +493,7 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not find_spec("cupy"), reason="need cupy installed")
+@skip_if_no_cupy
 @pytest.mark.parametrize(
     ("dtype_in", "expected"),
     [(np.int16, np.float32), (np.int32, np.float64), (np.float32, np.float32), (np.float64, np.float64)],
@@ -467,6 +525,10 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
         @property
         def batch_size(self) -> int:
             return 10
+
+        @property
+        def shuffle(self) -> bool:
+            return False
 
         @property
         def worker_handle(self):
@@ -534,9 +596,26 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     assert len(stacked_indices) == end_idx - start_idx
 
 
-@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}])
+@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
 def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
     chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
     with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
+
+
+def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    ds1 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds2 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds1.use_collection(
+        simple_collection[1],
+    )
+    ds2.use_collection(
+        simple_collection[1],
+    )
+    for batch1, batch2 in zip(ds1, ds2, strict=True):
+        np.testing.assert_equal(batch1["X"], batch2["X"])

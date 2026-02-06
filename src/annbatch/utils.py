@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import itertools
 import warnings
 from dataclasses import dataclass
 from functools import cached_property, wraps
@@ -9,13 +10,14 @@ from typing import TYPE_CHECKING, Concatenate, Protocol
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import scipy as sp
 import zarr
 
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from annbatch.loader import Loader
     from annbatch.types import OutputInMemoryArray_T
@@ -54,6 +56,17 @@ def validate_sampler[**Param, RetType](
 def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
     """Wrapper around `np.split` to split up an array into `size` chunks"""
     return np.split(a, np.arange(size, len(a), size))
+
+
+def interval_indexer_from_slices(slices: Iterable[slice]) -> pd.IntervalIndex:
+    """Generate an IntervalIndex from a list of slices representing start-stop bounds."""
+    len_bounds = list(itertools.accumulate((sum(s.stop - s.start for s in v) for v in slices), initial=0))
+    starts = len_bounds[:-1]
+    ends = len_bounds[1:]
+    return pd.IntervalIndex.from_tuples(
+        list(zip(starts, ends, strict=True)),
+        closed="left",
+    )
 
 
 @dataclass

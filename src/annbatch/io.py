@@ -92,47 +92,47 @@ def write_sharded(
         key
             The key to which this object should be written - by default the root, in which case the *entire* store (not just the group) is cleared first.
     """
-    ad.settings.zarr_write_format = 3
+    with ad.settings.override(zarr_write_format=3, write_csr_csc_indices_with_min_possible_dtype=True):
 
-    def callback(
-        write_func: ad.experimental.Write,
-        store: zarr.Group,
-        elem_name: str,
-        elem: ad.typing.RWAble,
-        dataset_kwargs: Mapping[str, Any],
-        *,
-        iospec: ad.experimental.IOSpec,
-    ):
-        # Ensure we're not overriding anything here
-        dataset_kwargs = dataset_kwargs.copy()
-        if iospec.encoding_type in {"array"} and (
-            any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
+        def callback(
+            write_func: ad.experimental.Write,
+            store: zarr.Group,
+            elem_name: str,
+            elem: ad.typing.RWAble,
+            dataset_kwargs: Mapping[str, Any],
+            *,
+            iospec: ad.experimental.IOSpec,
         ):
-            # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
-            shard_size = min(dense_shard_size, _round_down(elem.shape[0], dense_chunk_size))
-            chunk_size = min(dense_chunk_size, _round_down(elem.shape[0], dense_chunk_size))
-            # If the shape is less than the computed size (impossible given rounds?) or the rounding caused created a 0-size chunk, then error
-            if elem.shape[0] < chunk_size or chunk_size == 0:
-                raise ValueError(
-                    f"Choose a dense shard obs {dense_shard_size} and chunk obs {dense_chunk_size} with non-zero size less than the number of observations {elem.shape[0]}"
-                )
-            dataset_kwargs = {
-                **dataset_kwargs,
-                "shards": (shard_size,) + elem.shape[1:],  # only shard over 1st dim
-                "chunks": (chunk_size,) + elem.shape[1:],  # only chunk over 1st dim
-                "compressors": compressors,
-            }
-        elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
-            dataset_kwargs = {
-                **dataset_kwargs,
-                "shards": (sparse_shard_size,),
-                "chunks": (sparse_chunk_size,),
-                "compressors": compressors,
-            }
-        write_func(store, elem_name, elem, dataset_kwargs=dataset_kwargs)
+            # Ensure we're not overriding anything here
+            dataset_kwargs = dataset_kwargs.copy()
+            if iospec.encoding_type in {"array"} and (
+                any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
+            ):
+                # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
+                shard_size = min(dense_shard_size, _round_down(elem.shape[0], dense_chunk_size))
+                chunk_size = min(dense_chunk_size, _round_down(elem.shape[0], dense_chunk_size))
+                # If the shape is less than the computed size (impossible given rounds?) or the rounding caused created a 0-size chunk, then error
+                if elem.shape[0] < chunk_size or chunk_size == 0:
+                    raise ValueError(
+                        f"Choose a dense shard obs {dense_shard_size} and chunk obs {dense_chunk_size} with non-zero size less than the number of observations {elem.shape[0]}"
+                    )
+                dataset_kwargs = {
+                    **dataset_kwargs,
+                    "shards": (shard_size,) + elem.shape[1:],  # only shard over 1st dim
+                    "chunks": (chunk_size,) + elem.shape[1:],  # only chunk over 1st dim
+                    "compressors": compressors,
+                }
+            elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
+                dataset_kwargs = {
+                    **dataset_kwargs,
+                    "shards": (sparse_shard_size,),
+                    "chunks": (sparse_chunk_size,),
+                    "compressors": compressors,
+                }
+            write_func(store, elem_name, elem, dataset_kwargs=dataset_kwargs)
 
-    ad.experimental.write_dispatched(group, "/" if key is None else key, adata, callback=callback)
-    zarr.consolidate_metadata(group.store)
+        ad.experimental.write_dispatched(group, "/" if key is None else key, adata, callback=callback)
+        zarr.consolidate_metadata(group.store)
 
 
 def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](

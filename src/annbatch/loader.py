@@ -5,7 +5,7 @@ from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
 from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
-from typing import TYPE_CHECKING, NamedTuple, Self, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
 
 import anndata as ad
 import numpy as np
@@ -22,6 +22,7 @@ from annbatch.utils import (
     MultiBasicIndexer,
     check_lt_1,
     check_var_shapes,
+    interval_indexer_from_slices,
     load_x_and_obs,
     to_torch,
     validate_sampler,
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     BackingArray = BackingArray_T
     OutputInMemoryArray = OutputInMemoryArray_T
     InputInMemoryArray = InputInMemoryArray_T
+
+type concat_strategies = Literal["concat-shuffle", "shuffle-concat"]
 
 
 class CSRDatasetElems(NamedTuple):
@@ -77,7 +80,7 @@ class Loader[
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
-    `shuffle`, and `drop_last` must not be set (they are controlled by the `batch_sampler` instead).
+    `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
     When providing these arguments and no `batch_sampler`, they are used to construct a :class:`annbatch.ChunkSampler`.
 
     Parameters
@@ -97,18 +100,29 @@ class Loader[
             If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
             Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
             Mutually exclusive with `batch_sampler`. Defaults to False.
+        rng
+            Random number generator for shuffling. Mutually exclusive with `batch_sampler`. Defaults to `np.random.default_rng()` if not provided.
         return_index
             Whether or not to yield the index on each iteration.
         preload_to_gpu
             Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
             This option entails greater GPU memory usage, but is faster at least for sparse operations.
-            :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of cupy internally.
-            Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data.
+            :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of `cupy` internally (which also means `torch` is an optional dep).
+            Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data due to memory pressure.
             For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to densify.
+            :meth:`cupy.cuda.MemoryPool.free_all_blocks` (i.e., the method of the pool of :func:`cupy.get_default_memory_pool()`) is called aggresively to keep memory usage low.
+            If you are using your own memory pool or allocator, you may have to free blocks on your own.
         to_torch
             Whether to return `torch.Tensor` as the output.
             Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
             Defaults to True if `torch` is installed.
+        concat_strategy
+            The strategy for how in-memory, preloaded data should be concatenated and yielded.
+            With `concat-shuffle`, preloaded data is concatenated and then subsetted/shuffled (higher memory usage, but faster, at least for sparse data)
+            With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
+            The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
+            See
+
 
     Examples
     --------
@@ -130,6 +144,7 @@ class Loader[
         "batch_size": 1,
         "shuffle": False,
         "drop_last": False,
+        "rng": np.random.default_rng(),
     }
     # TODO(selmanozleyen): these should be also presented in the documentation
     # but this is not ideal since they are hardcoded into the docstrings
@@ -143,6 +158,8 @@ class Loader[
     _to_torch: bool = True
     _dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
+    _concat_strategy: None | concat_strategies = None
+    _dataset_intervals: pd.IntervalIndex | None = None
 
     def __init__(
         self,
@@ -156,6 +173,8 @@ class Loader[
         preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
+        concat_strategy: None | concat_strategies = None,
+        rng: np.random.Generator | None = None,
     ):
         sampler_args = {
             "chunk_size": chunk_size,
@@ -163,6 +182,7 @@ class Loader[
             "batch_size": batch_size,
             "shuffle": shuffle,
             "drop_last": drop_last,
+            "rng": rng,
         }
         if batch_sampler is not None:
             if any(v is not None for v in sampler_args.values()):
@@ -189,6 +209,7 @@ class Loader[
         self._train_datasets = []
         self._shapes = []
         self._dataset_elem_cache = {}
+        self._concat_strategy = concat_strategy
 
     def __len__(self) -> int:
         return self.n_obs
@@ -376,7 +397,7 @@ class Loader[
                 )
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Cannot add dataset of type {type(dataset)}")
-        if isinstance(dataset, ad.abc.CSRDataset) and not dataset.backend == "zarr":
+        if (is_sparse := isinstance(dataset, ad.abc.CSRDataset)) and not dataset.backend == "zarr":
             raise TypeError(
                 "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
             )
@@ -390,7 +411,23 @@ class Loader[
             self._obs += [obs]
         elif obs is not None:  # obs dont exist yet, but are being added for the first time
             self._obs = [obs]
+        if self._concat_strategy is None:
+            if is_sparse:
+                self._concat_strategy = "concat-shuffle"
+            else:
+                self._concat_strategy = "shuffle-concat"
+        self._update_dataset_intervals()
         return self
+
+    def _update_dataset_intervals(self) -> None:
+        if len(self._shapes) == 0:
+            self._dataset_intervals = None
+            return
+        # Build intervals [start, end) for each dataset
+        cumsum = list(accumulate(shape[0] for shape in self._shapes))
+        starts = [0] + cumsum[:-1]
+        ends = cumsum
+        self._dataset_intervals = pd.IntervalIndex.from_arrays(starts, ends, closed="left")
 
     def _get_relative_obs_indices(self, index: slice, *, use_original_space: bool = False) -> list[tuple[slice, int]]:
         """Generate a slice relative to a dataset given a global slice index over all datasets.
@@ -413,24 +450,25 @@ class Loader[
         -------
             A slice relative to the dataset it represents as well as the index of said dataset in `sparse_datasets`.
         """
+        if self._dataset_intervals is None:
+            return []
+
         min_idx = index.start
         max_idx = index.stop
-        curr_pos = 0
-        slices = []
-        for idx, (n_obs, _) in enumerate(self._shapes):
-            array_start = curr_pos
-            array_end = curr_pos + n_obs
 
+        slices = []
+        overlapping_mask = self._dataset_intervals.overlaps(pd.Interval(min_idx, max_idx, closed="left"))
+        for (array_start, array_end), dataset_idx in zip(
+            self._dataset_intervals[overlapping_mask].to_tuples(), np.flatnonzero(overlapping_mask), strict=True
+        ):
             start = max(min_idx, array_start)
             stop = min(max_idx, array_end)
-            if start < stop:
-                if use_original_space:
-                    slices.append((slice(start, stop), idx))
-                else:
-                    relative_start = start - array_start
-                    relative_stop = stop - array_start
-                    slices.append((slice(relative_start, relative_stop), idx))
-            curr_pos += n_obs
+            if use_original_space:
+                slices.append((slice(start, stop), dataset_idx))
+            else:
+                relative_start = start - array_start
+                relative_stop = stop - array_start
+                slices.append((slice(relative_start, relative_stop), dataset_idx))
         return slices
 
     def _slices_to_slices_with_array_index(
@@ -623,6 +661,9 @@ class Loader[
     ) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
         """Iterate over the on-disk datasets.
 
+        Data is fetched from `N` on-disk anndata objects, returning `N` blocks which are then either concatenated immediately and then yieled/shuffled, or subsetted to shuffled subsets and then concatenated/yielded.
+        See `concat_strategy` initialization argument for more information.
+
         Yields
         ------
             A batch of data along with its obs and index (both optional).
@@ -631,7 +672,7 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-
+        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
@@ -639,20 +680,49 @@ class Loader[
             dataset_index_to_slices = self._slices_to_slices_with_array_index(chunks_to_load, use_original_space=False)
             # Fetch the data over slices
             chunks: list[InputInMemoryArray] = zsync.sync(self._index_datasets(dataset_index_to_slices))
-            in_memory_data: OutputInMemoryArray_T = self._accumulate_chunks(chunks)
+            in_memory_data = self._accumulate_chunks(chunks)
             # Accumulate labels and indices if possible
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_slices)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(chunks_to_load)
+            if self._concat_strategy == "concat-shuffle":
+                in_memory_data = mod.vstack(in_memory_data)
+                for split in splits:
+                    data = in_memory_data[split]
+                    yield {
+                        "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
+                        "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
+                        "index": in_memory_indices[split] if in_memory_indices is not None else None,
+                    }
+            elif self._concat_strategy == "shuffle-concat":
+                # An IntervalIndexer with start-stop bounds of each chunk's dataset
+                dataset_interval_indexer = interval_indexer_from_slices(dataset_index_to_slices.values())
+                for split in splits:
+                    sorted_split = np.sort(split)
+                    # Get the index of the dataset for the given split relative to the in-memory data
+                    dataset_locs = dataset_interval_indexer.get_indexer_for(sorted_split)
+                    # Get the left bound of that dataset relative to the in-memory data
+                    offsets = dataset_interval_indexer.left[dataset_locs]
+                    # Stack the chunks in dataset order, offseting each split by its dataset's leftmost in-memory bound
+                    data = mod.vstack(
+                        [
+                            chunk[sorted_split[dataset_locs == i] - offsets[dataset_locs == i]]
+                            for i, chunk in enumerate(in_memory_data)
+                        ]
+                    )
+                    yield {
+                        "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
+                        "obs": concatenated_obs.iloc[sorted_split] if concatenated_obs is not None else None,
+                        "index": in_memory_indices[sorted_split] if in_memory_indices is not None else None,
+                    }
+            else:  # pragma: no cover
+                raise RuntimeError(
+                    f"Found unrecognized concatenation strategy at iteration time {self._concat_strategy}.  Please open an issue"
+                )
+            # https://github.com/cupy/cupy/issues/9625
+            if self._preload_to_gpu and issubclass(self.dataset_type, ad.abc.CSRDataset):
+                self._np_module.get_default_memory_pool().free_all_blocks()
 
-            for split in splits:
-                data = in_memory_data[split]
-                yield {
-                    "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
-                    "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
-                    "index": in_memory_indices[split] if in_memory_indices is not None else None,
-                }
-
-    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> OutputInMemoryArray_T:
+    def _accumulate_chunks(self, chunks: list[InputInMemoryArray]) -> list[OutputInMemoryArray_T]:
         """Convert fetched chunks to output array format (CSR or ndarray)."""
         result: list[OutputInMemoryArray_T] = []
         for chunk in chunks:
@@ -666,8 +736,7 @@ class Loader[
                 )
             else:
                 result.append(self._np_module.asarray(chunk))
-        mod = self._sp_module if issubclass(self.dataset_type, ad.abc.CSRDataset) else np
-        return mod.vstack(result)
+        return result
 
     def _maybe_accumulate_obs(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> pd.DataFrame | None:
         """Gather obs labels for the loaded slices if possible."""
