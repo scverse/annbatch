@@ -31,10 +31,10 @@ class MockWorkerHandle:
         self._num_workers = num_workers
         # Each worker gets its own RNG spawned from the sampler's RNG (mirrors real WorkerHandle)
         if rng is not None:
-            bit_generators = rng.bit_generator.spawn(num_workers)
-        else:
-            bit_generators = np.random.SeedSequence(42).spawn(num_workers)
-        self._rng = np.random.default_rng(bit_generators[worker_id])
+            generators = rng.spawn(num_workers)
+        else:  # passing no `rng` means you want total randomness, don’t set a seed here.
+            generators = np.random.default_rng().spawn(num_workers)
+        self._rng = generators[worker_id]
 
     @property
     def rng(self) -> np.random.Generator:
