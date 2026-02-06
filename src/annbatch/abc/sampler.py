@@ -28,7 +28,7 @@ class Sampler(ABC):
 
         Note
         ----
-        This property is only used when the `splits` argument is not supplied in the {class}`annbatch.types.LoadRequest`.
+        This property is only used when the `splits` argument is not supplied in the :class:`annbatch.types.LoadRequest`.
         When `splits` are explicitly provided, they determine the batch boundaries instead.
 
         Returns
@@ -41,10 +41,10 @@ class Sampler(ABC):
     @abstractmethod
     def shuffle(self) -> bool:
         """Whether data is shuffled.
-        
-        If `batch_size` is provided and {attr}`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
 
-        Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in {class}`annbatch.types.LoadRequest`).
+        If `batch_size` is provided and :attr:`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
+
+        Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in :class:`annbatch.types.LoadRequest`).
 
         Returns
         -------
@@ -55,7 +55,7 @@ class Sampler(ABC):
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests given the total number of observations.
 
-        Base implemention simply calls {meth}`~annbatch.abc.Sampler.validate` and then yields via {meth}`~annbatch.abc.Sampler._sample`.
+        Base implemention simply calls :meth:`~annbatch.abc.Sampler.validate` and then yields via :meth:`~annbatch.abc.Sampler._sample`.
 
         Parameters
         ----------
