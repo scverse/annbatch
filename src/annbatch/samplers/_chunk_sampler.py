@@ -150,9 +150,10 @@ class ChunkSampler(Sampler):
             self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
         # Worker sharding: each worker gets a disjoint subset of chunks
+        if self._shuffle:
+            self._rng.shuffle(chunks)
         if worker_handle is not None:
-            chunks = self._rng.shuffle(chunks)
-            chunks = np.array_split(chunks, worker_handle.num_workers)[worker_handle.id]
+            chunks = np.array_split(chunks, worker_handle.num_workers)[worker_handle.worker_id]
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
