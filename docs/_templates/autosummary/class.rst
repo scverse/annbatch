@@ -4,7 +4,12 @@
 
 .. add toctree option to make autodoc generate the pages
 
+{% if objname == 'Sampler' %}
 .. autoclass:: {{ objname }}
+   :private-members: _sample
+{% else %}
+.. autoclass:: {{ objname }}
+{% endif %}
 
 {% block attributes %}
 {% if attributes %}
