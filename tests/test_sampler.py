@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
 from annbatch import ChunkSampler
 from annbatch.abc import Sampler
-from annbatch.utils import _spawn_worker_rng
-
-# TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
-# but overall one must  also think about how validation can't be independent of the worker handle.
+from annbatch.samplers._chunk_sampler import WorkerInfo
 
 
 def collect_indices(sampler, n_obs):
@@ -22,35 +21,6 @@ def collect_indices(sampler, n_obs):
         for s in load_request["chunks"]:
             indices.extend(range(s.start, s.stop))
     return indices
-
-
-class MockWorkerHandle:
-    """Simulates torch worker context for testing without actual DataLoader."""
-
-    def __init__(self, worker_id: int, num_workers: int, rng: np.random.Generator | None = None):
-        self.worker_id = worker_id
-        self._num_workers = num_workers
-        self._rng = _spawn_worker_rng(rng, worker_id)
-
-    @property
-    def rng(self) -> np.random.Generator:
-        return self._rng
-
-    @property
-    def num_workers(self) -> int:
-        return self._num_workers
-
-
-class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
-    def set_mock_worker_info(self, worker_id: int, num_workers: int):
-        """Set mock worker info. The RNG will be derived from sampler's _rng."""
-        self._mock_worker_id = worker_id
-        self._mock_num_workers = num_workers
-
-    def _get_worker_handle(self) -> MockWorkerHandle | None:
-        if hasattr(self, "_mock_worker_id"):
-            return MockWorkerHandle(self._mock_worker_id, self._mock_num_workers, self._rng)
-        return None
 
 
 # =============================================================================
@@ -178,15 +148,18 @@ def test_workers_cover_full_dataset_without_overlap(
     """Test workers cover full dataset without overlap. Also checks if there are empty splits in any of the load requests."""
     all_worker_indices = []
     for worker_id in range(num_workers):
-        sampler = ChunkSamplerWithMockWorkerHandle(
+        sampler = ChunkSampler(
             mask=slice(0, None),
             batch_size=batch_size,
             chunk_size=chunk_size,
             preload_nchunks=preload_nchunks,
             drop_last=drop_last,
         )
-        sampler.set_mock_worker_info(worker_id, num_workers)
-        all_worker_indices.append(collect_indices(sampler, n_obs))
+        with patch(
+            "annbatch.samplers._chunk_sampler._get_torch_worker_info",
+            return_value=WorkerInfo(id=worker_id, num_workers=num_workers),
+        ):
+            all_worker_indices.append(collect_indices(sampler, n_obs))
 
     # All workers should have disjoint chunks
     for i in range(num_workers):

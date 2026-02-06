@@ -4,18 +4,38 @@ from __future__ import annotations
 
 import math
 from importlib.util import find_spec
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.utils import check_lt_1, split_given_size
+from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from annbatch.types import LoadRequest
-    from annbatch.utils import WorkerHandle
+
+
+class WorkerInfo(NamedTuple):
+    """Minimal worker info for RNG handling."""
+
+    id: int
+    num_workers: int
+
+
+def _get_torch_worker_info() -> WorkerInfo | None:
+    """Get torch DataLoader worker info if available.
+
+    Returns None if torch is not installed or not in a worker process.
+    """
+    if find_spec("torch"):
+        from torch.utils.data import get_worker_info
+
+        info = get_worker_info()
+        if info is not None:
+            return WorkerInfo(id=info.id, num_workers=info.num_workers)
+    return None
 
 
 class ChunkSampler(Sampler):
@@ -119,28 +139,14 @@ class ChunkSampler(Sampler):
         if start >= stop:
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
 
-    def _get_worker_handle(self) -> WorkerHandle | None:
-        worker_handle = None
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
-
-            from annbatch.utils import WorkerHandle
-
-            if get_worker_info() is not None:
-                worker_handle = WorkerHandle(self._rng)
-        # Worker mode validation - only check when there are multiple workers
-        # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
-        if (
-            worker_handle is not None
-            and worker_handle.num_workers > 1
-            and not self._drop_last
-            and self._batch_size != 1
-        ):
-            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
-        return worker_handle
-
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        worker_handle = self._get_worker_handle()
+        worker_info = _get_torch_worker_info()
+        # Worker mode validation - only check when there are multiple workers
+
+        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
+            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
+            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
+
         start, stop = self._mask.start or 0, self._mask.stop or n_obs
         # Compute chunks directly from resolved mask range
         # Create chunk indices for possible shuffling and worker sharding
@@ -152,14 +158,14 @@ class ChunkSampler(Sampler):
         # Worker sharding: each worker gets a disjoint subset of chunks
         if self._shuffle:
             self._rng.shuffle(chunks)
-        if worker_handle is not None:
-            chunks = np.array_split(chunks, worker_handle.num_workers)[worker_handle.worker_id]
+        if worker_info is not None:
+            chunks = np.array_split(chunks, worker_info.num_workers)[worker_info.id]
         # Set up the iterator for chunks and the batch indices for splits
         in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
-        batch_rng = worker_handle.rng if worker_handle is not None else self._rng
+        batch_rng = _spawn_worker_rng(self._rng, worker_info.id) if worker_info else self._rng
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training

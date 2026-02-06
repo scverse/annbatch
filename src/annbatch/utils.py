@@ -117,42 +117,6 @@ def _spawn_worker_rng(
         return np.random.default_rng()
 
 
-class WorkerHandle:
-    """Handle for torch DataLoader worker context.
-
-    This class should only be instantiated inside a torch DataLoader worker process
-    (i.e., when `torch.utils.data.get_worker_info()` returns a non-None value).
-    It provides worker-specific RNGs.
-
-    Parameters
-    ----------
-    rng
-        The RNG to derive worker-specific RNGs from. If None, uses a fresh unseeded RNG.
-
-    """
-
-    def __init__(self, rng: np.random.Generator | None = None):
-        from torch.utils.data import get_worker_info
-
-        self._worker_info = get_worker_info()
-        self._rng = _spawn_worker_rng(rng, self._worker_info.id)
-
-    @property
-    def rng(self) -> np.random.Generator:
-        """Return the RNG for the current worker."""
-        return self._rng
-
-    @property
-    def num_workers(self) -> int:
-        """Return the number of workers."""
-        return self._worker_info.num_workers
-
-    @property
-    def worker_id(self) -> int:
-        """Worker ID."""
-        return self._worker_info.id
-
-
 def check_lt_1(vals: list[int], obs: list[str]) -> None:
     """Raise a ValueError if any of the values are less than one.
 
