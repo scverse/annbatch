@@ -101,17 +101,14 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-def _spawn_worker_rng(rng: np.random.Generator | None, worker_id: int) -> np.random.Generator:
+def _spawn_worker_rng(rng: np.random.Generator, worker_id: int) -> np.random.Generator:
     """Create a worker-specific RNG using the sequence-of-integers seeding pattern.
 
     Uses NumPy's recommended approach for multi-process RNG. See:
     https://numpy.org/doc/stable/reference/random/parallel.html#sequence-of-integer-seeds
     """
-    if rng is not None:
-        root_seed = rng.integers(np.iinfo(np.int64).max)
-        return np.random.default_rng([worker_id, root_seed])
-    else:
-        return np.random.default_rng()
+    root_seed = rng.integers(np.iinfo(np.int64).max)
+    return np.random.default_rng([worker_id, root_seed])
 
 
 def check_lt_1(vals: list[int], obs: list[str]) -> None:
