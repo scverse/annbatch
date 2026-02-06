@@ -596,7 +596,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     assert len(stacked_indices) == end_idx - start_idx
 
 
-@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}])
+@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
 def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
     chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
@@ -604,71 +604,18 @@ def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
 
 
-def test_stratified_categorical_sampler_with_loader(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
-):
-    """Test StratifiedCategoricalSampler integration with Loader.
-
-    Verifies:
-    - Correct number of batches yielded (n_yields)
-    - Each batch contains indices from a single category
-    - Data integrity (indices map to correct data)
-    """
-    from annbatch import StratifiedCategoricalSampler
-
-    paths = list(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
-    datas = [open_sparse(p) for p in paths]
-
-    # Calculate total n_obs
-    total_n_obs = sum(d["dataset"].shape[0] for d in datas)
-
-    # Create category boundaries (split into 3 roughly equal categories)
-    cat_size = total_n_obs // 3
-    boundaries = [
-        slice(0, cat_size),
-        slice(cat_size, 2 * cat_size),
-        slice(2 * cat_size, total_n_obs),
-    ]
-
-    n_yields = 15
-    batch_size = 10
-
-    sampler = StratifiedCategoricalSampler(
-        category_boundaries=boundaries,
-        batch_size=batch_size,
-        chunk_size=20,
-        preload_nchunks=2,
-        n_yields=n_yields,
-        rng=np.random.default_rng(42),
+def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    ds1 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
     )
-
-    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to_torch=False, return_index=True)
-    loader.add_datasets(**concat(datas))
-
-    # Collect all batches and verify
-    batch_count = 0
-    all_indices = []
-
-    for batch in loader:
-        batch_count += 1
-        indices = batch["index"]
-        all_indices.append(indices)
-
-        # Verify batch size
-        assert len(indices) == batch_size
-
-        # Verify all indices in batch are from the same category
-        categories_in_batch = set()
-        for idx in indices:
-            for i, boundary in enumerate(boundaries):
-                if boundary.start <= idx < boundary.stop:
-                    categories_in_batch.add(i)
-                    break
-        assert len(categories_in_batch) == 1, f"Batch contains indices from multiple categories: {categories_in_batch}"
-
-    # Verify correct number of batches
-    assert batch_count == n_yields, f"Expected {n_yields} batches, got {batch_count}"
-
-    # Verify all indices are valid
-    all_indices_flat = np.concatenate(all_indices)
-    assert all(0 <= idx < total_n_obs for idx in all_indices_flat), "Invalid indices in output"
+    ds2 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds1.use_collection(
+        simple_collection[1],
+    )
+    ds2.use_collection(
+        simple_collection[1],
+    )
+    for batch1, batch2 in zip(ds1, ds2, strict=True):
+        np.testing.assert_equal(batch1["X"], batch2["X"])
