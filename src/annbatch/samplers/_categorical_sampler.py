@@ -10,14 +10,13 @@ import pandas as pd
 
 from annbatch.abc import Sampler
 from annbatch.samplers._chunk_sampler import ChunkSampler
-from annbatch.samplers._utils import get_worker_handle, is_in_worker
+from annbatch.samplers._utils import is_in_worker
 from annbatch.utils import check_lt_1
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
     from annbatch.types import LoadRequest
-    from annbatch.utils import WorkerHandle
 
 
 class CategoricalSampler(Sampler):
@@ -96,24 +95,7 @@ class CategoricalSampler(Sampler):
             raise ValueError(
                 f"batch_size ({batch_size}) cannot be less than chunk_size ({chunk_size}) because each batch must be from one category."
             )
-
-        for i, boundary in enumerate(category_boundaries):
-            if not isinstance(boundary, slice):
-                raise TypeError(f"Expected slice for boundary {i}, got {type(boundary)}")
-            if boundary.step is not None and boundary.step != 1:
-                raise ValueError(f"Boundary {i} must have step=1 or None, got {boundary.step}")
-            if boundary.start is None or boundary.stop is None:
-                raise ValueError(f"Boundary {i} must have explicit start and stop")
-            if boundary.start >= boundary.stop:
-                raise ValueError(f"Boundary {i} must have start < stop, got {boundary}")
-            if i == 0 and boundary.start != 0:
-                raise ValueError(f"First boundary must start at 0, got {boundary.start}")
-            if i > 0 and boundary.start != category_boundaries[i - 1].stop:
-                raise ValueError(
-                    f"Boundaries must be contiguous: boundary {i} starts at {boundary.start} "
-                    f"but boundary {i - 1} ends at {category_boundaries[i - 1].stop}"
-                )
-
+        self._validate_boundaries(category_boundaries)
         self._rng = rng or np.random.default_rng()
 
         child_rngs = self._rng.spawn(len(category_boundaries))
@@ -141,6 +123,24 @@ class CategoricalSampler(Sampler):
         self._chunk_size = chunk_size
         self._preload_nchunks = preload_nchunks
         self._shuffle = shuffle
+
+    def _validate_boundaries(self, category_boundaries: Sequence[slice]) -> None:
+        for i, boundary in enumerate(category_boundaries):
+            if not isinstance(boundary, slice):
+                raise TypeError(f"Expected slice for boundary {i}, got {type(boundary)}")
+            if boundary.step is not None and boundary.step != 1:
+                raise ValueError(f"Boundary {i} must have step=1 or None, got {boundary.step}")
+            if boundary.start is None or boundary.stop is None:
+                raise ValueError(f"Boundary {i} must have explicit start and stop")
+            if boundary.start >= boundary.stop:
+                raise ValueError(f"Boundary {i} must have start < stop, got {boundary}")
+            if i == 0 and boundary.start != 0:
+                raise ValueError(f"First boundary must start at 0, got {boundary.start}")
+            if i > 0 and boundary.start != category_boundaries[i - 1].stop:
+                raise ValueError(
+                    f"Boundaries must be contiguous: boundary {i} starts at {boundary.start} "
+                    f"but boundary {i - 1} ends at {category_boundaries[i - 1].stop}"
+                )
 
     @staticmethod
     def _boundaries_from_pandas(categorical: pd.Categorical | pd.Series) -> list[slice]:
@@ -290,44 +290,18 @@ class CategoricalSampler(Sampler):
 
         # Check for worker usage - CategoricalSampler doesn't support workers
         if is_in_worker():
-            raise ValueError(
-                "CategoricalSampler does not support multiple workers. Use num_workers=0 in your DataLoader."
-            )
+            raise ValueError("CategoricalSampler does not support multiple workers.")
 
     @staticmethod
     def _iter_batches(
         sampler: ChunkSampler, n_obs: int, chunks_per_batch: int
     ) -> Iterator[tuple[list[slice], np.ndarray]]:
-        """Yield (chunks, split) for each batch from a sampler.
-
-        Each yielded batch contains only the chunks needed for that specific batch,
-        with split indices adjusted to index into those chunks.
-
-        Parameters
-        ----------
-        sampler
-            The ChunkSampler to iterate over.
-        n_obs
-            Total number of observations.
-
-        Yields
-        ------
-        tuple[list[slice], np.ndarray]
-            (chunks, split) where chunks are the minimal chunks needed and
-            split contains indices into the concatenated chunks.
-        """
+        """Yield per batch given a sampler."""
         for load_request in sampler._sample(n_obs):
             chunks = load_request["chunks"]
             yield from batched(chunks, chunks_per_batch)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        """Sample load requests, ensuring each batch is from a single category.
-
-        The sampling strategy:
-        1. Collect all batches from each category sampler
-        2. Shuffle the batch order across all categories
-        3. Group n_categories batches together per load request
-        """
         batches_per_load = int((self._preload_nchunks * self._chunk_size) // self._batch_size)
         chunks_per_batch = int(self._batch_size / self._chunk_size)
         batch_generators = [self._iter_batches(sampler, n_obs, chunks_per_batch) for sampler in self._category_samplers]
@@ -336,267 +310,14 @@ class CategoricalSampler(Sampler):
         if self._shuffle:
             self._rng.shuffle(category_order)
 
-        # Pre-allocate batch indices array for in-place shuffling
-        batch_indices = [np.arange(self._batch_size) + i * self._batch_size for i in range(batches_per_load)]
+        # pre-allocate and reshape to batches_per_load x batch_size
+        # so that we can shuffle with numpy all at once
+        batch_indices = np.arange(batches_per_load * self._batch_size).reshape(batches_per_load, self._batch_size)
 
         for cat_idxs in batched(category_order, batches_per_load):
-            chunks = [chunk for cat_idx in cat_idxs for chunk in next(batch_generators[cat_idx])]
-            # Create splits: one per batch, with offset based on batch position
-            splits = []
-            for batch_num in range(len(cat_idxs)):
-                if self._shuffle:
-                    self._rng.shuffle(batch_indices[batch_num])
-                splits.append(batch_indices[batch_num])
-            yield {"chunks": chunks, "splits": splits}
-
-
-class StratifiedCategoricalSampler(CategoricalSampler):
-    """Stratified categorical sampler with configurable weights and multi-worker support.
-
-    Samples categories according to weights (uniform by default), yielding
-    exactly ``n_yields`` batches total. Supports multi-worker DataLoaders by splitting
-    ``n_yields`` across workers.
-
-    Unlike :class:`CategoricalSampler`, this sampler:
-    - Yields a fixed number of batches (``n_yields``) rather than exhausting all data
-    - Samples with replacement (categories reset when exhausted)
-    - Supports multi-worker DataLoaders
-    - Allows configurable sampling weights (uniform by default)
-
-    Parameters
-    ----------
-    category_boundaries
-        A sequence of slices defining the boundaries for each category.
-        Each slice represents a contiguous range of observations belonging to one category.
-        Data must be sorted by category before using this sampler.
-    chunk_size
-        Size of each chunk i.e. the range of each chunk yielded.
-    preload_nchunks
-        Number of chunks to load per iteration.
-    batch_size
-        Number of observations per batch.
-    n_yields
-        Total number of batches to yield (split across workers if num_workers > 1).
-    weights
-        Sampling weights per category. Default is uniform (equal probability).
-        Use ``weights=sampler.category_sizes`` for size-proportional sampling.
-    shuffle
-        Whether to shuffle chunk and index order within each category.
-    rng
-        Random number generator for shuffling.
-
-    Examples
-    --------
-    >>> boundaries = [slice(0, 100), slice(100, 250), slice(250, 400)]
-    >>> sampler = StratifiedCategoricalSampler(
-    ...     category_boundaries=boundaries,
-    ...     batch_size=32,
-    ...     chunk_size=64,
-    ...     preload_nchunks=4,
-    ...     n_yields=1000,
-    ... )
-
-    Using custom weights (e.g., upsample rare categories):
-
-    >>> sampler = StratifiedCategoricalSampler(
-    ...     category_boundaries=boundaries,
-    ...     batch_size=32,
-    ...     chunk_size=64,
-    ...     preload_nchunks=4,
-    ...     n_yields=1000,
-    ...     weights=[1.0, 2.0, 3.0],  # Category 2 sampled 3x as often as category 0
-    ... )
-    """
-
-    _n_yields: int
-    _weights: np.ndarray
-
-    def __init__(
-        self,
-        category_boundaries: Sequence[slice],
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        n_yields: int,
-        weights: Sequence[float] | None = None,
-        *,
-        shuffle: bool = False,
-        rng: np.random.Generator | None = None,
-    ):
-        super().__init__(
-            category_boundaries,
-            chunk_size,
-            preload_nchunks,
-            batch_size,
-            shuffle=shuffle,
-            rng=rng,
-        )
-
-        # Validate n_yields
-        if n_yields < 1:
-            raise ValueError("n_yields must be >= 1")
-        self._n_yields = n_yields
-
-        # Handle weights (uniform by default)
-        if weights is None:
-            self._weights = np.ones(self.n_categories, dtype=float)
-        else:
-            if len(weights) != self.n_categories:
-                raise ValueError(f"weights length ({len(weights)}) must match n_categories ({self.n_categories})")
-            weights = np.asarray(weights, dtype=float)
-            if np.any(weights < 0):
-                raise ValueError("weights must be non-negative")
-            if weights.sum() == 0:
-                raise ValueError("weights must not sum to zero")
-            self._weights = weights
-
-    @property
-    def n_yields(self) -> int:
-        """Total number of batches to yield."""
-        return self._n_yields
-
-    @property
-    def weights(self) -> np.ndarray:
-        """Sampling weights for each category (not normalized)."""
-        return self._weights.copy()
-
-    @property
-    def probabilities(self) -> np.ndarray:
-        """Normalized sampling probabilities for each category."""
-        return self._weights / self._weights.sum()
-
-    @classmethod
-    def from_pandas(
-        cls,
-        categorical: pd.Categorical | pd.Series,
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        n_yields: int,
-        weights: Sequence[float] | None = None,
-        *,
-        shuffle: bool = False,
-        rng: np.random.Generator | None = None,
-    ) -> StratifiedCategoricalSampler:
-        """Create a StratifiedCategoricalSampler from a pandas Categorical or Series.
-
-        This extends :meth:`CategoricalSampler.from_pandas` with additional
-        parameters for stratified sampling.
-
-        Parameters
-        ----------
-        categorical
-            A pandas Categorical or Series with categorical dtype.
-            Data must be sorted by category.
-        chunk_size
-            Size of each chunk.
-        preload_nchunks
-            Number of chunks to load per iteration.
-        batch_size
-            Number of observations per batch.
-        n_yields
-            Total number of batches to yield.
-        weights
-            Sampling weights per category. Default is uniform (equal probability).
-        shuffle
-            Whether to shuffle chunk and index order within each category.
-        rng
-            Random number generator for shuffling.
-
-        Returns
-        -------
-        StratifiedCategoricalSampler
-            A sampler configured with boundaries derived from the categorical.
-
-        Raises
-        ------
-        ValueError
-            If the data is not sorted by category.
-        TypeError
-            If the input is not a Categorical or categorical Series.
-        """
-        boundaries = cls._boundaries_from_pandas(categorical)
-        return cls(
-            category_boundaries=boundaries,
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            n_yields=n_yields,
-            weights=weights,
-            shuffle=shuffle,
-            rng=rng,
-        )
-
-    def validate(self, n_obs: int) -> None:
-        """Validate the sampler configuration against the loader's n_obs.
-
-        Unlike CategoricalSampler, this sampler supports multi-worker DataLoaders.
-
-        Parameters
-        ----------
-        n_obs
-            The total number of observations in the loader.
-
-        Raises
-        ------
-        ValueError
-            If the sampler configuration is invalid for the given n_obs.
-        """
-        # Validate category samplers (skip parent's worker check)
-        for sampler in self._category_samplers:
-            sampler.validate(n_obs)
-        # NOTE: Multi-worker IS supported for stratified (unlike parent CategoricalSampler)
-
-    def _get_worker_handle(self) -> WorkerHandle | None:
-        """Get WorkerHandle for worker-specific RNGs."""
-        return get_worker_handle(self._rng)
-
-    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        """Sample load requests using stratified sampling with replacement.
-
-        Categories are sampled according to weights (uniform by default).
-        When a category is exhausted, its iterator is reset (sampling with replacement).
-        """
-        worker_handle = self._get_worker_handle()
-
-        if worker_handle is not None:
-            worker_id = worker_handle.worker_id
-            num_workers = worker_handle.num_workers
-            # Split n_yields across workers
-            worker_n_yields = self._n_yields // num_workers
-            if worker_id < (self._n_yields % num_workers):
-                worker_n_yields += 1
-            # Use worker-specific RNG from handle
-            worker_rng = worker_handle.rng
-        else:
-            worker_n_yields = self._n_yields
-            worker_rng = self._rng
-
-        if worker_n_yields == 0:
-            return
-
-        probs = self.probabilities
-        category_iters: list[Iterator[LoadRequest] | None] = [None] * self.n_categories
-        yields_so_far = 0
-
-        while yields_so_far < worker_n_yields:
-            # Sample category using worker RNG
-            cat_idx = int(worker_rng.choice(self.n_categories, p=probs))
-
-            # Get/reset iterator for this category
-            if category_iters[cat_idx] is None:
-                category_iters[cat_idx] = iter(self._category_samplers[cat_idx]._sample(n_obs))
-
-            try:
-                load_request = next(category_iters[cat_idx])
-            except StopIteration:
-                # Reset iterator (sample with replacement)
-                category_iters[cat_idx] = iter(self._category_samplers[cat_idx]._sample(n_obs))
-                load_request = next(category_iters[cat_idx])
-
-            # Yield individual batches from this load request
-            for split in load_request["splits"]:
-                if yields_so_far >= worker_n_yields:
-                    return
-                yield {"chunks": load_request["chunks"], "splits": [split]}
-                yields_so_far += 1
+            if self._shuffle:
+                batch_indices = self._rng.permuted(batch_indices, axis=1)
+            yield {
+                "chunks": [chunk for cat_idx in cat_idxs for chunk in next(batch_generators[cat_idx])],
+                "splits": list(batch_indices[: len(cat_idxs)]),
+            }
