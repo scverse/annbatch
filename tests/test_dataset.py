@@ -413,7 +413,7 @@ def test_3d(
             import torch
 
             assert isinstance(x, torch.Tensor)
-            x = np.array(x.cpu())
+            x = x.cpu().numpy()
         x_list.append(x)
         idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
