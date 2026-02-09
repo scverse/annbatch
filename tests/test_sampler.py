@@ -12,9 +12,9 @@ from annbatch.abc import Sampler
 # but overall one must  also think about how validation can't be independent of the worker handle.
 
 
-def collect_indices(sampler, n_obs):
+def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
     """Helper to collect all indices from sampler."""
-    indices = []
+    indices: list[int] = []
     for load_request in sampler.sample(n_obs):
         assert len(load_request["splits"]) > 0, "splits must be non-empty"
         assert all(len(s) > 0 for s in load_request["splits"]), "splits must be non-empty"
@@ -26,7 +26,7 @@ def collect_indices(sampler, n_obs):
 class MockWorkerHandle:
     """Simulates torch worker context for testing without actual DataLoader."""
 
-    def __init__(self, worker_id: int, num_workers: int, seed: int = 42):
+    def __init__(self, worker_id: int, num_workers: int, seed: int = 42) -> None:
         self.worker_id = worker_id
         self._num_workers = num_workers
         self._rng = np.random.default_rng(seed)
@@ -35,7 +35,7 @@ class MockWorkerHandle:
     def num_workers(self) -> int:
         return self._num_workers
 
-    def shuffle(self, obj):
+    def shuffle(self, obj: np.typing.ArrayLike) -> None:
         self._rng.shuffle(obj)
 
     def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
@@ -43,7 +43,7 @@ class MockWorkerHandle:
 
 
 class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
-    def set_worker_handle(self, worker_handle: MockWorkerHandle):
+    def set_worker_handle(self, worker_handle: MockWorkerHandle) -> None:
         self.worker_handle = worker_handle
 
     def _get_worker_handle(self) -> MockWorkerHandle | None:
@@ -84,7 +84,16 @@ class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
         pytest.param(5, 20, None, None, 10, 2, False, True, id="drop_last_total_less_than_batch"),
     ],
 )
-def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchunks, shuffle, drop_last):
+def test_mask_coverage(
+    n_obs: int,
+    chunk_size: int,
+    start: int | None,
+    stop: int | None,
+    batch_size: int,
+    preload_nchunks: int,
+    shuffle: bool,
+    drop_last: bool,
+) -> None:
     """Test sampler covers exactly the expected range, and ordering is correct when not shuffled."""
     sampler = ChunkSampler(
         mask=slice(start, stop),
@@ -115,7 +124,7 @@ def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchun
     sampler.validate(n_obs)
 
 
-def test_batch_sizes_match_expected_pattern():
+def test_batch_sizes_match_expected_pattern() -> None:
     """Test that batch sizes match expected pattern."""
     n_obs, chunk_size, preload_nchunks, batch_size = 103, 10, 2, 5
     # last chunk is incomplete and is also the last batch in the load request
@@ -170,8 +179,13 @@ def test_batch_sizes_match_expected_pattern():
     ],
 )
 def test_workers_cover_full_dataset_without_overlap(
-    n_obs, chunk_size, preload_nchunks, batch_size, num_workers, drop_last
-):
+    n_obs: int,
+    chunk_size: int,
+    preload_nchunks: int,
+    batch_size: int,
+    num_workers: int,
+    drop_last: bool,
+) -> None:
     """Test workers cover full dataset without overlap. Also checks if there are empty splits in any of the load requests."""
     all_worker_indices = []
     for worker_id in range(num_workers):
@@ -201,15 +215,23 @@ def test_workers_cover_full_dataset_without_overlap(
 
 
 @pytest.mark.parametrize(
-    "mask,n_obs,error_match",
+    "mask,n_obs,n_iters,error_match",
     [
-        pytest.param(slice(0, 100), 100, None, id="valid_config"),
-        pytest.param(slice(0, 200), 100, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
+        pytest.param(slice(0, 100), 100, None, None, id="valid_config"),
+        pytest.param(slice(0, 200), 100, None, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
+        pytest.param(slice(0, 5), 100, 10, "at least one full chunk", id="replacement_mask_too_small"),
     ],
 )
-def test_validate(mask, n_obs, error_match):
+def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str | None) -> None:
     """Test validate behavior for various configurations."""
-    sampler = ChunkSampler(mask=mask, batch_size=5, chunk_size=10, preload_nchunks=2)
+    sampler = ChunkSampler(
+        mask=mask,
+        batch_size=5,
+        chunk_size=10,
+        preload_nchunks=2,
+        shuffle=True if n_iters else False,
+        n_iters=n_iters,
+    )
     if error_match:
         with pytest.raises(ValueError, match=error_match):
             sampler.validate(n_obs=n_obs)
@@ -218,18 +240,38 @@ def test_validate(mask, n_obs, error_match):
 
 
 @pytest.mark.parametrize(
-    "mask,error_match",
+    "mask,shuffle,drop_last,n_iters,error_match",
     [
-        pytest.param(slice(-1, 100), "mask.start must be >= 0", id="negative_start"),
-        pytest.param(slice(50, 50), "mask.start must be < mask.stop", id="start_equals_stop"),
-        pytest.param(slice(100, 50), "mask.start must be < mask.stop", id="start_greater_than_stop"),
-        pytest.param(slice(0, 100, 2), "mask.step must be 1, but got 2", id="step_not_one"),
+        # Invalid mask
+        pytest.param(slice(-1, 100), False, None, None, "mask.start must be >= 0", id="negative_start"),
+        pytest.param(slice(50, 50), False, None, None, "mask.start must be < mask.stop", id="start_equals_stop"),
+        pytest.param(slice(100, 50), False, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"),
+        pytest.param(slice(0, 100, 2), False, None, None, "mask.step must be 1, but got 2", id="step_not_one"),
+        # Invalid n_iters
+        pytest.param(None, True, None, 0, "n_iters must be >= 1", id="zero_n_iters"),
+        pytest.param(None, True, None, -5, "n_iters must be >= 1", id="negative_n_iters"),
+        pytest.param(None, False, None, 10, "shuffle must be True when n_iters is set", id="n_iters_no_shuffle"),
+        pytest.param(None, True, True, 10, "drop_last must be False when n_iters is set", id="n_iters_drop_last"),
     ],
 )
-def test_invalid_mask_raises(mask, error_match):
-    """Test that invalid mask configurations raise ValueError at construction."""
+def test_invalid_init(
+    mask: slice | None,
+    shuffle: bool,
+    drop_last: bool | None,
+    n_iters: int | None,
+    error_match: str,
+) -> None:
+    """Test that invalid configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
-        ChunkSampler(mask=mask, batch_size=5, chunk_size=10, preload_nchunks=2)
+        ChunkSampler(
+            chunk_size=10,
+            preload_nchunks=2,
+            batch_size=5,
+            mask=mask,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            n_iters=n_iters,
+        )
 
 
 # =============================================================================
@@ -244,7 +286,7 @@ def test_invalid_mask_raises(mask, error_match):
         pytest.param([100, 100], [range(100), range(100)], id="same_gives_same_coverage"),
     ],
 )
-def test_n_obs_coverage(n_obs_values, expected_ranges):
+def test_n_obs_coverage(n_obs_values: list[int], expected_ranges: list[range]) -> None:
     """Test that n_obs changes affect sampling results appropriately."""
     sampler = ChunkSampler(mask=slice(0, None), batch_size=5, chunk_size=10, preload_nchunks=2, shuffle=False)
 
@@ -262,7 +304,7 @@ def test_n_obs_coverage(n_obs_values, expected_ranges):
 class SimpleSampler(Sampler):
     """Test sampler that yields LoadRequests without splits."""
 
-    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool | None = True):
+    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool | None = True) -> None:
         self._batch_size = batch_size
         self._provide_splits = provide_splits
         self._shuffle = shuffle
@@ -277,12 +319,11 @@ class SimpleSampler(Sampler):
 
     def validate(self, n_obs: int) -> None:
         """No validation needed for test sampler."""
-        pass
 
     def _sample(self, n_obs: int):
         """Yield LoadRequests with or without splits."""
         chunk_size = 10
-        chunks = []
+        chunks: list[slice] = []
         for start in range(0, n_obs, chunk_size):
             stop = min(start + chunk_size, n_obs)
             if self._provide_splits:
@@ -304,16 +345,14 @@ class SimpleSampler(Sampler):
         pytest.param(3, None, id="missing_shuffle"),
     ],
 )
-def test_automatic_batching_requires_batch_size_and_shuffle(batch_size: int, shuffle: bool):
+def test_automatic_batching_requires_batch_size_and_shuffle(batch_size: int | None, shuffle: bool | None) -> None:
     """Test that automatic batching raises error when batch_size or shuffle is None."""
     sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
-    n_obs = 20
-
     with pytest.raises(ValueError):
-        list(sampler.sample(n_obs))
+        list(sampler.sample(20))
 
 
-def test_explicit_splits_override_automatic_batching():
+def test_explicit_splits_override_automatic_batching() -> None:
     """Test that explicit splits are not overridden by automatic batching."""
     sampler = SimpleSampler(batch_size=3, provide_splits=True)
 
@@ -324,12 +363,12 @@ def test_explicit_splits_override_automatic_batching():
 
 
 @pytest.mark.parametrize("shuffle", [False, True])
-def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
+def test_automatic_batching_respects_shuffle_flag(shuffle: bool) -> None:
     """Test automatic batching generates splits and respects shuffle parameter."""
     batch_size, n_obs = 3, 25
     sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
 
-    all_indices = []
+    all_indices: list[int] = []
     for load_request in sampler.sample(n_obs):
         assert "splits" in load_request and load_request["splits"]
         for split in load_request["splits"]:
@@ -344,3 +383,77 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
         assert all_indices != list(range(n_obs)), "Indices should be shuffled"
     else:
         assert all_indices == list(range(n_obs)), "Indices should be sequential"
+
+
+@pytest.mark.parametrize(
+    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,mask,check_coverage",
+    [
+        pytest.param(100, 10, 2, 5, 1, None, False, id="single_iter"),
+        pytest.param(100, 10, 2, 5, 4, None, False, id="exact_one_request"),
+        pytest.param(100, 10, 2, 5, 7, None, False, id="partial_last_request"),
+        pytest.param(100, 10, 2, 5, 100, None, False, id="many_iters"),
+        pytest.param(1000, 256, 4, 256, 50, None, False, id="large_chunks"),
+        pytest.param(1000, 256, 4, 256, 1, None, False, id="single_iter_large"),
+        # Non-divisible n_obs (triggers overlapping tail chunk)
+        pytest.param(103, 10, 2, 5, 10, None, False, id="non_divisible_obs"),
+        # With mask and non-divisible range -- also check full coverage
+        pytest.param(73, 10, 2, 5, 5000, slice(20, 73), True, id="mask_non_divisible_coverage"),
+        pytest.param(103, 10, 2, 5, 5000, None, True, id="non_divisible_obs_coverage"),
+    ],
+)
+def test_replacement_invariants(
+    n_obs: int,
+    chunk_size: int,
+    preload_nchunks: int,
+    batch_size: int,
+    n_iters: int,
+    mask: slice | None,
+    check_coverage: bool,
+) -> None:
+    """Test with-replacement invariants: exact batch count, uniform chunk sizes, uniform batch sizes, chunks within mask."""
+    start = mask.start if mask is not None else 0
+    stop = mask.stop if mask is not None else n_obs
+    sampler = ChunkSampler(
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        batch_size=batch_size,
+        shuffle=True,
+        n_iters=n_iters,
+        mask=mask,
+        rng=np.random.default_rng(42),
+    )
+    total_batches = 0
+    seen_indices: set[int] = set()
+    for load_request in sampler.sample(n_obs):
+        for chunk in load_request["chunks"]:
+            assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
+            assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
+            assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
+            if check_coverage:
+                seen_indices.update(range(chunk.start, chunk.stop))
+        for split in load_request["splits"]:
+            assert len(split) == batch_size, f"Non-uniform split size: {len(split)}"
+        total_batches += len(load_request["splits"])
+    assert total_batches == n_iters
+    if check_coverage:
+        assert seen_indices == set(range(start, stop)), f"Missing indices: {set(range(start, stop)) - seen_indices}"
+
+
+def test_replacement_deterministic_with_seed() -> None:
+    """Test that with-replacement sampling is deterministic given the same seed."""
+
+    def collect_requests(seed: int) -> list[tuple[list[tuple[int, int]], list[list[int]]]]:
+        sampler = ChunkSampler(
+            chunk_size=10,
+            preload_nchunks=2,
+            batch_size=5,
+            shuffle=True,
+            n_iters=10,
+            rng=np.random.default_rng(seed),
+        )
+        return [
+            ([(c.start, c.stop) for c in lr["chunks"]], [s.tolist() for s in lr["splits"]])
+            for lr in sampler.sample(100)
+        ]
+
+    assert collect_requests(42) == collect_requests(42)
