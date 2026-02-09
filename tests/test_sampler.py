@@ -170,8 +170,8 @@ def test_workers_cover_full_dataset_without_overlap(
     assert set().union(*all_worker_indices) == set(range(n_obs))
 
 
-def test_batch_shuffle_is_reproducible():
-    """Test that batch shuffling is reproducible when using ChunkSampler directly."""
+def test_batch_shuffle_is_reproducible_with_same_seed_rng():
+    """Test that batch shuffling is reproducible when passing in rngs with identical seeds to ChunkSampler directly."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
     seed = 42
 
