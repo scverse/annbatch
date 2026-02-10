@@ -241,5 +241,7 @@ def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
     return ad.AnnData(
         X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
         obs=ad.io.read_elem(g["obs"]),
-        var=pd.DataFrame(index=pd.Index(g["var/_index"][:], name=g["var"].attrs.get("_index"))),
+        var=pd.DataFrame(
+            index=pd.Index(g[f"var/{g['var'].attrs.get('_index')}"][:], name=g["var"].attrs.get("_index"))
+        ),
     )
