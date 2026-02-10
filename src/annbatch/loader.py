@@ -374,7 +374,7 @@ class Loader[
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
+                List of :class:`~pandas.DataFrame` for annotating observations (i.e., samples), generally from :attr:`anndata.AnnData.obs`.
             var
                 List of :class:`~pandas.DataFrame` for annotating features, generally from :attr:`anndata.AnnData.var`.
                 All var DataFrames must be identical.
