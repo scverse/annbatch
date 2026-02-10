@@ -376,7 +376,7 @@ class Loader[
             obs
                 List of :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
             var
-                List of :class:`~pandas.DataFrame` var, generally from :attr:`anndata.AnnData.var`.
+                List of :class:`~pandas.DataFrame` for annotating features, generally from :attr:`anndata.AnnData.var`.
                 All var DataFrames must be identical.
         """
         if obs is None:
