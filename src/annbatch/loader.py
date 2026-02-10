@@ -341,6 +341,7 @@ class Loader[
         ----------
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
+                :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
         """
         dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
         self.add_dataset(dataset, obs, var)
@@ -401,6 +402,7 @@ class Loader[
                 :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
             var
                 :class:`~pandas.DataFrame` var, generally from :attr:`anndata.AnnData.var`.
+                :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
         """
         self._add_dataset_unchecked(dataset, obs, var)
         return self

@@ -503,8 +503,8 @@ def test_no_obs_no_var(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     assert next(iter(ds))["obs"] is None
 
 
-def test_mismatched_var_raises_error(tmp_path: Path):
-    """Test that adding anndatas with different var dataframes raises an error."""
+def test_mismatched_var_raises_error(tmp_path: Path, subtests):
+    """Test that adding anndatas/datasets with different var dataframes raises an error."""
     n_obs, n_vars = 100, 50
 
     # Create first anndata with var index gene_0, gene_1, ...
@@ -531,16 +531,27 @@ def test_mismatched_var_raises_error(tmp_path: Path):
         var=adata2.var,
     )
 
-    # Test add_anndata raises error when adding second anndata with different var
-    loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
-    loader.add_anndata(adata1_on_disk)
-    with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
-        loader.add_anndata(adata2_on_disk)
+    with subtests.test(msg="add_anndata"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader.add_anndata(adata1_on_disk)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_anndata(adata2_on_disk)
 
-    # Test add_anndatas raises error when passing list with mismatched var
-    loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
-    with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
-        loader.add_anndatas([adata1_on_disk, adata2_on_disk])
+    with subtests.test(msg="add_anndatas"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_anndatas([adata1_on_disk, adata2_on_disk])
+
+    with subtests.test(msg="add_dataset"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader.add_dataset(adata1_on_disk.X, var=adata1_on_disk.var)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_dataset(adata2_on_disk.X, var=adata2_on_disk.var)
+
+    with subtests.test(msg="add_datasets"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_datasets([adata1_on_disk.X, adata2_on_disk.X], var=[adata1_on_disk.var, adata2_on_disk.var])
 
 
 @pytest.mark.gpu

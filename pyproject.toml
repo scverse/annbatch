@@ -64,6 +64,7 @@ optional-dependencies.test = [
   "annbatch[zarrs]",
   "coverage",
   "pytest",
+  "pytest-subtests",
 ]
 optional-dependencies.torch = [
   "torch>=2",
