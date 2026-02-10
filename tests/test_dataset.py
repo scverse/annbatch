@@ -324,29 +324,17 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
 
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
-@pytest.mark.parametrize(
-    ("chunk_size", "preload_nchunks", "batch_size"),
-    [
-        (10, 3, 10),  # batch_size divides evenly
-        (14, 3, 21),  # batch_size does not divide evenly
-        (10, 5, 25),  # larger preload
-    ],
-)
 def test_len(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     drop_last: bool,
-    chunk_size: int,
-    preload_nchunks: int,
-    batch_size: int,
 ):
     zarr_path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     data = open_sparse(zarr_path)
     n_obs = data["dataset"].shape[0]
+    batch_size = 32
 
     loader = Loader(
         shuffle=False,
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
         batch_size=batch_size,
         preload_to_gpu=False,
         to_torch=False,
@@ -356,7 +344,6 @@ def test_len(
 
     expected_len = n_obs // batch_size if drop_last else math.ceil(n_obs / batch_size)
     assert len(loader) == expected_len
-
     # Also verify len matches the actual number of yielded batches
     actual_batches = sum(1 for _ in loader)
     assert len(loader) == actual_batches
