@@ -424,7 +424,7 @@ def test_3d(
             import torch
 
             assert isinstance(x, torch.Tensor)
-            x = np.array(x.cpu())
+            x = x.cpu().numpy()
         x_list.append(x)
         idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
@@ -658,9 +658,26 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     assert len(stacked_indices) == end_idx - start_idx
 
 
-@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}])
+@pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
 def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
     chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
     with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
+
+
+def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+    ds1 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds2 = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+    )
+    ds1.use_collection(
+        simple_collection[1],
+    )
+    ds2.use_collection(
+        simple_collection[1],
+    )
+    for batch1, batch2 in zip(ds1, ds2, strict=True):
+        np.testing.assert_equal(batch1["X"], batch2["X"])

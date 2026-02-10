@@ -80,7 +80,7 @@ class Loader[
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
-    `shuffle`, and `drop_last` must not be set (they are controlled by the `batch_sampler` instead).
+    `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
     When providing these arguments and no `batch_sampler`, they are used to construct a :class:`annbatch.ChunkSampler`.
 
     Parameters
@@ -100,6 +100,8 @@ class Loader[
             If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller.
             Leave as False when using in conjunction with a :class:`torch.utils.data.DataLoader`.
             Mutually exclusive with `batch_sampler`. Defaults to False.
+        rng
+            Random number generator for shuffling. Mutually exclusive with `batch_sampler`. Defaults to `np.random.default_rng()` if not provided.
         return_index
             Whether or not to yield the index on each iteration.
         preload_to_gpu
@@ -142,6 +144,7 @@ class Loader[
         "batch_size": 1,
         "shuffle": False,
         "drop_last": False,
+        "rng": np.random.default_rng(),
     }
     # TODO(selmanozleyen): these should be also presented in the documentation
     # but this is not ideal since they are hardcoded into the docstrings
@@ -172,6 +175,7 @@ class Loader[
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
         concat_strategy: None | concat_strategies = None,
+        rng: np.random.Generator | None = None,
     ):
         sampler_args = {
             "chunk_size": chunk_size,
@@ -179,6 +183,7 @@ class Loader[
             "batch_size": batch_size,
             "shuffle": shuffle,
             "drop_last": drop_last,
+            "rng": rng,
         }
         if batch_sampler is not None:
             if any(v is not None for v in sampler_args.values()):

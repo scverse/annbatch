@@ -56,32 +56,35 @@ class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle",
+    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle,drop_last",
     [
         # Basic full dataset
-        pytest.param(100, 10, None, None, 5, 2, False, id="full_dataset"),
+        pytest.param(100, 10, None, None, 5, 2, False, False, id="full_dataset"),
         # mask.start only
-        pytest.param(100, 10, 30, None, 5, 2, False, id="start_at_chunk_boundary"),
-        pytest.param(100, 10, 35, None, 5, 2, False, id="start_not_at_chunk_boundary"),
-        pytest.param(120, 12, 90, None, 3, 1, False, id="start_near_end"),
-        pytest.param(100, 10, 20, None, 5, 2, False, id="start_mask_stop_none"),
+        pytest.param(100, 10, 30, None, 5, 2, False, False, id="start_at_chunk_boundary"),
+        pytest.param(100, 10, 35, None, 5, 2, False, False, id="start_not_at_chunk_boundary"),
+        pytest.param(120, 12, 90, None, 3, 1, False, False, id="start_near_end"),
+        pytest.param(100, 10, 20, None, 5, 2, False, False, id="start_mask_stop_none"),
         # mask.stop only
-        pytest.param(50, 10, None, 50, 5, 2, False, id="stop_at_chunk_boundary"),
-        pytest.param(47, 10, None, 47, 5, 2, False, id="stop_not_at_chunk_boundary"),
+        pytest.param(50, 10, None, 50, 5, 2, False, False, id="stop_at_chunk_boundary"),
+        pytest.param(47, 10, None, 47, 5, 2, False, False, id="stop_not_at_chunk_boundary"),
         # Both bounds
-        pytest.param(60, 10, 20, 60, 5, 2, False, id="both_at_chunk_boundaries"),
-        pytest.param(67, 10, 23, 67, 5, 2, False, id="both_not_at_chunk_boundaries"),
-        pytest.param(28, 10, 22, 28, 2, 1, False, id="single_chunk_span"),
-        pytest.param(100, 10, 15, 85, 5, 2, False, id="both_non_aligned"),
-        pytest.param(100, 10, 20, 80, 5, 2, False, id="both_aligned"),
+        pytest.param(60, 10, 20, 60, 5, 2, False, False, id="both_at_chunk_boundaries"),
+        pytest.param(67, 10, 23, 67, 5, 2, False, False, id="both_not_at_chunk_boundaries"),
+        pytest.param(28, 10, 22, 28, 2, 1, False, False, id="single_chunk_span"),
+        pytest.param(100, 10, 15, 85, 5, 2, False, False, id="both_non_aligned"),
+        pytest.param(100, 10, 20, 80, 5, 2, False, False, id="both_aligned"),
         # Edge cases
-        pytest.param(100, 10, 95, 100, 10, 1, False, id="very_small_mask"),
+        pytest.param(100, 10, 95, 100, 10, 1, False, False, id="very_small_mask"),
         # With shuffle
-        pytest.param(100, 10, 30, None, 5, 2, True, id="shuffle_with_start"),
-        pytest.param(75, 10, 25, 75, 5, 2, True, id="shuffle_with_both_bounds"),
+        pytest.param(100, 10, 30, None, 5, 2, True, False, id="shuffle_with_start"),
+        pytest.param(75, 10, 25, 75, 5, 2, True, False, id="shuffle_with_both_bounds"),
+        # drop_last edge cases: remainder less than batch_size
+        pytest.param(45, 20, None, None, 10, 2, False, True, id="drop_last_remainder_less_than_batch"),
+        pytest.param(5, 20, None, None, 10, 2, False, True, id="drop_last_total_less_than_batch"),
     ],
 )
-def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchunks, shuffle):
+def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchunks, shuffle, drop_last):
     """Test sampler covers exactly the expected range, and ordering is correct when not shuffled."""
     sampler = ChunkSampler(
         mask=slice(start, stop),
@@ -89,11 +92,16 @@ def test_mask_coverage(n_obs, chunk_size, start, stop, batch_size, preload_nchun
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         shuffle=shuffle,
+        drop_last=drop_last,
         rng=np.random.default_rng(42) if shuffle else None,
     )
 
     expected_start = start if start is not None else 0
     expected_stop = stop if stop is not None else n_obs
+    if drop_last:
+        # With drop_last, only complete batches are yielded
+        total_obs = expected_stop - expected_start
+        expected_stop = expected_start + (total_obs // batch_size) * batch_size
     expected_indices = list(range(expected_start, expected_stop))
 
     all_indices = collect_indices(sampler, n_obs)
