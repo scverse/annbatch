@@ -122,7 +122,7 @@ class ChunkSampler(Sampler):
         ValueError
             If the sampler configuration is invalid for the given n_obs.
         """
-        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        start, stop = self._resolve_start_stop(n_obs)
         if stop > n_obs:
             raise ValueError(
                 f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
@@ -159,7 +159,7 @@ class ChunkSampler(Sampler):
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_handle = self._get_worker_handle()
-        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        start, stop = self._resolve_start_stop(n_obs)
         # Compute chunks directly from resolved mask range
         # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
@@ -262,3 +262,6 @@ class ChunkSampler(Sampler):
         offsets = np.cumsum(offsets)
         starts, stops = offsets[:-1][chunk_indices], offsets[1:][chunk_indices]
         return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
+
+    def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
+        return self._mask.start or 0, self._mask.stop or n_obs
