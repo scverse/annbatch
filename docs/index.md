@@ -57,12 +57,9 @@ Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of n
 
 #### User configurable sampling strategy
 
-At the moment we do not support user-configurable sampling strategies like weighting or sampling.
-With a pre-shuffled store and blocked access, your model fit should not be affected by using chunked access.
+We support user-configurable sampling strategies like weighting or sampling by implementing the abstract {class}`annbatch.abc.Sampler`.
 
-If you are interested in contributing this feature to the project or learning more, please get in touch on [zulip](https://scverse.zulipchat.com/) or via the GitHub issues here.
-
-If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.Loader` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
+Please open an issue if you want to contribute a new sampler to this repo.
 
 ### Speed comparison to other dataloaders
 
@@ -115,6 +112,7 @@ However, once you have too much data to fit into memory, for whatever reason, th
 
 api.md
 zarr-configuration.md
+custom-sampler.md
 changelog.md
 contributing.md
 references.md
