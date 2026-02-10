@@ -1,7 +1,5 @@
 # Advanced: Implementing a Custom Sampler
 
-## Overview
-
 To implement a custom sampler, you need to understand two key components:
 
 ### 1. {class}`annbatch.abc.Sampler`
