@@ -248,8 +248,8 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
         pytest.param(slice(100, 50), False, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"),
         pytest.param(slice(0, 100, 2), False, None, None, "mask.step must be 1, but got 2", id="step_not_one"),
         # Invalid n_iters
-        pytest.param(None, True, None, 0, "n_iters must be >= 1", id="zero_n_iters"),
-        pytest.param(None, True, None, -5, "n_iters must be >= 1", id="negative_n_iters"),
+        pytest.param(None, True, None, 0, "n_iters must be greater than 1", id="zero_n_iters"),
+        pytest.param(None, True, None, -5, "n_iters must be greater than 1", id="negative_n_iters"),
         pytest.param(None, True, True, 10, "drop_last must be False when n_iters is set", id="n_iters_drop_last"),
     ],
 )
