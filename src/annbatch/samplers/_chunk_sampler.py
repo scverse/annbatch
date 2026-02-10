@@ -99,6 +99,7 @@ class ChunkSampler(Sampler):
             drop_last,
         )
         self._n_iters = n_iters
+        self._in_memory_size = self._chunk_size * self._preload_nchunks
 
     @property
     def batch_size(self) -> int:
@@ -187,8 +188,7 @@ class ChunkSampler(Sampler):
 
         n_pool = len(chunk_pool)
 
-        in_memory_size = self._chunk_size * self._preload_nchunks
-        batches_per_request = in_memory_size // self._batch_size
+        batches_per_request = self._in_memory_size // self._batch_size
 
         n_iters = self._n_iters
         # Worker sharding: each worker gets different number of iterations
@@ -203,7 +203,7 @@ class ChunkSampler(Sampler):
         remaining = n_iters
 
         rng = self._rng if worker_handle is None else worker_handle._rng
-        batch_indices = np.arange(in_memory_size)
+        batch_indices = np.arange(self._in_memory_size)
 
         for _ in range(n_requests):
             # Sample chunk indices with replacement from the pool
@@ -224,9 +224,8 @@ class ChunkSampler(Sampler):
         if worker_handle is not None:
             chunks = worker_handle.get_part_for_worker(chunks)
         # Set up the iterator for chunks and the batch indices for splits
-        in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
-        batch_indices = np.arange(in_memory_size)
+        batch_indices = np.arange(self._in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
