@@ -97,6 +97,11 @@ class ChunkSampler(Sampler):
     def shuffle(self) -> bool:
         return self._shuffle
 
+    def n_iters(self, n_obs: int) -> int:
+        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        total_obs = stop - start
+        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
+
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
 

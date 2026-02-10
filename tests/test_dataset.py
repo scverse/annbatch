@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
@@ -516,6 +517,9 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
 
         def __init__(self):
             self._validate_count = 0
+
+        def n_iters(self, n_obs: int) -> int:
+            return math.ceil(n_obs / self.batch_size)
 
         def validate(self, n_obs: int) -> None:
             self._validate_count += 1
