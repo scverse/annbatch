@@ -35,11 +35,10 @@ class ChunkSampler(Sampler):
         Number of chunks to load per iteration.
     drop_last
         Whether to drop the last incomplete batch.
-        Defaults to ``False`` in epoch mode (``n_iters is None``)
-        and is forced to ``False`` in with-replacement mode (``n_iters`` set).
+        Must be ``False`` when ``n_iters`` is set.
     n_iters
         If set, enables with-replacement sampling for exactly this many
-        batches instead of epoch-based iteration.  Requires ``shuffle=True``.
+        batches instead of epoch-based iteration.
     rng
         Random number generator for shuffling.
     """
@@ -61,7 +60,7 @@ class ChunkSampler(Sampler):
         *,
         mask: slice | None = None,
         shuffle: bool = False,
-        drop_last: bool | None = None,
+        drop_last: bool = False,
         n_iters: int | None = None,
         rng: np.random.Generator | None = None,
     ):
@@ -89,14 +88,9 @@ class ChunkSampler(Sampler):
                 f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
             )
         if n_iters is not None:
-            if n_iters < 1:
-                raise ValueError(f"n_iters must be >= 1, got {n_iters}")
-            if not shuffle:
-                raise ValueError("shuffle must be True when n_iters is set (with-replacement mode).")
+            check_lt_1([n_iters], ["n_iters"])
             if drop_last:
                 raise ValueError("drop_last must be False when n_iters is set.")
-        if drop_last is None:
-            drop_last = False
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
@@ -217,7 +211,8 @@ class ChunkSampler(Sampler):
             chunks = [chunk_pool[i] for i in sampled]
 
             # Shuffle in-memory indices (in-place, reuse array)
-            rng.shuffle(batch_indices)
+            if self._shuffle:
+                rng.shuffle(batch_indices)
             n_batches = min(batches_per_request, remaining)
             splits = split_given_size(batch_indices, self._batch_size)[:n_batches]
             remaining -= n_batches

@@ -229,7 +229,7 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
         batch_size=5,
         chunk_size=10,
         preload_nchunks=2,
-        shuffle=True if n_iters else False,
+        shuffle=False,
         n_iters=n_iters,
     )
     if error_match:
@@ -250,7 +250,6 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
         # Invalid n_iters
         pytest.param(None, True, None, 0, "n_iters must be >= 1", id="zero_n_iters"),
         pytest.param(None, True, None, -5, "n_iters must be >= 1", id="negative_n_iters"),
-        pytest.param(None, False, None, 10, "shuffle must be True when n_iters is set", id="n_iters_no_shuffle"),
         pytest.param(None, True, True, 10, "drop_last must be False when n_iters is set", id="n_iters_drop_last"),
     ],
 )
