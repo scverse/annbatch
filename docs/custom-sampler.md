@@ -92,7 +92,7 @@ The `splits` parameter gives you fine-grained control over how individual batche
   ```
 
 
-## Example 1: Implementing a `ChunkedSampler` class
+## Example 1: Implementing a `InOrderSampler` class
 
 This example demonstrates creating a simple sampler that only loads sequential, non-random chunks of data from disk and yields them in-order:
 
