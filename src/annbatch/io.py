@@ -239,11 +239,13 @@ def _create_chunks_for_shuffling(
     if use_single_chunking:
         return [np.concatenate(idxs)]
     # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
-    idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
+    idxs_as_slices = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
     return [
         np.concatenate([np.arange(s.start, s.stop) for s in idx])
         for idx in (
-            split_given_size(idxs, n_slices_per_dataset) if n_chunkings is None else np.array_split(idxs, n_chunkings)
+            split_given_size(idxs_as_slices, n_slices_per_dataset)
+            if n_chunkings is None
+            else np.array_split(idxs_as_slices, n_chunkings)
         )
     ]
 
