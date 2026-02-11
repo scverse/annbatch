@@ -12,8 +12,8 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import DatasetCollection, write_sharded
-from annbatch.io import V1_ENCODING
+from annbatch import DatasetCollection, GroupedCollection, write_sharded
+from annbatch.io import V1_ENCODING, V1_GROUPED_ENCODING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -381,3 +381,41 @@ def test_empty(tmp_path: Path):
     with pytest.raises(TypeError):
         collection.add_adatas()
     assert not (V1_ENCODING.items() <= g.attrs.items())
+
+
+def test_grouped_collection_from_adatas_compound(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    paths = sorted(p for p in adata_with_h5_path_different_var_space[1].iterdir() if p.suffix == ".h5ad")[:3]
+    output_path = adata_with_h5_path_different_var_space[1].parent / "grouped_collection_compound.zarr"
+    collection = GroupedCollection(output_path).add_adatas(
+        paths,
+        groupby=["label", "store_id"],
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=5,
+        zarr_dense_shard_size=10,
+        n_obs_per_dataset=70,
+        shuffle_within_group=True,
+        random_seed=0,
+    )
+    assert not collection.is_empty
+    store = zarr.open(output_path)
+    assert V1_GROUPED_ENCODING.items() <= store.attrs.items()
+    assert list(store.attrs["groupby_keys"]) == ["label", "store_id"]
+
+    group_index = collection.group_index
+    assert {"label", "store_id", "start", "stop", "count"}.issubset(group_index.columns)
+    assert int(group_index["count"].sum()) == int(sum(ad.read_h5ad(path).n_obs for path in paths))
+    assert int(group_index["start"].iloc[0]) == 0
+    assert np.all(group_index["start"].to_numpy() < group_index["stop"].to_numpy())
+    assert np.array_equal(group_index["count"].to_numpy(), group_index["stop"].to_numpy() - group_index["start"].to_numpy())
+
+    adata_grouped = ad.concat([ad.io.read_elem(g) for g in collection], join="outer")
+    grouped_obs = adata_grouped.obs[["label", "store_id"]].astype("string").fillna("<NA>")
+    grouped_keys = [tuple(v) for v in grouped_obs.to_numpy()]
+    assert grouped_keys == sorted(grouped_keys)
+    for row in group_index.itertuples():
+        start = int(row.start)
+        stop = int(row.stop)
+        sliced = grouped_obs.iloc[start:stop]
+        assert (sliced["label"] == str(row.label)).all()
+        assert (sliced["store_id"] == str(row.store_id)).all()

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from annbatch.abc import Sampler
-    from annbatch.io import DatasetCollection
+    from annbatch.io import BaseCollection
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -295,16 +295,19 @@ class Loader[
         return self._batch_sampler
 
     def use_collection(
-        self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var
+        self,
+        collection: BaseCollection,
+        *,
+        load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
     ) -> Self:
-        """Load from an existing :class:`annbatch.DatasetCollection`.
+        """Load from an existing :class:`annbatch.DatasetCollection` or :class:`annbatch.GroupedCollection`.
 
         This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_anndatas` or open an issue.
 
         Parameters
         ----------
         collection
-            The collection who on-disk datasets should be used in this loader.
+            The collection whose on-disk datasets should be used in this loader.
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
             Default is to just load `X` and all of `obs`.
