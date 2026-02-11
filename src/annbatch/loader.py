@@ -161,6 +161,7 @@ class Loader[
     _batch_sampler: Sampler
     _concat_strategy: None | concat_strategies = None
     _dataset_intervals: pd.IntervalIndex | None = None
+    _collection_added: bool = False
 
     def __init__(
         self,
@@ -312,7 +313,7 @@ class Loader[
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
-        if getattr(self, "_collection_added", False):
+        if self._collection_added:
             raise RuntimeError(
                 "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_anndatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_anndatas`."
             )
