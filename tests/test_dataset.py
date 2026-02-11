@@ -51,6 +51,7 @@ def open_sparse(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata
         data = {
             "dataset": ad.io.sparse_dataset(path["layers"]["sparse"]),
             "obs": ad.io.read_elem(path["obs"]),
+            "var": ad.io.read_elem(path["var"]),
         }
     if use_anndata:
         return ad.AnnData(X=data["dataset"], obs=data["obs"])
@@ -66,6 +67,7 @@ def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata:
         data = {
             "dataset": path["X"],
             "obs": ad.io.read_elem(path["obs"]),
+            "var": ad.io.read_elem(path["var"]),
         }
     if use_anndata:
         return ad.AnnData(X=data["dataset"], obs=data["obs"])
@@ -188,15 +190,18 @@ def test_store_load_dataset(
     batches = []
     obs = []
     indices = []
+    var_dfs = []
     expected_data = adata.X if is_dense else adata.layers["sparse"].toarray()
     for batch in loader:
-        x, label, index = batch["X"], batch["obs"], batch["index"]
+        x, label, var, index = batch["X"], batch["obs"], batch["var"], batch["index"]
         n_elems += x.shape[0]
         # Check feature dimension
         assert x.shape[1] == 100
         batches += [x.get() if isinstance(x, CupyCSRMatrix | CupyArray) else x]
         if label is not None:
             obs += [label]
+        if var is not None:
+            var_dfs += [var]
         if index is not None:
             indices += [index]
     # check that we yield all samples from the dataset
@@ -217,6 +222,12 @@ def test_store_load_dataset(
             indices = np.concatenate(indices).ravel()
             np.testing.assert_allclose(stacked, expected_data[indices])
         assert n_elems == adata.shape[0]
+    # Check var is consistently yielded and matches expected
+    if len(var_dfs) > 0:
+        expected_var = adata.var
+        # var should be the same for every batch (feature dimension, not obs)
+        for var_df in var_dfs:
+            pd.testing.assert_frame_equal(var_df, expected_var)
 
 
 @pytest.mark.parametrize(
@@ -479,7 +490,7 @@ def test_default_data_structures(
     assert isinstance(next(iter(ds))["X"], expected_cls)
 
 
-def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
+def test_no_obs_no_var(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     # No obs loaded is actually None
     ds = Loader(
         chunk_size=10,
@@ -490,6 +501,57 @@ def test_no_obs(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
     )
     assert next(iter(ds))["obs"] is None
+
+
+def test_mismatched_var_raises_error(tmp_path: Path, subtests):
+    """Test that adding anndatas/datasets with different var dataframes raises an error."""
+    n_obs, n_vars = 100, 50
+
+    # Create first anndata with var index gene_0, gene_1, ...
+    z1 = zarr.open(tmp_path / "adata1.zarr")
+    adata1 = ad.AnnData(
+        X=sp.random(n_obs, n_vars, format="csr", rng=np.random.default_rng()),
+        var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_vars)]),
+    )
+    write_sharded(z1, adata1)
+    adata1_on_disk = ad.AnnData(
+        X=ad.io.sparse_dataset(z1["X"]),
+        var=adata1.var,
+    )
+
+    # Create second anndata with different var index: different_gene_0, different_gene_1, ...
+    z2 = zarr.open(tmp_path / "adata2.zarr")
+    adata2 = ad.AnnData(
+        X=sp.random(n_obs, n_vars, format="csr", rng=np.random.default_rng()),
+        var=pd.DataFrame(index=[f"different_gene_{i}" for i in range(n_vars)]),
+    )
+    write_sharded(z2, adata2)
+    adata2_on_disk = ad.AnnData(
+        X=ad.io.sparse_dataset(z2["X"]),
+        var=adata2.var,
+    )
+
+    with subtests.test(msg="add_anndata"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader.add_anndata(adata1_on_disk)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_anndata(adata2_on_disk)
+
+    with subtests.test(msg="add_anndatas"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_anndatas([adata1_on_disk, adata2_on_disk])
+
+    with subtests.test(msg="add_dataset"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader.add_dataset(adata1_on_disk.X, var=adata1_on_disk.var)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_dataset(adata2_on_disk.X, var=adata2_on_disk.var)
+
+    with subtests.test(msg="add_datasets"):
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
+            loader.add_datasets([adata1_on_disk.X, adata2_on_disk.X], var=[adata1_on_disk.var, adata2_on_disk.var])
 
 
 @pytest.mark.gpu
