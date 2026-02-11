@@ -226,15 +226,14 @@ def _create_chunks_for_shuffling(
     idxs = split_given_size(np.arange(n_obs), shuffle_chunk_size)
     if shuffle:
         random.shuffle(idxs)
-    match shuffle_n_obs_per_dataset is not None, n_chunkings is not None:
-        case True, False:
-            n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_chunk_size)
-            use_single_chunking = n_obs <= shuffle_n_obs_per_dataset or n_slices_per_dataset <= 1
-        case False, True:
-            n_slices_per_dataset = (n_obs // n_chunkings) // shuffle_chunk_size
-            use_single_chunking = n_chunkings == 1
-        case _, _:
-            raise ValueError("Cannot provide both shuffle_n_obs_per_dataset and n_chunkings or neither")
+    if (shuffle_n_obs_per_dataset is None) == (n_chunkings is None):
+        raise ValueError("Cannot provide both shuffle_n_obs_per_dataset and n_chunkings or neither")
+    elif shuffle_n_obs_per_dataset is not None:
+        n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_chunk_size)
+        use_single_chunking = n_obs <= shuffle_n_obs_per_dataset or n_slices_per_dataset <= 1
+    else:  # n_chunkings is not None
+        n_slices_per_dataset = (n_obs // n_chunkings) // shuffle_chunk_size
+        use_single_chunking = n_chunkings == 1
     # In this case `shuffle_n_obs_per_dataset` is bigger than the size of the dataset or the slice size is probably too big.
     if use_single_chunking:
         return [np.concatenate(idxs)]
