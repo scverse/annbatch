@@ -56,7 +56,9 @@ class ChunkSampler(Sampler):
     drop_last
         Whether to drop the last incomplete batch.
     rng
-        Random number generator for shuffling.
+        Random number generator for shuffling. Note that ``torch.manual_seed``
+        has no effect on reproducibility here; pass a seeded
+        :class:`numpy.random.Generator` to control randomness.
     """
 
     _batch_size: int
