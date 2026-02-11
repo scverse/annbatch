@@ -381,3 +381,27 @@ def test_empty(tmp_path: Path):
     with pytest.raises(TypeError):
         collection.add_adatas()
     assert not (V1_ENCODING.items() <= g.attrs.items())
+
+
+def test_collection_rng_reproducibility(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], tmp_path: Path):
+    """Test that the same rng seed produces identical collections with creation and extension."""
+    zarr_stores = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    seed = 42
+    kwargs = {
+        "zarr_sparse_chunk_size": 10,
+        "zarr_sparse_shard_size": 20,
+        "zarr_dense_chunk_size": 10,
+        "zarr_dense_shard_size": 20,
+        "n_obs_per_dataset": 200,
+        "shuffle_chunk_size": 10,
+        "shuffle": True,
+    }
+
+    def _make_collection(name: str) -> DatasetCollection:
+        c = DatasetCollection(tmp_path / name)
+        c.add_adatas(zarr_stores, rng=np.random.default_rng(seed), **kwargs)
+        c.add_adatas(zarr_stores, rng=np.random.default_rng(seed + 1), **kwargs)
+        return c
+
+    for g1, g2 in zip(_make_collection("a.zarr"), _make_collection("b.zarr"), strict=True):
+        pd.testing.assert_frame_equal(ad.io.read_elem(g1).obs, ad.io.read_elem(g2).obs)
