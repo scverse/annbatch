@@ -180,7 +180,7 @@ omit = [
 ]
 
 [[tool.mypy.overrides]]
-module = [ "anndata.*", "cupyx.*", "cupy.*" ]
+module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ]
 ignore_missing_imports = true
 
 [tool.cruft]
