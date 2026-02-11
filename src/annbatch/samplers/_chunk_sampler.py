@@ -3,39 +3,18 @@
 from __future__ import annotations
 
 import math
-from importlib.util import find_spec
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from annbatch.abc import Sampler
+from annbatch.samplers._utils import _get_torch_worker_info
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from annbatch.types import LoadRequest
-
-
-class WorkerInfo(NamedTuple):
-    """Minimal worker info for RNG handling."""
-
-    id: int
-    num_workers: int
-
-
-def _get_torch_worker_info() -> WorkerInfo | None:
-    """Get torch DataLoader worker info if available.
-
-    Returns None if torch is not installed or not in a worker process.
-    """
-    if find_spec("torch"):
-        from torch.utils.data import get_worker_info
-
-        info = get_worker_info()
-        if info is not None:
-            return WorkerInfo(id=info.id, num_workers=info.num_workers)
-    return None
 
 
 class ChunkSampler(Sampler):
