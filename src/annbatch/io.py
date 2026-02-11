@@ -731,10 +731,8 @@ class DatasetCollection(BaseCollection):
             )
             adata = ad.concat([adata_dataset, subset_adata], join="outer")
             if shuffle:
-                idxs = np.random.default_rng().permutation(adata.shape[0])
-            else:
-                idxs = np.arange(adata.shape[0])
-            adata = _persist_adata_in_memory(adata[idxs, :].copy())
+                adata = adata[np.random.default_rng().permutation(adata.shape[0])]
+            adata = _persist_adata_in_memory(adata.copy())
             self._write_adata(
                 adata,
                 key=dataset,
