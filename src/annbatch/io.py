@@ -104,7 +104,7 @@ def write_sharded(
             iospec: ad.experimental.IOSpec,
         ):
             # Ensure we're not overriding anything here
-            dataset_kwargs = dataset_kwargs.copy()
+            dataset_kwargs = dict(dataset_kwargs)
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
