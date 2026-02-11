@@ -9,6 +9,7 @@ import pytest
 
 from annbatch import ChunkSampler
 from annbatch.abc import Sampler
+from annbatch.utils import _spawn_worker_rng
 
 # TODO(selmanozleyen): Check for the validation within the _get_worker_handle method. Mock worker handle wouldn't make sense
 # but overall one must  also think about how validation can't be independent of the worker handle.
@@ -28,28 +29,30 @@ def collect_indices(sampler, n_obs):
 class MockWorkerHandle:
     """Simulates torch worker context for testing without actual DataLoader."""
 
-    def __init__(self, worker_id: int, num_workers: int, seed: int = 42):
+    def __init__(self, worker_id: int, num_workers: int, rng: np.random.Generator | None = None):
         self.worker_id = worker_id
         self._num_workers = num_workers
-        self._rng = np.random.default_rng(seed)
+        self._rng = _spawn_worker_rng(rng, worker_id)
+
+    @property
+    def rng(self) -> np.random.Generator:
+        return self._rng
 
     @property
     def num_workers(self) -> int:
         return self._num_workers
 
-    def shuffle(self, obj):
-        self._rng.shuffle(obj)
-
-    def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        return np.array_split(obj, self._num_workers)[self.worker_id]
-
 
 class ChunkSamplerWithMockWorkerHandle(ChunkSampler):
-    def set_worker_handle(self, worker_handle: MockWorkerHandle):
-        self.worker_handle = worker_handle
+    def set_mock_worker_info(self, worker_id: int, num_workers: int):
+        """Set mock worker info. The RNG will be derived from sampler's _rng."""
+        self._mock_worker_id = worker_id
+        self._mock_num_workers = num_workers
 
     def _get_worker_handle(self) -> MockWorkerHandle | None:
-        return self.worker_handle
+        if hasattr(self, "_mock_worker_id"):
+            return MockWorkerHandle(self._mock_worker_id, self._mock_num_workers, self._rng)
+        return None
 
 
 # =============================================================================
@@ -177,7 +180,6 @@ def test_workers_cover_full_dataset_without_overlap(
     """Test workers cover full dataset without overlap. Also checks if there are empty splits in any of the load requests."""
     all_worker_indices = []
     for worker_id in range(num_workers):
-        worker_handle = MockWorkerHandle(worker_id, num_workers)
         sampler = ChunkSamplerWithMockWorkerHandle(
             mask=slice(0, None),
             batch_size=batch_size,
@@ -185,7 +187,7 @@ def test_workers_cover_full_dataset_without_overlap(
             preload_nchunks=preload_nchunks,
             drop_last=drop_last,
         )
-        sampler.set_worker_handle(worker_handle)
+        sampler.set_mock_worker_info(worker_id, num_workers)
         all_worker_indices.append(collect_indices(sampler, n_obs))
 
     # All workers should have disjoint chunks
@@ -195,6 +197,40 @@ def test_workers_cover_full_dataset_without_overlap(
 
     # Together they cover the full dataset
     assert set().union(*all_worker_indices) == set(range(n_obs))
+
+
+def test_batch_shuffle_is_reproducible():
+    """Test that batch shuffling is reproducible when using ChunkSampler directly."""
+    n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
+    seed = 42
+
+    def collect_splits(sampler):
+        all_splits = []
+        for load_request in sampler.sample(n_obs):
+            for split in load_request["splits"]:
+                all_splits.append(split.tolist())
+        return all_splits
+
+    # Run twice with same seed - should get identical batch ordering
+    sampler1 = ChunkSampler(
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        batch_size=batch_size,
+        shuffle=True,
+        rng=np.random.default_rng(seed),
+    )
+    splits1 = collect_splits(sampler1)
+
+    sampler2 = ChunkSampler(
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        batch_size=batch_size,
+        shuffle=True,
+        rng=np.random.default_rng(seed),
+    )
+    splits2 = collect_splits(sampler2)
+
+    assert splits1 == splits2, "Batch shuffling should be reproducible with same seed"
 
 
 # =============================================================================

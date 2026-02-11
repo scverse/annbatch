@@ -5,6 +5,7 @@ from importlib.metadata import version
 from . import abc, types
 from .io import DatasetCollection, write_sharded
 from .loader import Loader
+from .samplers._categorical_sampler import CategoricalSampler
 from .samplers._chunk_sampler import ChunkSampler
 
 __version__ = version("annbatch")
@@ -14,6 +15,7 @@ __all__ = [
     "DatasetCollection",
     "types",
     "write_sharded",
+    "CategoricalSampler",
     "ChunkSampler",
     "abc",
 ]
