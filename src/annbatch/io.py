@@ -374,6 +374,22 @@ class BaseCollection:
         else:
             raise ValueError("Cannot iterate through folder of h5ad files")
 
+    def _load_and_check(
+        self,
+        adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
+        *,
+        load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData],
+        var_subset: Iterable[str] | None,
+    ) -> tuple[ad.AnnData, pd.Index]:
+        """Shared preamble: check keys, lazy-load, make unique, resolve var_subset."""
+        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat.obs_names_make_unique()
+        if var_subset is None:
+            var_subset = adata_concat.var_names
+        var_mask = adata_concat.var_names.isin(var_subset)
+        return adata_concat, var_mask
+
     def _write_adata(
         self,
         adata: ad.AnnData,
@@ -604,9 +620,7 @@ class DatasetCollection(BaseCollection):
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
-        adata_concat.obs_names_make_unique()
+        adata_concat, var_mask = self._load_and_check(adata_paths, load_adata=load_adata, var_subset=var_subset)
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
@@ -615,7 +629,6 @@ class DatasetCollection(BaseCollection):
         if var_subset is None:
             var_subset = adata_concat.var_names
         for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
-            var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
             adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
@@ -787,6 +800,7 @@ class GroupedCollection(BaseCollection):
         zarr_dense_chunk_size: int = 1024,
         zarr_dense_shard_size: int = 4_194_304,
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
         shuffle_within_group: bool = True,
         random_seed: int | None = None,
@@ -799,11 +813,7 @@ class GroupedCollection(BaseCollection):
         if len(set(groupby_keys)) != len(groupby_keys):
             raise ValueError("`groupby` must not contain duplicate column names.")
 
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
-        adata_concat.obs_names_make_unique()
-        if var_subset is None:
-            var_subset = adata_concat.var_names
+        adata_concat, var_mask = self._load_and_check(adata_paths, load_adata=load_adata, var_subset=var_subset)
         missing_group_keys = [k for k in groupby_keys if k not in adata_concat.obs.columns]
         if len(missing_group_keys) > 0:
             raise ValueError(f"Could not find groupby key(s) in obs: {missing_group_keys}.")
@@ -816,8 +826,9 @@ class GroupedCollection(BaseCollection):
             rng=np.random.default_rng(random_seed),
         )
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
-        var_mask = adata_concat.var_names.isin(var_subset)
-        for i, chunk in enumerate(tqdm(split_given_size(ordered_positions, n_obs_per_dataset), desc="processing chunks")):
+        for i, chunk in enumerate(
+            tqdm(split_given_size(ordered_positions, n_obs_per_dataset), desc="processing chunks")
+        ):
             adata_chunk = adata_concat[chunk, :][:, var_mask].copy()
             adata_chunk = _persist_adata_in_memory(adata_chunk)
             self._write_adata(
@@ -828,6 +839,7 @@ class GroupedCollection(BaseCollection):
                 zarr_dense_chunk_size=zarr_dense_chunk_size,
                 zarr_dense_shard_size=zarr_dense_shard_size,
                 zarr_compressor=zarr_compressor,
+                h5ad_compressor=h5ad_compressor,
             )
         ad.io.write_elem(self._group, GROUP_INDEX_KEY, group_index)
         self._group.update_attributes({**V1_GROUPED_ENCODING, "groupby_keys": groupby_keys})
