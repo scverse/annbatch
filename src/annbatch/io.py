@@ -385,7 +385,7 @@ class DatasetCollection:
 
     @property
     def is_empty(self) -> bool:
-        """Wether or not there is an existing store at the group location."""
+        """Whether or not there is an existing store at the group location."""
         return (
             (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
             if isinstance(self._group, zarr.Group)
