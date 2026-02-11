@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+import math
 
 import numpy as np
 import pytest
@@ -283,6 +284,11 @@ class SimpleSampler(Sampler):
     @property
     def shuffle(self) -> bool | None:
         return self._shuffle
+
+    def n_iters(self, n_obs: int) -> int:
+        if self._batch_size is None or self._batch_size == 0:
+            return 1
+        return math.ceil(n_obs / self._batch_size)
 
     def validate(self, n_obs: int) -> None:
         """No validation needed for test sampler."""

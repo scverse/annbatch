@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, TypedDict
@@ -333,6 +334,32 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     np.testing.assert_allclose(X, X_expected)
 
 
+@pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
+def test_len(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    drop_last: bool,
+):
+    zarr_path = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    data = open_sparse(zarr_path)
+    n_obs = data["dataset"].shape[0]
+    batch_size = 32
+
+    loader = Loader(
+        shuffle=False,
+        batch_size=batch_size,
+        preload_to_gpu=False,
+        to_torch=False,
+        drop_last=drop_last,
+    )
+    loader.add_dataset(**data)
+
+    expected_len = n_obs // batch_size if drop_last else math.ceil(n_obs / batch_size)
+    assert len(loader) == expected_len
+    # Also verify len matches the actual number of yielded batches
+    actual_batches = sum(1 for _ in loader)
+    assert len(loader) == actual_batches
+
+
 def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
@@ -578,6 +605,9 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
 
         def __init__(self):
             self._validate_count = 0
+
+        def n_iters(self, n_obs: int) -> int:
+            return math.ceil(n_obs / self.batch_size)
 
         def validate(self, n_obs: int) -> None:
             self._validate_count += 1

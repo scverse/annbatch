@@ -213,7 +213,7 @@ class Loader[
         self._concat_strategy = concat_strategy
 
     def __len__(self) -> int:
-        return self.n_obs
+        return self._batch_sampler.n_iters(self.n_obs)
 
     @property
     def _sp_module(self) -> ModuleType:
