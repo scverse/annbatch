@@ -182,7 +182,7 @@ def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
-            np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
+            np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
         )
         # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
