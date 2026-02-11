@@ -24,7 +24,7 @@ from zarr.codecs import BloscCodec, BloscShuffle
 from annbatch.utils import split_given_size
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterable, Mapping
+    from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
     from os import PathLike
     from typing import Any, Literal
 
@@ -390,6 +390,24 @@ class BaseCollection:
         var_mask = adata_concat.var_names.isin(var_subset)
         return adata_concat, var_mask
 
+    def _iter_prepared_chunks(
+        self,
+        adata_concat: ad.AnnData,
+        chunks: Iterable[np.ndarray],
+        var_mask: pd.Index,
+        *,
+        sort_indices: bool = False,
+        shuffle: bool = False,
+    ) -> Iterator[tuple[str, ad.AnnData]]:
+        """Yield ``(dataset_key, in-memory adata)`` pairs ready for writing."""
+        for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
+            indices = np.sort(chunk) if sort_indices else chunk
+            adata_chunk = adata_concat[indices, :][:, var_mask].copy()
+            adata_chunk = _persist_adata_in_memory(adata_chunk)
+            if shuffle:
+                adata_chunk = adata_chunk[np.random.default_rng().permutation(len(adata_chunk))]
+            yield f"{DATASET_PREFIX}_{i}", adata_chunk
+
     def _write_adata(
         self,
         adata: ad.AnnData,
@@ -625,21 +643,12 @@ class DatasetCollection(BaseCollection):
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
         )
-
-        if var_subset is None:
-            var_subset = adata_concat.var_names
-        for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
-            # np.sort: It's more efficient to access elements sequentially from dask arrays
-            # The data will be shuffled later on, we just want the elements at this point
-            adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
-            adata_chunk = _persist_adata_in_memory(adata_chunk)
-            if shuffle:
-                # shuffle adata in memory to break up individual chunks
-                idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
-                adata_chunk = adata_chunk[idxs]
+        for key, adata_chunk in self._iter_prepared_chunks(
+            adata_concat, chunks, var_mask, sort_indices=True, shuffle=shuffle
+        ):
             self._write_adata(
                 adata_chunk,
-                key=f"{DATASET_PREFIX}_{i}",
+                key=key,
                 zarr_sparse_chunk_size=zarr_sparse_chunk_size,
                 zarr_sparse_shard_size=zarr_sparse_shard_size,
                 zarr_dense_chunk_size=zarr_dense_chunk_size,
@@ -826,14 +835,11 @@ class GroupedCollection(BaseCollection):
             rng=np.random.default_rng(random_seed),
         )
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
-        for i, chunk in enumerate(
-            tqdm(split_given_size(ordered_positions, n_obs_per_dataset), desc="processing chunks")
-        ):
-            adata_chunk = adata_concat[chunk, :][:, var_mask].copy()
-            adata_chunk = _persist_adata_in_memory(adata_chunk)
+        chunks = split_given_size(ordered_positions, n_obs_per_dataset)
+        for key, adata_chunk in self._iter_prepared_chunks(adata_concat, chunks, var_mask):
             self._write_adata(
                 adata_chunk,
-                key=f"{DATASET_PREFIX}_{i}",
+                key=key,
                 zarr_sparse_chunk_size=zarr_sparse_chunk_size,
                 zarr_sparse_shard_size=zarr_sparse_shard_size,
                 zarr_dense_chunk_size=zarr_dense_chunk_size,
