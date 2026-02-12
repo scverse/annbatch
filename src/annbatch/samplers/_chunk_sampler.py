@@ -205,12 +205,12 @@ class ChunkSampler(Sampler):
             n_iters = base + (1 if worker_id < remainder else 0)
 
         n_requests = math.ceil(n_iters / batches_per_request)
-        remaining = n_iters
+        last_n_batches = n_iters - (n_requests - 1) * batches_per_request
 
         rng = self._rng if worker_handle is None else worker_handle._rng
         batch_indices = np.arange(self._in_memory_size)
 
-        for _ in range(n_requests):
+        for request_idx in range(n_requests):
             # Sample chunk indices with replacement from the pool
             sampled = rng.integers(0, n_pool, size=self._preload_nchunks)
             chunks = [chunk_pool[i] for i in sampled]
@@ -218,9 +218,9 @@ class ChunkSampler(Sampler):
             # Shuffle in-memory indices (in-place, reuse array)
             if self._shuffle:
                 rng.shuffle(batch_indices)
-            n_batches = min(batches_per_request, remaining)
-            splits = split_given_size(batch_indices, self._batch_size)[:n_batches]
-            remaining -= n_batches
+            splits = split_given_size(batch_indices, self._batch_size)
+            if request_idx == n_requests - 1:
+                splits = splits[:last_n_batches]
 
             yield {"chunks": chunks, "splits": splits}
 
