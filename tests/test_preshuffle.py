@@ -394,7 +394,7 @@ def test_grouped_collection_from_adatas_compound(adata_with_h5_path_different_va
         zarr_dense_chunk_size=5,
         zarr_dense_shard_size=10,
         n_obs_per_dataset=70,
-        shuffle_within_group=True,
+        shuffle=True,
         random_seed=0,
     )
     assert not collection.is_empty
@@ -407,7 +407,9 @@ def test_grouped_collection_from_adatas_compound(adata_with_h5_path_different_va
     assert int(group_index["count"].sum()) == int(sum(ad.read_h5ad(path).n_obs for path in paths))
     assert int(group_index["start"].iloc[0]) == 0
     assert np.all(group_index["start"].to_numpy() < group_index["stop"].to_numpy())
-    assert np.array_equal(group_index["count"].to_numpy(), group_index["stop"].to_numpy() - group_index["start"].to_numpy())
+    assert np.array_equal(
+        group_index["count"].to_numpy(), group_index["stop"].to_numpy() - group_index["start"].to_numpy()
+    )
 
     adata_grouped = ad.concat([ad.io.read_elem(g) for g in collection], join="outer")
     grouped_obs = adata_grouped.obs[["label", "store_id"]].astype("string").fillna("<NA>")

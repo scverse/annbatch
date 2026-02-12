@@ -749,7 +749,7 @@ def _group_obs_rows(
     obs: pd.DataFrame,
     *,
     groupby: list[str],
-    shuffle_within_group: bool,
+    shuffle: bool,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Reorder observation indices so that rows are contiguous by group, and return a group index."""
@@ -760,7 +760,7 @@ def _group_obs_rows(
         key_tuple = key if isinstance(key, tuple) else (key,)
         key_rows.append(tuple("<NA>" if pd.isna(v) else str(v) for v in key_tuple))
         pos = np.asarray(positions, dtype=np.int64)
-        if shuffle_within_group:
+        if shuffle:
             pos = pos[rng.permutation(pos.shape[0])]
         ordered_positions.append(pos)
 
@@ -809,7 +809,7 @@ class GroupedCollection(BaseCollection):
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
-        shuffle_within_group: bool = True,
+        shuffle: bool = True,
         random_seed: int | None = None,
     ) -> Self:
         if not self.is_empty:
@@ -831,7 +831,7 @@ class GroupedCollection(BaseCollection):
         ordered_positions, group_index = _group_obs_rows(
             obs_for_grouping,
             groupby=groupby_keys,
-            shuffle_within_group=shuffle_within_group,
+            shuffle=shuffle,
             rng=np.random.default_rng(random_seed),
         )
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
