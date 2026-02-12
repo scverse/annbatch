@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
 import math
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -58,7 +58,16 @@ def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
         pytest.param(5, 20, None, None, 10, 2, False, True, id="drop_last_total_less_than_batch"),
     ],
 )
-def test_mask_coverage(n_obs: int, chunk_size: int, start: int | None, stop: int | None, batch_size: int, preload_nchunks: int, shuffle: bool, drop_last: bool):
+def test_mask_coverage(
+    n_obs: int,
+    chunk_size: int,
+    start: int | None,
+    stop: int | None,
+    batch_size: int,
+    preload_nchunks: int,
+    shuffle: bool,
+    drop_last: bool,
+):
     """Test sampler covers exactly the expected range, and ordering is correct when not shuffled."""
     sampler = ChunkSampler(
         mask=slice(start, stop),
