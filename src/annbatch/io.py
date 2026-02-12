@@ -398,7 +398,8 @@ class DatasetCollection(BaseCollection):
                 [k for k in self._group.keys() if re.match(rf"{DATASET_PREFIX}_([0-9]*)", k) is not None],
                 key=lambda x: int(x.split("_")[1]),
             )
-        raise ValueError("Cannot iterate through folder of h5ad files")
+        else:
+            raise ValueError("Cannot iterate through folder of h5ad files")
 
     def __iter__(self) -> Generator[zarr.Group]:
         if isinstance(self._group, zarr.Group):
@@ -655,8 +656,11 @@ class DatasetCollection(BaseCollection):
             adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
         )
         self._create_from_adata(
-            adata_concat, chunks, var_mask,
-            sort_indices=True, shuffle=shuffle,
+            adata_concat,
+            chunks,
+            var_mask,
+            sort_indices=True,
+            shuffle=shuffle,
             **write_kwargs,
         )
 
