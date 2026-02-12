@@ -97,6 +97,11 @@ class ChunkSampler(Sampler):
     def shuffle(self) -> bool:
         return self._shuffle
 
+    def n_iters(self, n_obs: int) -> int:
+        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        total_obs = stop - start
+        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
+
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
 
@@ -162,7 +167,7 @@ class ChunkSampler(Sampler):
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
-                np.random.default_rng().shuffle(batch_indices)
+                self._rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
@@ -175,7 +180,7 @@ class ChunkSampler(Sampler):
                 return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
         batch_indices = split_given_size(
-            (np.random.default_rng().permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
+            (self._rng.permutation if self._shuffle else np.arange)(total_obs_in_last_batch),
             self._batch_size,
         )
         yield {"chunks": final_chunks, "splits": batch_indices}

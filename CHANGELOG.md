@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.0.8]
+
+- {class}`~annbatch.Loader` acccepts an `rng` argument now
+
 ## [0.0.7]
 
 - Make the in-memory concatenation strategy configurable for {meth}`annbatch.Loader.__iter__` via a `concat_strategy` argument to `__init__` - sparse on-disk will concatenated then shuffled/yielded (faster, higher memory usage) but dense will be shuffled and then concated/yielded (lower memory usage).
