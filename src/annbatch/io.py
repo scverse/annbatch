@@ -767,27 +767,27 @@ def _group_obs_rows(
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Reorder observation indices so that rows are contiguous by group, and return a group index."""
-    grouped_indices = obs[groupby].groupby(groupby, dropna=False, sort=True, observed=False).indices
-    ordered_positions: list[np.ndarray] = []
-    key_rows: list[tuple[str, ...]] = []
-    for key, positions in grouped_indices.items():
-        key_tuple = key if isinstance(key, tuple) else (key,)
-        key_rows.append(tuple("<NA>" if pd.isna(v) else str(v) for v in key_tuple))
-        pos = np.asarray(positions, dtype=np.int64)
-        if shuffle:
-            pos = pos[rng.permutation(pos.shape[0])]
-        ordered_positions.append(pos)
+    g = obs[groupby].groupby(groupby, dropna=False, sort=True, observed=False)
+    group_ids = g.ngroup().to_numpy(dtype=np.int64)
 
-    counts = np.asarray([p.shape[0] for p in ordered_positions], dtype=np.int64)
+    if shuffle:
+        # lexsort by (random_key, group_id): groups stay contiguous, rows within each group are shuffled
+        order = np.lexsort((rng.random(len(obs)), group_ids))
+    else:
+        order = np.argsort(group_ids, kind="stable")
+
+    ordered_positions = np.arange(len(obs), dtype=np.int64)[order]
+
+    # build group_index from the sorted group keys and counts
+    group_index = g.size().reset_index(name="count")
+    for col in groupby:
+        group_index[col] = group_index[col].fillna("<NA>").astype(str)
+    counts = group_index["count"].to_numpy(dtype=np.int64)
     stops = np.cumsum(counts)
-    starts = stops - counts
-    group_index = pd.DataFrame(
-        {col: [row[i] for row in key_rows] for i, col in enumerate(groupby)}
-        | {"start": starts, "stop": stops, "count": counts}
-    )
-    if len(ordered_positions) == 0:
-        return np.array([], dtype=np.int64), group_index
-    return np.concatenate(ordered_positions), group_index
+    group_index["stop"] = stops
+    group_index["start"] = stops - counts
+
+    return ordered_positions, group_index
 
 
 class GroupedCollection(BaseCollection):
@@ -886,8 +886,7 @@ class GroupedCollection(BaseCollection):
             "h5ad_compressor": h5ad_compressor,
         }
         for i, row in enumerate(group_index.itertuples()):
-            start, stop = int(row.start), int(row.stop)
-            group_positions = ordered_positions[start:stop]
+            group_positions = ordered_positions[row.start : row.stop]
             chunks = split_given_size(group_positions, n_obs_per_dataset)
             sub = DatasetCollection(self._group.require_group(f"{GROUP_PREFIX}_{i}"))
             sub._create_from_adata(adata_concat, chunks, var_mask, **write_kwargs)
