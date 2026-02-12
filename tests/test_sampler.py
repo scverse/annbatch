@@ -10,7 +10,7 @@ import pytest
 
 from annbatch import ChunkSampler
 from annbatch.abc import Sampler
-from annbatch.samplers._chunk_sampler import WorkerInfo
+from annbatch.samplers._utils import WorkerInfo
 
 
 def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
