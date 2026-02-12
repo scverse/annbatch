@@ -104,7 +104,15 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     "gen_loader",
     [
         pytest.param(
-            lambda collection, shuffle, use_zarrs, chunk_size=chunk_size, preload_nchunks=preload_nchunks, open_func=open_func, batch_size=batch_size, preload_to_gpu=preload_to_gpu, concat_strategy=concat_strategy: (
+            lambda collection,
+            shuffle,
+            use_zarrs,
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            open_func=open_func,
+            batch_size=batch_size,
+            preload_to_gpu=preload_to_gpu,
+            concat_strategy=concat_strategy: (
                 Loader(
                     shuffle=shuffle,
                     chunk_size=chunk_size,
