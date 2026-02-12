@@ -825,7 +825,9 @@ class GroupedCollection(BaseCollection):
         if len(missing_group_keys) > 0:
             raise ValueError(f"Could not find groupby key(s) in obs: {missing_group_keys}.")
 
-        obs_for_grouping = adata_concat.obs.to_memory() if isinstance(adata_concat.obs, Dataset2D) else adata_concat.obs
+        obs_for_grouping = adata_concat.obs[groupby_keys]
+        if isinstance(obs_for_grouping, Dataset2D):
+            obs_for_grouping = obs_for_grouping.to_memory()
         ordered_positions, group_index = _group_obs_rows(
             obs_for_grouping,
             groupby=groupby_keys,
