@@ -580,12 +580,7 @@ class DatasetCollection(BaseCollection):
         *,
         sort_indices: bool = False,
         shuffle: bool = False,
-        zarr_sparse_chunk_size: int = 32768,
-        zarr_sparse_shard_size: int = 134_217_728,
-        zarr_dense_chunk_size: int = 1024,
-        zarr_dense_shard_size: int = 4_194_304,
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
-        h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
+        **write_kwargs,
     ) -> None:
         """Write a collection from a lazy adata and pre-computed observation chunks."""
         for key, adata_chunk in self._iter_prepared_chunks(
@@ -594,12 +589,7 @@ class DatasetCollection(BaseCollection):
             self._write_adata(
                 adata_chunk,
                 key=key,
-                zarr_sparse_chunk_size=zarr_sparse_chunk_size,
-                zarr_sparse_shard_size=zarr_sparse_shard_size,
-                zarr_dense_chunk_size=zarr_dense_chunk_size,
-                zarr_dense_shard_size=zarr_dense_shard_size,
-                zarr_compressor=zarr_compressor,
-                h5ad_compressor=h5ad_compressor,
+                **write_kwargs,
             )
         if isinstance(self._group, zarr.Group):
             self._group.update_attributes(V1_ENCODING)
@@ -610,10 +600,15 @@ class DatasetCollection(BaseCollection):
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
+        zarr_sparse_chunk_size: int = 32768,
+        zarr_sparse_shard_size: int = 134_217_728,
+        zarr_dense_chunk_size: int = 1024,
+        zarr_dense_shard_size: int = 4_194_304,
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
-        **write_kwargs,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
@@ -637,6 +632,18 @@ class DatasetCollection(BaseCollection):
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
                 Only applicable when adding datasets for the first time, otherwise ignored and the incoming data's var space is subsetted to that of the existing collection.
+            zarr_sparse_chunk_size
+                Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
+            zarr_sparse_shard_size
+                Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
+            zarr_dense_chunk_size
+                Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
+            zarr_dense_shard_size
+                Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
+            zarr_compressor
+                Compressors to use to compress the data in the zarr store.
+            h5ad_compressor
+                Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
             n_obs_per_dataset
                 Number of observations to load into memory at once for shuffling / pre-processing.
                 The higher this number, the more memory is used, but the better the shuffling.
@@ -661,7 +668,12 @@ class DatasetCollection(BaseCollection):
             var_mask,
             sort_indices=True,
             shuffle=shuffle,
-            **write_kwargs,
+            zarr_sparse_chunk_size=zarr_sparse_chunk_size,
+            zarr_sparse_shard_size=zarr_sparse_shard_size,
+            zarr_dense_chunk_size=zarr_dense_chunk_size,
+            zarr_dense_shard_size=zarr_dense_shard_size,
+            zarr_compressor=zarr_compressor,
+            h5ad_compressor=h5ad_compressor,
         )
 
     def _add_to_collection(
