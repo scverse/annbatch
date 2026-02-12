@@ -165,8 +165,9 @@ def test_workers_cover_full_dataset_without_overlap(
             preload_nchunks=preload_nchunks,
             drop_last=drop_last,
         )
+        # we patch the function where it is called
         with patch(
-            "annbatch.samplers._utils.get_torch_worker_info",
+            "annbatch.samplers._chunk_sampler.get_torch_worker_info",
             return_value=WorkerInfo(id=worker_id, num_workers=num_workers),
         ):
             all_worker_indices.append(collect_indices(sampler, n_obs))
