@@ -537,6 +537,8 @@ class DatasetCollection:
         ----------
             adata_paths
                 Paths to the AnnData files used to create the zarr store.
+            rng
+                Random number generator for shuffling.
             load_adata
                 Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
@@ -567,8 +569,6 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
-            rng
-                Random number generator for shuffling.
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
@@ -620,6 +620,7 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        rng: np.random.Generator,
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -629,7 +630,6 @@ class DatasetCollection:
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
-        rng: np.random.Generator,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
@@ -639,6 +639,8 @@ class DatasetCollection:
         ----------
             adata_paths
                 Paths to the anndata files to be appended to the collection of output chunks.
+            rng
+                Random number generator for shuffling.
             load_adata
                 Function to customize loading the invidiual input anndata files. By default, :func:`anndata.read_h5ad` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
@@ -661,8 +663,6 @@ class DatasetCollection:
                 How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
             shuffle
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
-            rng
-                Random number generator for shuffling.
         """
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")
