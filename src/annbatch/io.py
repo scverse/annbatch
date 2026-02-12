@@ -583,9 +583,7 @@ class DatasetCollection(BaseCollection):
         **write_kwargs,
     ) -> None:
         """Write a collection from a lazy adata and pre-computed observation chunks."""
-        for key, adata_chunk in self._iter_prepared_chunks(
-            adata_concat, chunks, var_mask, shuffle=shuffle
-        ):
+        for key, adata_chunk in self._iter_prepared_chunks(adata_concat, chunks, var_mask, shuffle=shuffle):
             self._write_adata(
                 adata_chunk,
                 key=key,
