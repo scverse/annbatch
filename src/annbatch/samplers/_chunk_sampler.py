@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._utils import _get_torch_worker_info
+from annbatch.samplers._utils import get_torch_worker_info
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -126,7 +126,7 @@ class ChunkSampler(Sampler):
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        worker_info = _get_torch_worker_info()
+        worker_info = get_torch_worker_info()
         # Worker mode validation - only check when there are multiple workers
 
         if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:

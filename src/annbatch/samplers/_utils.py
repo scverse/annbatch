@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import TypedDict
+from typing import NamedTuple
 
 
-class WorkerInfo(TypedDict):
+class WorkerInfo(NamedTuple):
     """Minimal worker info for RNG handling."""
 
     id: int
     num_workers: int
 
 
-def _get_torch_worker_info() -> WorkerInfo | None:
+def get_torch_worker_info() -> WorkerInfo | None:
     """Get torch DataLoader worker info if available.
 
     Returns None if torch is not installed or not in a worker process.
@@ -21,5 +21,5 @@ def _get_torch_worker_info() -> WorkerInfo | None:
 
         info = get_worker_info()
         if info is not None:
-            return {"id": info.id, "num_workers": info.num_workers}
+            return WorkerInfo(id=info.id, num_workers=info.num_workers)
     return None

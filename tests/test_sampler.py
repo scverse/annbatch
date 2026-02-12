@@ -10,7 +10,6 @@ import pytest
 
 from annbatch import ChunkSampler
 from annbatch.abc import Sampler
-from annbatch.samplers._utils import WorkerInfo
 
 
 def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
@@ -166,7 +165,7 @@ def test_workers_cover_full_dataset_without_overlap(
             drop_last=drop_last,
         )
         with patch(
-            "annbatch.samplers._chunk_sampler._get_torch_worker_info",
+            "annbatch.samplers._utils.get_torch_worker_info",
             return_value=WorkerInfo(id=worker_id, num_workers=num_workers),
         ):
             all_worker_indices.append(collect_indices(sampler, n_obs))
