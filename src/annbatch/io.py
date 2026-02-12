@@ -510,6 +510,7 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        rng: np.random.Generator,
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
@@ -521,7 +522,6 @@ class DatasetCollection:
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
-        rng: np.random.Generator,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
