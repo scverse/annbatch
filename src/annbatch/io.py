@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
 V1_GROUPED_ENCODING = {"encoding-type": "annbatch-grouped", "encoding-version": "0.1.0"}
 GROUP_INDEX_KEY = "group_index"
+GROUP_PREFIX = "group"
 
 
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
@@ -323,12 +324,24 @@ def _with_settings(func):
     return wrapper
 
 
-class BaseCollection:
-    """Base class for dataset collections.
+def _load_and_check(
+    adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
+    *,
+    load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData],
+    var_subset: Iterable[str] | None,
+) -> tuple[ad.AnnData, pd.Index]:
+    """Check keys, lazy-load, make unique, resolve var_subset."""
+    _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
+    adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+    adata_concat.obs_names_make_unique()
+    if var_subset is None:
+        var_subset = adata_concat.var_names
+    var_mask = adata_concat.var_names.isin(var_subset)
+    return adata_concat, var_mask
 
-    Provides shared initialization, iteration, and dataset key management
-    for both :class:`DatasetCollection` and :class:`GroupedCollection`.
-    """
+
+class BaseCollection:
+    """Base class providing shared initialization for collection types."""
 
     _group: zarr.Group | Path
 
@@ -358,6 +371,26 @@ class BaseCollection:
         else:
             raise TypeError("Group must either be a zarr group or a path")
 
+
+class DatasetCollection(BaseCollection):
+    """A preshuffled collection object including functionality for creating, adding to, and loading collections shuffled by `annbatch`."""
+
+    def __init__(
+        self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a", is_collection_h5ad: bool = False
+    ):
+        """Initialization of the object at a given location.
+
+        Note that if the group is a h5py/zarr object, it must have the correct permissions for any subsequent operations you plan to do.
+        Otherwise, the store will be opened according to the mode argument.
+
+        Parameters
+        ----------
+            group
+                The base location for a preshuffled collection.
+                A :class:`zarr.Group` or path ending in `.zarr` indicates zarr as the shuffled format and otherwise a directory of `h5ad` files will be created.
+        """
+        super().__init__(group, mode=mode, is_collection_h5ad=is_collection_h5ad)
+
     @property
     def _dataset_keys(self) -> list[str]:
         if isinstance(self._group, zarr.Group):
@@ -374,21 +407,14 @@ class BaseCollection:
         else:
             raise ValueError("Cannot iterate through folder of h5ad files")
 
-    def _load_and_check(
-        self,
-        adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
-        *,
-        load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData],
-        var_subset: Iterable[str] | None,
-    ) -> tuple[ad.AnnData, pd.Index]:
-        """Shared preamble: check keys, lazy-load, make unique, resolve var_subset."""
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
-        adata_concat.obs_names_make_unique()
-        if var_subset is None:
-            var_subset = adata_concat.var_names
-        var_mask = adata_concat.var_names.isin(var_subset)
-        return adata_concat, var_mask
+    @property
+    def is_empty(self) -> bool:
+        """Wether or not there is an existing store at the group location."""
+        return (
+            (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
+            if isinstance(self._group, zarr.Group)
+            else (len(list(self._group.iterdir())) == 0)
+        )
 
     def _iter_prepared_chunks(
         self,
@@ -438,36 +464,6 @@ class BaseCollection:
                 adata,
                 dataset_kwargs={"compression": h5ad_compressor},
             )
-
-
-class DatasetCollection(BaseCollection):
-    """A preshuffled collection object including functionality for creating, adding to, and loading collections shuffled by `annbatch`."""
-
-    def __init__(
-        self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a", is_collection_h5ad: bool = False
-    ):
-        """Initialization of the object at a given location.
-
-        Note that if the group is a h5py/zarr object, it must have the correct permissions for any subsequent operations you plan to do.
-        Otherwise, the store will be opened according to the mode argument.
-
-
-        Parameters
-        ----------
-            group
-                The base location for a preshuffled collection.
-                A :class:`zarr.Group` or path ending in `.zarr` indicates zarr as the shuffled format and otherwise a directory of `h5ad` files will be created.
-        """
-        super().__init__(group, mode=mode, is_collection_h5ad=is_collection_h5ad)
-
-    @property
-    def is_empty(self) -> bool:
-        """Wether or not there is an existing store at the group location."""
-        return (
-            (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
-            if isinstance(self._group, zarr.Group)
-            else (len(list(self._group.iterdir())) == 0)
-        )
 
     @_with_settings
     def add_adatas(
@@ -575,21 +571,48 @@ class DatasetCollection(BaseCollection):
             self._add_to_collection(**shared_kwargs)
         return self
 
-    def _create_collection(
+    def _create_from_adata(
         self,
+        adata_concat: ad.AnnData,
+        chunks: Iterable[np.ndarray],
+        var_mask: pd.Index,
         *,
-        adata_paths: Iterable[PathLike[str]] | Iterable[str],
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
-        var_subset: Iterable[str] | None = None,
+        sort_indices: bool = False,
+        shuffle: bool = False,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
         zarr_dense_chunk_size: int = 1024,
         zarr_dense_shard_size: int = 4_194_304,
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
+    ) -> None:
+        """Write a collection from a lazy adata and pre-computed observation chunks."""
+        for key, adata_chunk in self._iter_prepared_chunks(
+            adata_concat, chunks, var_mask, sort_indices=sort_indices, shuffle=shuffle
+        ):
+            self._write_adata(
+                adata_chunk,
+                key=key,
+                zarr_sparse_chunk_size=zarr_sparse_chunk_size,
+                zarr_sparse_shard_size=zarr_sparse_shard_size,
+                zarr_dense_chunk_size=zarr_dense_chunk_size,
+                zarr_dense_shard_size=zarr_dense_shard_size,
+                zarr_compressor=zarr_compressor,
+                h5ad_compressor=h5ad_compressor,
+            )
+        if isinstance(self._group, zarr.Group):
+            self._group.update_attributes(V1_ENCODING)
+
+    def _create_collection(
+        self,
+        *,
+        adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
+        var_subset: Iterable[str] | None = None,
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        **write_kwargs,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
@@ -613,18 +636,6 @@ class DatasetCollection(BaseCollection):
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
                 Only applicable when adding datasets for the first time, otherwise ignored and the incoming data's var space is subsetted to that of the existing collection.
-            zarr_sparse_chunk_size
-                Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_sparse_shard_size
-                Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_dense_chunk_size
-                Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
-            zarr_dense_shard_size
-                Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
-            zarr_compressor
-                Compressors to use to compress the data in the zarr store.
-            h5ad_compressor
-                Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
             n_obs_per_dataset
                 Number of observations to load into memory at once for shuffling / pre-processing.
                 The higher this number, the more memory is used, but the better the shuffling.
@@ -638,26 +649,16 @@ class DatasetCollection(BaseCollection):
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-        adata_concat, var_mask = self._load_and_check(adata_paths, load_adata=load_adata, var_subset=var_subset)
+        adata_concat, var_mask = _load_and_check(adata_paths, load_adata=load_adata, var_subset=var_subset)
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
         )
-        for key, adata_chunk in self._iter_prepared_chunks(
-            adata_concat, chunks, var_mask, sort_indices=True, shuffle=shuffle
-        ):
-            self._write_adata(
-                adata_chunk,
-                key=key,
-                zarr_sparse_chunk_size=zarr_sparse_chunk_size,
-                zarr_sparse_shard_size=zarr_sparse_shard_size,
-                zarr_dense_chunk_size=zarr_dense_chunk_size,
-                zarr_dense_shard_size=zarr_dense_shard_size,
-                zarr_compressor=zarr_compressor,
-                h5ad_compressor=h5ad_compressor,
-            )
-        if isinstance(self._group, zarr.Group):
-            self._group.update_attributes(V1_ENCODING)
+        self._create_from_adata(
+            adata_concat, chunks, var_mask,
+            sort_indices=True, shuffle=shuffle,
+            **write_kwargs,
+        )
 
     def _add_to_collection(
         self,
@@ -777,22 +778,35 @@ def _group_obs_rows(
 
 
 class GroupedCollection(BaseCollection):
-    """A grouped zarr collection organized by one or more obs columns."""
+    """A grouped zarr collection organized by one or more obs columns.
+
+    Each group is stored as a :class:`DatasetCollection` sub-group.
+    """
+
+    @property
+    def _group_collection_keys(self) -> list[str]:
+        """Return sorted keys of per-group sub-collections."""
+        if isinstance(self._group, zarr.Group):
+            return sorted(
+                [k for k in self._group.keys() if re.fullmatch(rf"{GROUP_PREFIX}_([0-9]+)", k) is not None],
+                key=lambda x: int(x.split("_")[1]),
+            )
+        raise ValueError("Cannot list group keys for a folder-based collection")
 
     @property
     def is_empty(self) -> bool:
-        return not (V1_GROUPED_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0
+        return not (V1_GROUPED_ENCODING.items() <= self._group.attrs.items()) or len(self._group_collection_keys) == 0
+
+    def __iter__(self) -> Generator[zarr.Group]:
+        for group_key in self._group_collection_keys:
+            sub = DatasetCollection(self._group[group_key])
+            yield from sub
 
     @property
     def group_index(self) -> pd.DataFrame:
         if GROUP_INDEX_KEY not in self._group:
             raise ValueError("Grouped collection is missing `group_index` metadata.")
         return ad.io.read_elem(self._group[GROUP_INDEX_KEY])
-
-    @property
-    def groupby_keys(self) -> list[str]:
-        groupby_keys = self._group.attrs.get("groupby_keys", [])
-        return [str(v) for v in groupby_keys]
 
     @_with_settings
     def add_adatas(
@@ -812,6 +826,21 @@ class GroupedCollection(BaseCollection):
         shuffle: bool = True,
         random_seed: int | None = None,
     ) -> Self:
+        """Create a grouped collection from AnnData paths, organized by one or more obs columns.
+
+        Each group is written as a :class:`DatasetCollection` sub-group.
+
+        Parameters
+        ----------
+            groupby
+                One or more obs column names to group by.
+            n_obs_per_dataset
+                Maximum number of observations per dataset within each group.
+            shuffle
+                Whether to shuffle observations within each group.
+            random_seed
+                Seed for the random number generator used when ``shuffle=True``.
+        """
         if not self.is_empty:
             raise RuntimeError("Cannot create a grouped collection at a non-empty location.")
         groupby_keys = [groupby] if isinstance(groupby, str) else list(groupby)
@@ -820,7 +849,7 @@ class GroupedCollection(BaseCollection):
         if len(set(groupby_keys)) != len(groupby_keys):
             raise ValueError("`groupby` must not contain duplicate column names.")
 
-        adata_concat, var_mask = self._load_and_check(adata_paths, load_adata=load_adata, var_subset=var_subset)
+        adata_concat, var_mask = _load_and_check(adata_paths, load_adata=load_adata, var_subset=var_subset)
         missing_group_keys = [k for k in groupby_keys if k not in adata_concat.obs.columns]
         if len(missing_group_keys) > 0:
             raise ValueError(f"Could not find groupby key(s) in obs: {missing_group_keys}.")
@@ -834,19 +863,22 @@ class GroupedCollection(BaseCollection):
             shuffle=shuffle,
             rng=np.random.default_rng(random_seed),
         )
-        n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
-        chunks = split_given_size(ordered_positions, n_obs_per_dataset)
-        for key, adata_chunk in self._iter_prepared_chunks(adata_concat, chunks, var_mask):
-            self._write_adata(
-                adata_chunk,
-                key=key,
-                zarr_sparse_chunk_size=zarr_sparse_chunk_size,
-                zarr_sparse_shard_size=zarr_sparse_shard_size,
-                zarr_dense_chunk_size=zarr_dense_chunk_size,
-                zarr_dense_shard_size=zarr_dense_shard_size,
-                zarr_compressor=zarr_compressor,
-                h5ad_compressor=h5ad_compressor,
-            )
+
+        write_kwargs = {
+            "zarr_sparse_chunk_size": zarr_sparse_chunk_size,
+            "zarr_sparse_shard_size": zarr_sparse_shard_size,
+            "zarr_dense_chunk_size": zarr_dense_chunk_size,
+            "zarr_dense_shard_size": zarr_dense_shard_size,
+            "zarr_compressor": zarr_compressor,
+            "h5ad_compressor": h5ad_compressor,
+        }
+        for i, row in enumerate(group_index.itertuples()):
+            start, stop = int(row.start), int(row.stop)
+            group_positions = ordered_positions[start:stop]
+            chunks = split_given_size(group_positions, n_obs_per_dataset)
+            sub = DatasetCollection(self._group.require_group(f"{GROUP_PREFIX}_{i}"))
+            sub._create_from_adata(adata_concat, chunks, var_mask, **write_kwargs)
+
         ad.io.write_elem(self._group, GROUP_INDEX_KEY, group_index)
         self._group.update_attributes({**V1_GROUPED_ENCODING, "groupby_keys": groupby_keys})
         return self
