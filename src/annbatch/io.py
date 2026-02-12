@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 import re
 import warnings
 from collections import defaultdict
@@ -220,12 +221,11 @@ def _create_chunks_for_shuffling(
     *,
     shuffle_n_obs_per_dataset: int | None = None,
     n_chunkings: int | None = None,
-    rng: np.random.Generator,
 ) -> list[np.ndarray]:
     # this splits the array up into `shuffle_chunk_size` contiguous runs
     idxs = split_given_size(np.arange(n_obs), shuffle_chunk_size)
     if shuffle:
-        rng.shuffle(idxs)
+        random.shuffle(idxs)
     match shuffle_n_obs_per_dataset is not None, n_chunkings is not None:
         case True, False:
             n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_chunk_size)
@@ -408,7 +408,6 @@ class DatasetCollection:
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
-        rng: np.random.Generator | None = None,
     ) -> Self:
         """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per dataset if running for the first time).
 
@@ -456,10 +455,6 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
-            rng
-                Random number generator for shuffling. Note that ``torch.manual_seed``
-                has no effect on reproducibility here; pass a seeded
-                :class:`numpy.random.Generator` to control randomness.
 
         Examples
         --------
@@ -485,8 +480,6 @@ class DatasetCollection:
         """
         if shuffle_chunk_size > n_obs_per_dataset:
             raise ValueError("Cannot have a large slice size than observations per dataset")
-        if rng is None:
-            rng = np.random.default_rng()
         shared_kwargs = {
             "adata_paths": adata_paths,
             "load_adata": load_adata,
@@ -498,7 +491,6 @@ class DatasetCollection:
             "h5ad_compressor": h5ad_compressor,
             "shuffle_chunk_size": shuffle_chunk_size,
             "shuffle": shuffle,
-            "rng": rng,
         }
         if self.is_empty:
             self._create_collection(**shared_kwargs, n_obs_per_dataset=n_obs_per_dataset, var_subset=var_subset)
@@ -521,7 +513,6 @@ class DatasetCollection:
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
-        rng: np.random.Generator,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
@@ -567,10 +558,6 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
-            rng
-                Random number generator for shuffling. Note that ``torch.manual_seed``
-                has no effect on reproducibility here; pass a seeded
-                :class:`numpy.random.Generator` to control randomness.
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
@@ -579,11 +566,7 @@ class DatasetCollection:
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0],
-            shuffle_chunk_size,
-            shuffle=shuffle,
-            shuffle_n_obs_per_dataset=n_obs_per_dataset,
-            rng=rng,
+            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
         )
 
         if var_subset is None:
@@ -596,7 +579,7 @@ class DatasetCollection:
             adata_chunk = _persist_adata_in_memory(adata_chunk)
             if shuffle:
                 # shuffle adata in memory to break up individual chunks
-                idxs = rng.permutation(np.arange(len(adata_chunk)))
+                idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
                 adata_chunk = adata_chunk[idxs]
             if isinstance(self._group, zarr.Group):
                 write_sharded(
@@ -631,7 +614,6 @@ class DatasetCollection:
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
-        rng: np.random.Generator,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
@@ -663,8 +645,6 @@ class DatasetCollection:
                 How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
             shuffle
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
-            rng
-                Random number generator for shuffling.
         """
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")
@@ -680,7 +660,7 @@ class DatasetCollection:
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys), rng=rng
+            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys)
         )
 
         adata_concat.obs_names_make_unique()
@@ -693,7 +673,7 @@ class DatasetCollection:
             )
             adata = ad.concat([adata_dataset, subset_adata], join="outer")
             if shuffle:
-                idxs = rng.permutation(adata.shape[0])
+                idxs = np.random.default_rng().permutation(adata.shape[0])
             else:
                 idxs = np.arange(adata.shape[0])
             adata = _persist_adata_in_memory(adata[idxs, :].copy())
