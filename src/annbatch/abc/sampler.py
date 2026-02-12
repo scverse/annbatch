@@ -41,7 +41,7 @@ class Sampler(ABC):
     @abstractmethod
     def shuffle(self) -> bool:
         """Whether data is shuffled.
-        
+
         If `batch_size` is provided and {attr}`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
 
         Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in {class}`annbatch.types.LoadRequest`).
@@ -50,6 +50,21 @@ class Sampler(ABC):
         -------
         bool
             True if data should be shuffled, False otherwise.
+        """
+
+    @abstractmethod
+    def n_iters(self, n_obs: int) -> int:
+        """Return the number of batches.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations available.
+
+        Returns
+        -------
+        int
+            The total number of batches this sampler will produce.
         """
 
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:
