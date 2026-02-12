@@ -215,12 +215,12 @@ def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
 
 def _create_chunks_for_shuffling(
     n_obs: int,
+    rng: np.random.Generator,
     shuffle_chunk_size: int = 1000,
     shuffle: bool = True,
     *,
     shuffle_n_obs_per_dataset: int | None = None,
     n_chunkings: int | None = None,
-    rng: np.random.Generator,
 ) -> list[np.ndarray]:
     # this splits the array up into `shuffle_chunk_size` contiguous runs
     idxs = split_given_size(np.arange(n_obs), shuffle_chunk_size)
@@ -578,10 +578,10 @@ class DatasetCollection:
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0],
-            shuffle_chunk_size,
+            rng=rng,
+            shuffle_chunk_size=shuffle_chunk_size,
             shuffle=shuffle,
             shuffle_n_obs_per_dataset=n_obs_per_dataset,
-            rng=rng,
         )
 
         if var_subset is None:
@@ -678,7 +678,11 @@ class DatasetCollection:
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys), rng=rng
+            adata_concat.shape[0],
+            rng=rng,
+            shuffle_chunk_size=shuffle_chunk_size,
+            shuffle=shuffle,
+            n_chunkings=len(self._dataset_keys),
         )
 
         adata_concat.obs_names_make_unique()
