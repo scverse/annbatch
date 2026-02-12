@@ -423,12 +423,13 @@ class DatasetCollection(BaseCollection):
         chunks: Iterable[np.ndarray],
         var_mask: pd.Index,
         *,
-        sort_indices: bool = False,
         shuffle: bool = False,
     ) -> Iterator[tuple[str, ad.AnnData]]:
         """Yield ``(dataset_key, in-memory adata)`` pairs ready for writing."""
         for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
-            indices = np.sort(chunk) if sort_indices else chunk
+            # np.sort: It's more efficient to access elements sequentially from dask arrays
+            # The data will be shuffled later on, we just want the elements at this point
+            indices = np.sort(chunk)
             adata_chunk = adata_concat[indices, :][:, var_mask].copy()
             adata_chunk = _persist_adata_in_memory(adata_chunk)
             if shuffle:
@@ -578,13 +579,12 @@ class DatasetCollection(BaseCollection):
         chunks: Iterable[np.ndarray],
         var_mask: pd.Index,
         *,
-        sort_indices: bool = False,
         shuffle: bool = False,
         **write_kwargs,
     ) -> None:
         """Write a collection from a lazy adata and pre-computed observation chunks."""
         for key, adata_chunk in self._iter_prepared_chunks(
-            adata_concat, chunks, var_mask, sort_indices=sort_indices, shuffle=shuffle
+            adata_concat, chunks, var_mask, shuffle=shuffle
         ):
             self._write_adata(
                 adata_chunk,
@@ -666,7 +666,6 @@ class DatasetCollection(BaseCollection):
             adata_concat,
             chunks,
             var_mask,
-            sort_indices=True,
             shuffle=shuffle,
             zarr_sparse_chunk_size=zarr_sparse_chunk_size,
             zarr_sparse_shard_size=zarr_sparse_shard_size,
