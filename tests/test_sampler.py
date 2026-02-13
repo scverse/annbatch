@@ -13,7 +13,6 @@ from annbatch.abc import Sampler
 from annbatch.samplers._utils import WorkerInfo
 
 
-
 def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
     """Helper to collect all indices from sampler."""
     indices: list[int] = []

@@ -143,7 +143,7 @@ class ChunkSampler(Sampler):
             )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        worker_info = get_torch_worker_info()
+        get_torch_worker_info()
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
