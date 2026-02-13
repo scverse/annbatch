@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -186,8 +186,38 @@ class ChunkSampler(Sampler):
         return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
 
 
-class ChunkSamplerTorchDistributed(ChunkSampler):
-    """Distributed chunk-based sampler that shards data across torch distributed processes.
+def _get_dist_info_torch() -> tuple[int, int]:
+    """Get rank and world_size from ``torch.distributed``."""
+    import torch.distributed as dist
+
+    if not dist.is_initialized():
+        raise RuntimeError(
+            "torch.distributed is not initialized. "
+            "Initialize it before creating a ChunkSamplerDistributed with backend='torch'."
+        )
+    return dist.get_rank(), dist.get_world_size()
+
+
+def _get_dist_info_jax() -> tuple[int, int]:
+    """Get rank and world_size from JAX multi-process API."""
+    import jax
+
+    if not jax.distributed.is_initialized():
+        raise RuntimeError(
+            "JAX distributed is not initialized. "
+            "Call jax.distributed.initialize() before creating a ChunkSamplerDistributed with backend='jax'."
+        )
+    return jax.process_index(), jax.process_count()
+
+
+DISTRIBUTED_BACKENDS: dict[str, callable] = {
+    "torch": _get_dist_info_torch,
+    "jax": _get_dist_info_jax,
+}
+
+
+class ChunkSamplerDistributed(ChunkSampler):
+    """Distributed chunk-based sampler that shards data across distributed processes.
 
     Partitions the full observation range into ``world_size`` contiguous shards
     using the ``mask`` mechanism of :class:`ChunkSampler`.  Each rank receives a
@@ -199,9 +229,9 @@ class ChunkSamplerTorchDistributed(ChunkSampler):
     guaranteeing that every rank yields exactly the same number of complete
     batches.
 
-    Rank and world size are obtained from ``torch.distributed`` at construction
-    time, so ``torch.distributed`` must be initialized before creating an
-    instance of this sampler.
+    Rank and world size are obtained from the distributed framework specified by
+    ``backend`` at construction time, so the framework must be initialized
+    before creating an instance of this sampler.
 
     Parameters
     ----------
@@ -211,6 +241,10 @@ class ChunkSamplerTorchDistributed(ChunkSampler):
         Number of chunks to load per iteration.
     batch_size
         Number of observations per batch.
+    backend
+        Distributed backend to query for rank and world size.
+        Supported values: ``"torch"`` (uses :mod:`torch.distributed`) and
+        ``"jax"`` (uses :func:`jax.process_index` / :func:`jax.process_count`).
     shuffle
         Whether to shuffle chunk and index order.
     drop_last
@@ -218,8 +252,10 @@ class ChunkSamplerTorchDistributed(ChunkSampler):
     rng
         Random number generator for shuffling.
     enforce_equal_batches
-        If *True*, round each rank's observation count down to a multiple of ``batch_size`` so that all ranks yield the same numberof batches.
-        Set to *False* to use the raw ``n_obs // world_size`` split, which may result in a uneven number of batches per worker.
+        If *True*, round each rank's observation count down to a multiple of
+        ``batch_size`` so that all ranks yield the same number of batches.
+        Set to *False* to use the raw ``n_obs // world_size`` split, which may
+        result in an uneven number of batches per worker.
     """
 
     _rank: int
@@ -232,20 +268,16 @@ class ChunkSamplerTorchDistributed(ChunkSampler):
         preload_nchunks: int,
         batch_size: int,
         *,
+        backend: Literal["torch", "jax"],
         shuffle: bool = False,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
         enforce_equal_batches: bool = True,
     ):
-        import torch.distributed as dist
+        if backend not in DISTRIBUTED_BACKENDS:
+            raise ValueError(f"Unknown backend {backend!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
 
-        if not dist.is_initialized():
-            raise RuntimeError(
-                "torch.distributed is not initialized. Initialize it before creating a ChunkSamplerTorchDistributed."
-            )
-
-        self._rank = dist.get_rank()
-        self._world_size = dist.get_world_size()
+        self._rank, self._world_size = DISTRIBUTED_BACKENDS[backend]()
         self._enforce_equal_batches = enforce_equal_batches
 
         super().__init__(

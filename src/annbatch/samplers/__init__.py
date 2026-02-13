@@ -1,6 +1,6 @@
-from ._chunk_sampler import ChunkSampler, ChunkSamplerTorchDistributed
+from ._chunk_sampler import ChunkSampler, ChunkSamplerDistributed
 
 __all__ = [
     "ChunkSampler",
-    "ChunkSamplerTorchDistributed",
+    "ChunkSamplerDistributed",
 ]
