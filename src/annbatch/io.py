@@ -457,7 +457,7 @@ class DatasetCollection:
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
             rng
-                Random number generator for shuffling. Note that ``torch.manual_seed``
+                Random number generator for shuffling. Note that :func:`torch.manual_seed`
                 has no effect on reproducibility here; pass a seeded
                 :class:`numpy.random.Generator` to control randomness.
 
