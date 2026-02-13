@@ -14,6 +14,7 @@ from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from annbatch.samplers._utils import WorkerInfo
     from annbatch.types import LoadRequest
 
 
@@ -111,7 +112,9 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        if self._n_iters is not None:
+            return self._n_iters
+        start, stop = self._resolve_start_stop(n_obs)
         total_obs = stop - start
         return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
 
@@ -143,19 +146,18 @@ class ChunkSampler(Sampler):
             )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        get_torch_worker_info()
+        worker_info = get_torch_worker_info()
         # Worker mode validation - only check when there are multiple workers
         # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
         if (
-            worker_handle is not None
-            and worker_handle.num_workers > 1
+            worker_info is not None
+            and worker_info.num_workers > 1
             and self._n_iters is None
             and not self._drop_last
             and self._batch_size != 1
         ):
             raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
-    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         start, stop = self._resolve_start_stop(n_obs)
         # Compute chunks directly from resolved mask range
         # Create chunk indices for possible shuffling and worker sharding
@@ -164,14 +166,15 @@ class ChunkSampler(Sampler):
             # Use sampler's RNG for chunk ordering - same across all workers
             self._rng.shuffle(chunk_indices)
         chunks = self._compute_chunks(chunk_indices, start, stop)
+        worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
 
         if self._n_iters is not None:
-            yield from self._iter_with_replacement(chunks, stop, worker_handle)
+            yield from self._iter_with_replacement(chunks, stop, rng=worker_aware_rng, worker_info=worker_info)
         else:
-            yield from self._iter_epoch(chunks, worker_handle)
+            yield from self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
 
     def _iter_with_replacement(
-        self, chunk_pool: list[slice], stop: int, worker_handle: WorkerHandle | None
+        self, chunk_pool: list[slice], stop: int, rng: np.random.Generator, worker_info: WorkerInfo | None
     ) -> Iterator[LoadRequest]:
         # Fix up incomplete last chunk with overlapping full-size chunk
         # so that all obs are covered if n_iters is set large enough.
@@ -188,20 +191,20 @@ class ChunkSampler(Sampler):
         n_iters = self._n_iters
         # Worker sharding: each worker gets different number of iterations
         # but the chunks might overlap within workers.
-        if worker_handle is not None:
-            num_workers = worker_handle.num_workers
-            worker_id = worker_handle._worker_info.id
+        if worker_info is not None:
+            num_workers = worker_info.num_workers
+            worker_id = worker_info.id
             base, remainder = divmod(n_iters, num_workers)
             n_iters = base + (1 if worker_id < remainder else 0)
 
         n_requests = math.ceil(n_iters / batches_per_request)
         last_n_batches = n_iters - (n_requests - 1) * batches_per_request
 
-        rng = self._rng if worker_handle is None else worker_handle._rng
         batch_indices = np.arange(self._in_memory_size)
 
         for request_idx in range(n_requests):
             # Sample chunk indices with replacement from the pool
+            # here we use worker_rng because each worker should be independent unlike other case
             sampled = rng.integers(0, n_pool, size=self._preload_nchunks)
             chunks = [chunk_pool[i] for i in sampled]
 
@@ -214,15 +217,16 @@ class ChunkSampler(Sampler):
 
             yield {"chunks": chunks, "splits": splits}
 
-    def _iter_epoch(self, chunks: list[slice], worker_handle: WorkerHandle | None) -> Iterator[LoadRequest]:
+    def _iter_epoch(
+        self, chunks: list[slice], batch_rng: np.random.Generator, worker_info: WorkerInfo | None
+    ) -> Iterator[LoadRequest]:
         # Worker sharding: each worker gets a disjoint subset of chunks
-        if worker_handle is not None:
-            chunks = worker_handle.get_part_for_worker(chunks)
+        if worker_info is not None:
+            chunks = np.array_split(np.array(chunks), worker_info.num_workers)[worker_info.id]
         # Set up the iterator for chunks and the batch indices for splits
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(self._in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
-        batch_rng = _spawn_worker_rng(self._rng, worker_info.id) if worker_info else self._rng
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
