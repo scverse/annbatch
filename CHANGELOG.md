@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning][].
 ## [0.0.8]
 
 - {class}`~annbatch.Loader` acccepts an `rng` argument now
+
+### Breaking
 - Renamed `annbatch.DatasetCollection.add_adatas` to {meth}`annbatch.DatasetCollection.add_anndatas` to be consistent with the rest of the API.
 
 ## [0.0.7]
