@@ -98,7 +98,7 @@ def test_mask_coverage(
     sampler.validate(n_obs)
 
 
-def test_batch_sizes_match_expected_pattern() -> None:
+def test_batch_sizes_match_expected_pattern():
     """Test that batch sizes match expected pattern."""
     n_obs, chunk_size, preload_nchunks, batch_size = 103, 10, 2, 5
     # last chunk is incomplete and is also the last batch in the load request
@@ -233,7 +233,7 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng():
         pytest.param(slice(0, 5), 100, 10, "at least one full chunk", id="replacement_mask_too_small"),
     ],
 )
-def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str | None) -> None:
+def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str | None):
     """Test validate behavior for various configurations."""
     sampler = ChunkSampler(
         mask=mask,
@@ -270,7 +270,7 @@ def test_invalid_init(
     drop_last: bool | None,
     n_iters: int | None,
     error_match: str,
-) -> None:
+):
     """Test that invalid configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
         ChunkSampler(
@@ -338,7 +338,7 @@ class SimpleSampler(Sampler):
     def _sample(self, n_obs: int):
         """Yield LoadRequests with or without splits."""
         chunk_size = 10
-        chunks: list[slice] = []
+        chunks = []
         for start in range(0, n_obs, chunk_size):
             stop = min(start + chunk_size, n_obs)
             if self._provide_splits:
@@ -363,11 +363,13 @@ class SimpleSampler(Sampler):
 def test_automatic_batching_requires_batch_size_and_shuffle(batch_size: int | None, shuffle: bool | None):
     """Test that automatic batching raises error when batch_size or shuffle is None."""
     sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
+    n_obs = 20
+
     with pytest.raises(ValueError):
-        list(sampler.sample(20))
+        list(sampler.sample(n_obs))
 
 
-def test_explicit_splits_override_automatic_batching() -> None:
+def test_explicit_splits_override_automatic_batching():
     """Test that explicit splits are not overridden by automatic batching."""
     sampler = SimpleSampler(batch_size=3, provide_splits=True)
 
@@ -378,12 +380,12 @@ def test_explicit_splits_override_automatic_batching() -> None:
 
 
 @pytest.mark.parametrize("shuffle", [False, True])
-def test_automatic_batching_respects_shuffle_flag(shuffle: bool) -> None:
+def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
     """Test automatic batching generates splits and respects shuffle parameter."""
     batch_size, n_obs = 3, 25
     sampler = SimpleSampler(batch_size=batch_size, provide_splits=False, shuffle=shuffle)
 
-    all_indices: list[int] = []
+    all_indices = []
     for load_request in sampler.sample(n_obs):
         assert "splits" in load_request and load_request["splits"]
         for split in load_request["splits"]:
