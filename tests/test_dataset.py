@@ -104,30 +104,24 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     "gen_loader",
     [
         pytest.param(
-            lambda collection,
-            shuffle,
-            use_zarrs,
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            open_func=open_func,
-            batch_size=batch_size,
-            preload_to_gpu=preload_to_gpu,
-            concat_strategy=concat_strategy: Loader(
-                shuffle=shuffle,
-                chunk_size=chunk_size,
-                preload_nchunks=preload_nchunks,
-                return_index=True,
-                batch_size=batch_size,
-                preload_to_gpu=preload_to_gpu,
-                to_torch=False,
-                concat_strategy=concat_strategy,
-            ).use_collection(
-                collection,
-                **(
-                    {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
-                    if open_func is not None
-                    else {}
-                ),
+            lambda collection, shuffle, use_zarrs, chunk_size=chunk_size, preload_nchunks=preload_nchunks, open_func=open_func, batch_size=batch_size, preload_to_gpu=preload_to_gpu, concat_strategy=concat_strategy: (
+                Loader(
+                    shuffle=shuffle,
+                    chunk_size=chunk_size,
+                    preload_nchunks=preload_nchunks,
+                    return_index=True,
+                    batch_size=batch_size,
+                    preload_to_gpu=preload_to_gpu,
+                    to_torch=False,
+                    concat_strategy=concat_strategy,
+                ).use_collection(
+                    collection,
+                    **(
+                        {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                        if open_func is not None
+                        else {}
+                    ),
+                )
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}-concat_strategy={concat_strategy}",  # type: ignore[attr-defined]
             marks=skip_if_no_cupy,
