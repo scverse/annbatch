@@ -104,7 +104,7 @@ def write_sharded(
             iospec: ad.experimental.IOSpec,
         ):
             # Ensure we're not overriding anything here
-            dataset_kwargs = dataset_kwargs.copy()
+            dataset_kwargs = dict(dataset_kwargs)
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
@@ -182,7 +182,7 @@ def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
-            np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
+            np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
         )
         # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
@@ -239,11 +239,13 @@ def _create_chunks_for_shuffling(
     if use_single_chunking:
         return [np.concatenate(idxs)]
     # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
-    idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
+    idxs_as_slices = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
     return [
         np.concatenate([np.arange(s.start, s.stop) for s in idx])
         for idx in (
-            split_given_size(idxs, n_slices_per_dataset) if n_chunkings is None else np.array_split(idxs, n_chunkings)
+            split_given_size(idxs_as_slices, n_slices_per_dataset)
+            if n_chunkings is None
+            else np.array_split(idxs_as_slices, n_chunkings)
         )
     ]
 
@@ -385,7 +387,7 @@ class DatasetCollection:
 
     @property
     def is_empty(self) -> bool:
-        """Wether or not there is an existing store at the group location."""
+        """Whether or not there is an existing store at the group location."""
         return (
             (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
             if isinstance(self._group, zarr.Group)
@@ -393,7 +395,7 @@ class DatasetCollection:
         )
 
     @_with_settings
-    def add_adatas(
+    def add_anndatas(
         self,
         adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
@@ -473,7 +475,7 @@ class DatasetCollection:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_adatas(
+            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_anndatas(
             ...    datasets,
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
@@ -647,7 +649,7 @@ class DatasetCollection:
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
         """
         if self.is_empty:
-            raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")
+            raise ValueError("Store is empty. Please run `DatasetCollection.add_anndatas` first.")
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 

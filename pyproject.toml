@@ -168,7 +168,8 @@ run.patch = [ "subprocess" ]
 run.source = [ "annbatch" ]
 
 [tool.mypy]
-overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*" ], ignore_missing_imports = true } ]
+[[tool.mypy.overrides]]
+overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ], ignore_missing_imports = true } ]
 
 [tool.cruft]
 skip = [

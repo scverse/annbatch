@@ -86,7 +86,7 @@ zarr.config.set(
 
 # Create a collection at the given path. The subgroups will all be anndata stores.
 collection = DatasetCollection("path/to/output/collection.zarr")
-collection.add_adatas(
+collection.add_anndatas(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"

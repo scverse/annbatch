@@ -114,7 +114,7 @@ def simple_collection(
 ) -> tuple[DatasetCollection, ad.AnnData]:
     zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
-    collection = DatasetCollection(output_path).add_adatas(
+    collection = DatasetCollection(output_path).add_anndatas(
         zarr_stores,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
