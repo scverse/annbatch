@@ -167,6 +167,7 @@ run.omit = [
 run.patch = [ "subprocess" ]
 run.source = [ "annbatch" ]
 
+[tool.mypy]
 [[tool.mypy.overrides]]
 overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ], ignore_missing_imports = true } ]
 
