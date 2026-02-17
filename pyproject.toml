@@ -9,12 +9,12 @@ description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [
-  { name = "Ilan Gold", email = "ilan.gold@scverse.org" },
   { name = "Felix Fischer", email = "felix.fischer@lamin.ai" },
+  { name = "Ilan Gold", email = "ilan.gold@scverse.org" },
 ]
 authors = [
-  { name = "Ilan Gold" },
   { name = "Felix Fischer" },
+  { name = "Ilan Gold" },
 ]
 requires-python = ">=3.12,<3.14"
 classifiers = [
@@ -76,36 +76,26 @@ urls.Documentation = "https://annbatch.readthedocs.io/"
 urls.Homepage = "https://github.com/scverse/annbatch"
 urls.Source = "https://github.com/scverse/annbatch"
 
-[tool.hatch.envs.default]
-installer = "uv"
-features = [ "dev" ]
-
-[tool.hatch.envs.docs]
-features = [ "doc" ]
-scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
-scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
-scripts.clean = "git clean -fdX -- {args:docs}"
-
-# Test the lowest and highest supported Python versions with normal deps
-[[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "minimal" ]
-python = [ "3.12", "3.13" ]
-
-# Test the newest supported Python version also with pre-release deps
-[[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "pre", "torch" ]
-python = [ "3.13" ]
-
-[tool.hatch.envs.hatch-test]
-features = [ "test" ]
-
-[tool.hatch.envs.hatch-test.overrides]
+[tool.hatch]
+envs.default.installer = "uv"
+envs.default.features = [ "dev" ]
+envs.docs.features = [ "doc" ]
+envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
+envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
+envs.hatch-test.features = [ "test" ]
+envs.hatch-test.matrix = [
+  # Test the lowest and highest supported Python versions with normal deps
+  { deps = [ "minimal" ], python = [ "3.12", "3.13" ] },
+  # Test the newest supported Python version also with pre-release deps
+  { deps = [ "pre", "torch" ], python = [ "3.13" ] },
+]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
-matrix.deps.env-vars = [
+envs.hatch-test.overrides.matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
 ]
-matrix.deps.features = [
+envs.hatch-test.overrides.matrix.deps.features = [
   { if = [ "torch" ], value = "torch" },
 ]
 
@@ -113,9 +103,7 @@ matrix.deps.features = [
 line-length = 120
 src = [ "src" ]
 extend-include = [ "*.ipynb" ]
-
 format.docstring-code-format = true
-
 lint.select = [
   "B",      # flake8-bugbear
   "BLE",    # flake8-blind-except
@@ -150,15 +138,15 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
-[tool.pytest.ini_options]
-markers = [ "gpu: mark test to run on GPU" ]
-testpaths = [ "tests" ]
-xfail_strict = true
+[tool.pytest]
+ini_options.markers = [ "gpu: mark test to run on GPU" ]
+ini_options.testpaths = [ "tests" ]
+ini_options.xfail_strict = true
 # https://github.com/pytest-dev/pytest/issues/10965
 # addopts = [
 #   "--import-mode=importlib", # allow using test files with same name
 # ]
-filterwarnings = [
+ini_options.filterwarnings = [
   "error",
   # AnnData
   "default:(Observation|Variable) names are not unique. To make them unique:UserWarning",
@@ -172,16 +160,15 @@ filterwarnings = [
   "default::scipy.sparse.SparseEfficiencyWarning",
 ]
 
-[tool.coverage.run]
-source = [ "annbatch" ]
-patch = [ "subprocess" ]
-omit = [
+[tool.coverage]
+run.omit = [
   "**/test_*.py",
 ]
+run.patch = [ "subprocess" ]
+run.source = [ "annbatch" ]
 
 [[tool.mypy.overrides]]
-module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ]
-ignore_missing_imports = true
+overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ], ignore_missing_imports = true } ]
 
 [tool.cruft]
 skip = [
