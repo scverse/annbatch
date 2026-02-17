@@ -175,10 +175,11 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
 def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
     load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
+    shuffle_chunk_size: int = 1000,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
-    for i, path in tqdm(enumerate(paths), desc="loading"):
+    for i, path in tqdm(enumerate(paths), desc="loading", total=len(paths)):
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
@@ -207,10 +208,19 @@ def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
             adata.raw.var.index = adata.raw.var.true_index
         adatas.append(adata)
     if len(adatas) == 1:
-        return adatas[0]
-    adata = ad.concat(adatas, join="outer")
-    if len(categoricals_in_all_adatas) > 0:
-        adata.uns["dataset2d_categoricals_to_convert"] = categoricals_in_all_adatas
+        adata = adatas[0]
+    else:
+        adata = ad.concat(adatas, join="outer")
+        if len(categoricals_in_all_adatas) > 0:
+            adata.uns["dataset2d_categoricals_to_convert"] = categoricals_in_all_adatas
+
+    # Rechunk dask arrays to only chunk along the first dimension with shuffle_chunk_size
+    if isinstance(adata.X, DaskArray):
+        adata.X = adata.X.rechunk((shuffle_chunk_size,) + (-1,) * (adata.X.ndim - 1))
+    for attr_name in ["layers", "obsm", "obsp"]:
+        for k, v in getattr(adata, attr_name).items():
+            if isinstance(v, DaskArray):
+                getattr(adata, attr_name)[k] = v.rechunk((shuffle_chunk_size,) + (-1,) * (v.ndim - 1))
     return adata
 
 
@@ -562,7 +572,7 @@ class DatasetCollection:
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata, shuffle_chunk_size=shuffle_chunk_size)
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
@@ -651,7 +661,7 @@ class DatasetCollection:
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata, shuffle_chunk_size=shuffle_chunk_size)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
