@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
 
 
-def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
+def _default_load_anndata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
     adata = ad.experimental.read_lazy(x, load_annotation_index=False)
     if not isinstance(x, zarr.Group | h5py.Group):
         group = (
@@ -138,7 +138,7 @@ def write_sharded(
 def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths_or_anndatas: Iterable[T | ad.AnnData],
     *,
-    load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
+    load_anndata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
@@ -148,7 +148,7 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
     }
     for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
-            adata = load_adata(path_or_anndata)
+            adata = load_anndata(path_or_anndata)
         else:
             adata = path_or_anndata
         for elem_name, key_count in found_keys.items():
@@ -160,26 +160,26 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
             num_raw_in_adata += 1
     if num_raw_in_adata != (num_anndatas := len(list(paths_or_anndatas))) and num_raw_in_adata != 0:
         warnings.warn(
-            f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
+            f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_anndata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
         elem_keys_mismatched = [key for key, count in key_count.items() if (count != num_anndatas and count != 0)]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
-                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
+                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_anndata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
 
 
 def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
-    load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
+    load_anndata: Callable[[T], ad.AnnData] = _default_load_anndata,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
     for i, path in tqdm(enumerate(paths), desc="loading"):
-        adata = load_adata(path)
+        adata = load_anndata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
             np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
@@ -399,7 +399,7 @@ class DatasetCollection:
         self,
         anndata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
-        load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
+        load_anndata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_anndata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -427,7 +427,7 @@ class DatasetCollection:
         ----------
             anndata_paths
                 Paths to the AnnData files used to create the zarr store.
-            load_adata
+            load_anndata
                 Function to customize (lazy-)loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used with categoricals/nullables read into memory and `(-1)` chunks for `obs`.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
                 Beware that concatenating nullables/categoricals (i.e., what happens if `len(anndata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
@@ -477,14 +477,14 @@ class DatasetCollection:
             ... ]
             >>> DatasetCollection("path/to/output/zarr_store.zarr").add_anndatas(
             ...    datasets,
-            ...    load_adata=read_lazy_x_and_obs_only,
+            ...    load_anndata=read_lazy_x_and_obs_only,
             ...)
         """
         if shuffle_chunk_size > n_obs_per_dataset:
             raise ValueError("Cannot have a large slice size than observations per dataset")
         shared_kwargs = {
             "anndata_paths": anndata_paths,
-            "load_adata": load_adata,
+            "load_anndata": load_anndata,
             "zarr_sparse_chunk_size": zarr_sparse_chunk_size,
             "zarr_sparse_shard_size": zarr_sparse_shard_size,
             "zarr_dense_chunk_size": zarr_dense_chunk_size,
@@ -504,7 +504,7 @@ class DatasetCollection:
         self,
         *,
         anndata_paths: Iterable[PathLike[str]] | Iterable[str],
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
+        load_anndata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_anndata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -530,7 +530,7 @@ class DatasetCollection:
         ----------
             anndata_paths
                 Paths to the AnnData files used to create the zarr store.
-            load_adata
+            load_anndata
                 Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
                 The input to the function is a path to an anndata file, and the output is an anndata object which has `X` as a :class:`dask.array.Array`.
@@ -563,8 +563,8 @@ class DatasetCollection:
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-        _check_for_mismatched_keys(anndata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(anndata_paths, load_adata=load_adata)
+        _check_for_mismatched_keys(anndata_paths, load_anndata=load_anndata)
+        adata_concat = _lazy_load_anndatas(anndata_paths, load_anndata=load_anndata)
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
@@ -607,7 +607,7 @@ class DatasetCollection:
         self,
         *,
         anndata_paths: Iterable[PathLike[str]] | Iterable[str],
-        load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
+        load_anndata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
         zarr_dense_chunk_size: int = 1024,
@@ -625,7 +625,7 @@ class DatasetCollection:
         ----------
             anndata_paths
                 Paths to the anndata files to be appended to the collection of output chunks.
-            load_adata
+            load_anndata
                 Function to customize loading the invidiual input anndata files. By default, :func:`anndata.read_h5ad` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
                 The input to the function is a path to an anndata file, and the output is an anndata object.
@@ -651,9 +651,9 @@ class DatasetCollection:
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add_anndatas` first.")
         # Check for mismatched keys among the inputs.
-        _check_for_mismatched_keys(anndata_paths, load_adata=load_adata)
+        _check_for_mismatched_keys(anndata_paths, load_anndata=load_anndata)
 
-        adata_concat = _lazy_load_anndatas(anndata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_anndatas(anndata_paths, load_anndata=load_anndata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."

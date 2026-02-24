@@ -296,7 +296,10 @@ class Loader[
         return self._batch_sampler
 
     def use_collection(
-        self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var
+        self,
+        collection: DatasetCollection,
+        *,
+        load_anndata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
     ) -> Self:
         """Load from an existing :class:`annbatch.DatasetCollection`.
 
@@ -306,10 +309,10 @@ class Loader[
         ----------
         collection
             The collection whose on-disk datasets should be used in this loader.
-        load_adata
+        load_anndata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
             Default is to just load `X` and all of `obs`.
-            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_adata` argument.
+            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_anndata` argument.
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
@@ -317,7 +320,7 @@ class Loader[
             raise RuntimeError(
                 "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_anndatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_anndatas`."
             )
-        adatas = [load_adata(g) for g in collection]
+        adatas = [load_anndata(g) for g in collection]
         self.add_anndatas(adatas)
         self._collection_added = True
         return self

@@ -117,7 +117,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 ).use_collection(
                     collection,
                     **(
-                        {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                        {"load_anndata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
                         if open_func is not None
                         else {}
                     ),
@@ -519,7 +519,7 @@ def test_no_obs_no_var(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         batch_size=20,
     ).use_collection(
         simple_collection[1],
-        load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
+        load_anndata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
     )
     assert next(iter(ds))["obs"] is None
 
