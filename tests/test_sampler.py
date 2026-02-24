@@ -482,3 +482,42 @@ def test_replacement_deterministic_with_seed():
         ]
 
     assert collect_requests(42) == collect_requests(42)
+
+
+@pytest.mark.parametrize(
+    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,num_workers",
+    [
+        pytest.param(100, 10, 2, 5, 7, 3, id="uneven_split"),
+        pytest.param(100, 10, 2, 5, 6, 3, id="even_split"),
+        pytest.param(100, 10, 2, 5, 10, 2, id="two_workers"),
+        pytest.param(100, 10, 2, 5, 1, 4, id="fewer_iters_than_workers"),
+    ],
+)
+def test_replacement_workers_split_n_iters(
+    n_obs: int,
+    chunk_size: int,
+    preload_nchunks: int,
+    batch_size: int,
+    n_iters: int,
+    num_workers: int,
+):
+    """Test that with-replacement worker sharding distributes n_iters across workers."""
+    worker_batch_counts = []
+    for worker_id in range(num_workers):
+        sampler = ChunkSampler(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            shuffle=True,
+            with_replacement=True,
+            n_iters=n_iters,
+            rng=np.random.default_rng(42),
+        )
+        with patch(
+            "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+            return_value=WorkerInfo(id=worker_id, num_workers=num_workers),
+        ):
+            count = sum(len(lr["splits"]) for lr in sampler.sample(n_obs))
+        worker_batch_counts.append(count)
+
+    assert sum(worker_batch_counts) == n_iters
