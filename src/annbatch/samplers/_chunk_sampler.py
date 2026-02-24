@@ -35,9 +35,12 @@ class ChunkSampler(Sampler):
         Number of chunks to load per iteration.
     drop_undersized
         Whether to drop the last batch when it is smaller than ``batch_size``.
+    with_replacement
+        Whether to sample chunks with replacement.
+        If ``None``, it's set to True if ``n_iters`` is provided, otherwise False.
     n_iters
-        If set, enables with-replacement sampling for exactly this many
-        batches instead of epoch-based iteration.
+        Number of batches to yield. Required when ``with_replacement`` is True.
+        Can't be provided if with_replacement is False.
     rng
         Random number generator for shuffling. Note that ``torch.manual_seed``
         has no effect on reproducibility here; pass a seeded
@@ -50,6 +53,7 @@ class ChunkSampler(Sampler):
     _preload_nchunks: int
     _mask: slice
     _drop_undersized: bool
+    _with_replacement: bool | None
     _n_iters: int | None
     _rng: np.random.Generator
 
@@ -62,6 +66,7 @@ class ChunkSampler(Sampler):
         mask: slice | None = None,
         shuffle: bool = False,
         drop_undersized: bool = False,
+        with_replacement: bool | None = None,
         n_iters: int | None = None,
         rng: np.random.Generator | None = None,
     ):
@@ -90,6 +95,14 @@ class ChunkSampler(Sampler):
             )
         if n_iters is not None:
             check_lt_1([n_iters], ["n_iters"])
+        if with_replacement is None:
+            with_replacement = n_iters is not None
+        if with_replacement and n_iters is None:
+            raise ValueError("n_iters is required when with_replacement is True.")
+        if not with_replacement and n_iters is not None:
+            raise ValueError("n_iters is only supported when with_replacement is True.")
+        self._n_iters, self._with_replacement = n_iters, with_replacement
+
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_undersized = (
@@ -109,11 +122,7 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        if self._n_iters is not None:
-            return self._n_iters
-        start, stop = self._resolve_start_stop(n_obs)
-        total_obs = stop - start
-        return total_obs // self._batch_size if self._drop_undersized else math.ceil(total_obs / self._batch_size)
+        return self._possible_n_iters(n_obs) if not self._with_replacement else self._n_iters
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -136,7 +145,7 @@ class ChunkSampler(Sampler):
             )
         if start >= stop:
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
-        if self._n_iters is not None and (stop - start) < self._chunk_size:
+        if self._with_replacement and (stop - start) < self._chunk_size:
             raise ValueError(
                 f"With-replacement mode requires at least one full chunk: "
                 f"(stop - start) = {stop - start} < chunk_size = {self._chunk_size}."
@@ -149,7 +158,7 @@ class ChunkSampler(Sampler):
         if (
             worker_info is not None
             and worker_info.num_workers > 1
-            and self._n_iters is None
+            and not self._with_replacement
             and not self._drop_undersized
             and self._batch_size != 1
         ):
@@ -165,7 +174,7 @@ class ChunkSampler(Sampler):
         chunks = self._compute_chunks(chunk_indices, start, stop)
         worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
 
-        if self._n_iters is not None:
+        if self._with_replacement:
             yield from self._iter_with_replacement(chunks, stop, rng=worker_aware_rng, worker_info=worker_info)
         else:
             yield from self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
@@ -263,3 +272,8 @@ class ChunkSampler(Sampler):
 
     def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
         return self._mask.start or 0, self._mask.stop or n_obs
+
+    def _possible_n_iters(self, n_obs: int) -> int:
+        start, stop = self._resolve_start_stop(n_obs)
+        total_obs = stop - start
+        return total_obs // self._batch_size if self._drop_undersized else math.ceil(total_obs / self._batch_size)

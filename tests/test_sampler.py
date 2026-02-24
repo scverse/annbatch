@@ -225,14 +225,14 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng():
 
 
 @pytest.mark.parametrize(
-    "mask,n_obs,n_iters,error_match",
+    "mask,n_obs,with_replacement,n_iters,error_match",
     [
-        pytest.param(slice(0, 100), 100, None, None, id="valid_config"),
-        pytest.param(slice(0, 200), 100, None, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
-        pytest.param(slice(0, 5), 100, 10, "at least one full chunk", id="replacement_mask_too_small"),
+        pytest.param(slice(0, 100), 100, False, None, None, id="valid_config"),
+        pytest.param(slice(0, 200), 100, False, None, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
+        pytest.param(slice(0, 5), 100, True, 10, "at least one full chunk", id="replacement_mask_too_small"),
     ],
 )
-def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str | None):
+def test_validate(mask: slice, n_obs: int, with_replacement: bool, n_iters: int | None, error_match: str | None):
     """Test validate behavior for various configurations."""
     sampler = ChunkSampler(
         mask=mask,
@@ -240,6 +240,7 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
         chunk_size=10,
         preload_nchunks=2,
         shuffle=False,
+        with_replacement=with_replacement,
         n_iters=n_iters,
     )
     if error_match:
@@ -250,22 +251,26 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
 
 
 @pytest.mark.parametrize(
-    "mask,shuffle,drop_undersized,n_iters,error_match",
+    "mask,shuffle,drop_undersized,with_replacement,n_iters,error_match",
     [
         # Invalid mask
-        pytest.param(slice(-1, 100), False, None, None, "mask.start must be >= 0", id="negative_start"),
-        pytest.param(slice(50, 50), False, None, None, "mask.start must be < mask.stop", id="start_equals_stop"),
-        pytest.param(slice(100, 50), False, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"),
-        pytest.param(slice(0, 100, 2), False, None, None, "mask.step must be 1, but got 2", id="step_not_one"),
+        pytest.param(slice(-1, 100), False, None, None, None, "mask.start must be >= 0", id="negative_start"),
+        pytest.param(slice(50, 50), False, None, None, None, "mask.start must be < mask.stop", id="start_equals_stop"),
+        pytest.param(slice(100, 50), False, None, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"),
+        pytest.param(slice(0, 100, 2), False, None, None, None, "mask.step must be 1, but got 2", id="step_not_one"),
         # Invalid n_iters
-        pytest.param(None, True, None, 0, "n_iters must be greater than 1", id="zero_n_iters"),
-        pytest.param(None, True, None, -5, "n_iters must be greater than 1", id="negative_n_iters"),
+        pytest.param(None, True, None, None, 0, "n_iters must be greater than 1", id="zero_n_iters"),
+        pytest.param(None, True, None, None, -5, "n_iters must be greater than 1", id="negative_n_iters"),
+        # with_replacement / n_iters mismatch
+        pytest.param(None, True, None, True, None, "n_iters is required when with_replacement is True", id="replacement_without_n_iters"),
+        pytest.param(None, True, None, False, 10, "n_iters is only supported when with_replacement is True", id="n_iters_without_replacement"),
     ],
 )
 def test_invalid_init(
     mask: slice | None,
     shuffle: bool,
     drop_undersized: bool | None,
+    with_replacement: bool | None,
     n_iters: int | None,
     error_match: str,
 ):
@@ -278,6 +283,7 @@ def test_invalid_init(
             mask=mask,
             shuffle=shuffle,
             drop_undersized=drop_undersized,
+            with_replacement=with_replacement,
             n_iters=n_iters,
         )
 
@@ -433,6 +439,7 @@ def test_replacement_invariants(
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
         shuffle=True,
+        with_replacement=True,
         n_iters=n_iters,
         mask=mask,
         rng=np.random.default_rng(42),
@@ -463,6 +470,7 @@ def test_replacement_deterministic_with_seed():
             preload_nchunks=2,
             batch_size=5,
             shuffle=True,
+            with_replacement=True,
             n_iters=10,
             rng=np.random.default_rng(seed),
         )
