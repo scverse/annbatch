@@ -397,7 +397,7 @@ class DatasetCollection:
     @_with_settings
     def add_anndatas(
         self,
-        adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
+        anndata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
         load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
