@@ -424,7 +424,7 @@ def test_replacement_invariants(
     n_iters: int,
     mask: slice | None,
     check_coverage: bool,
-) -> None:
+):
     """Test with-replacement invariants: exact batch count, uniform chunk sizes, uniform batch sizes, chunks within mask."""
     start = mask.start if mask is not None else 0
     stop = mask.stop if mask is not None else n_obs
@@ -454,7 +454,7 @@ def test_replacement_invariants(
         assert seen_indices == set(range(start, stop)), f"Missing indices: {set(range(start, stop)) - seen_indices}"
 
 
-def test_replacement_deterministic_with_seed() -> None:
+def test_replacement_deterministic_with_seed():
     """Test that with-replacement sampling is deterministic given the same seed."""
 
     def collect_requests(seed: int) -> list[tuple[list[tuple[int, int]], list[list[int]]]]:
