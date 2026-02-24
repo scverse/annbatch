@@ -620,7 +620,6 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
-        rng: np.random.Generator,
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -630,6 +629,7 @@ class DatasetCollection:
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        rng: np.random.Generator,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
