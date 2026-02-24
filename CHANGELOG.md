@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning][].
 ## [0.0.9]
 
 ### Breaking
-- Renamed `annbatch.DatasetCollection.add_adatas` to {meth}`annbatch.DatasetCollection.add_anndatas` to be consistent with the rest of the API.
+- Renamed `annbatch.DatasetCollection.add_adatas` to {meth}`annbatch.DatasetCollection.add_anndatas` and renamed `adata_paths` argument to `anndata_paths` to be consistent with the rest of the API.
 
 ## [0.0.8]
 
@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning][].
 - Renamed {class}`annbatch.types.LoaderOutput` `["labels"]` and `["data"]` to `["obs"]` and `["X"]` respectively.
 
 ## [0.0.2]
+
 
 ### Breaking
 

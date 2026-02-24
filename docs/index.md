@@ -10,7 +10,7 @@ Let's go through the above example:
 
 ```python
 colleciton = DatasetCollection("path/to/output/store.zarr").add_anndatas(
-    adata_paths=[
+    anndata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
     ],

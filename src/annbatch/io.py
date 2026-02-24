@@ -425,12 +425,12 @@ class DatasetCollection:
 
         Parameters
         ----------
-            adata_paths
+            anndata_paths
                 Paths to the AnnData files used to create the zarr store.
             load_adata
                 Function to customize (lazy-)loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used with categoricals/nullables read into memory and `(-1)` chunks for `obs`.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
-                Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
+                Beware that concatenating nullables/categoricals (i.e., what happens if `len(anndata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
@@ -483,7 +483,7 @@ class DatasetCollection:
         if shuffle_chunk_size > n_obs_per_dataset:
             raise ValueError("Cannot have a large slice size than observations per dataset")
         shared_kwargs = {
-            "adata_paths": adata_paths,
+            "anndata_paths": anndata_paths,
             "load_adata": load_adata,
             "zarr_sparse_chunk_size": zarr_sparse_chunk_size,
             "zarr_sparse_shard_size": zarr_sparse_shard_size,
@@ -503,7 +503,7 @@ class DatasetCollection:
     def _create_collection(
         self,
         *,
-        adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        anndata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
@@ -528,7 +528,7 @@ class DatasetCollection:
 
         Parameters
         ----------
-            adata_paths
+            anndata_paths
                 Paths to the AnnData files used to create the zarr store.
             load_adata
                 Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
@@ -563,8 +563,8 @@ class DatasetCollection:
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        _check_for_mismatched_keys(anndata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_anndatas(anndata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
@@ -606,7 +606,7 @@ class DatasetCollection:
     def _add_to_collection(
         self,
         *,
-        adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        anndata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         zarr_sparse_chunk_size: int = 32768,
         zarr_sparse_shard_size: int = 134_217_728,
@@ -623,7 +623,7 @@ class DatasetCollection:
 
         Parameters
         ----------
-            adata_paths
+            anndata_paths
                 Paths to the anndata files to be appended to the collection of output chunks.
             load_adata
                 Function to customize loading the invidiual input anndata files. By default, :func:`anndata.read_h5ad` is used.
@@ -651,9 +651,9 @@ class DatasetCollection:
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add_anndatas` first.")
         # Check for mismatched keys among the inputs.
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
+        _check_for_mismatched_keys(anndata_paths, load_adata=load_adata)
 
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_anndatas(anndata_paths, load_adata=load_adata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
