@@ -256,14 +256,32 @@ def test_validate(mask: slice, n_obs: int, with_replacement: bool, n_iters: int 
         # Invalid mask
         pytest.param(slice(-1, 100), False, None, None, None, "mask.start must be >= 0", id="negative_start"),
         pytest.param(slice(50, 50), False, None, None, None, "mask.start must be < mask.stop", id="start_equals_stop"),
-        pytest.param(slice(100, 50), False, None, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"),
+        pytest.param(
+            slice(100, 50), False, None, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"
+        ),
         pytest.param(slice(0, 100, 2), False, None, None, None, "mask.step must be 1, but got 2", id="step_not_one"),
         # Invalid n_iters
         pytest.param(None, True, None, None, 0, "n_iters must be greater than 1", id="zero_n_iters"),
         pytest.param(None, True, None, None, -5, "n_iters must be greater than 1", id="negative_n_iters"),
         # with_replacement / n_iters mismatch
-        pytest.param(None, True, None, True, None, "n_iters is required when with_replacement is True", id="replacement_without_n_iters"),
-        pytest.param(None, True, None, False, 10, "n_iters is only supported when with_replacement is True", id="n_iters_without_replacement"),
+        pytest.param(
+            None,
+            True,
+            None,
+            True,
+            None,
+            "n_iters is required when with_replacement is True",
+            id="replacement_without_n_iters",
+        ),
+        pytest.param(
+            None,
+            True,
+            None,
+            False,
+            10,
+            "n_iters is only supported when with_replacement is True",
+            id="n_iters_without_replacement",
+        ),
     ],
 )
 def test_invalid_init(
