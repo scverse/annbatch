@@ -33,9 +33,8 @@ class ChunkSampler(Sampler):
         Whether to shuffle chunk and index order.
     preload_nchunks
         Number of chunks to load per iteration.
-    drop_last
-        Whether to drop the last incomplete batch.
-        Must be ``False`` when ``n_iters`` is set.
+    drop_undersized
+        Whether to drop the last batch when it is smaller than ``batch_size``.
     n_iters
         If set, enables with-replacement sampling for exactly this many
         batches instead of epoch-based iteration.
@@ -50,7 +49,7 @@ class ChunkSampler(Sampler):
     _shuffle: bool
     _preload_nchunks: int
     _mask: slice
-    _drop_last: bool
+    _drop_undersized: bool
     _n_iters: int | None
     _rng: np.random.Generator
 
@@ -62,7 +61,7 @@ class ChunkSampler(Sampler):
         *,
         mask: slice | None = None,
         shuffle: bool = False,
-        drop_last: bool = False,
+        drop_undersized: bool = False,
         n_iters: int | None = None,
         rng: np.random.Generator | None = None,
     ):
@@ -91,14 +90,12 @@ class ChunkSampler(Sampler):
             )
         if n_iters is not None:
             check_lt_1([n_iters], ["n_iters"])
-            if drop_last:
-                raise ValueError("drop_last must be False when n_iters is set.")
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
-        self._preload_nchunks, self._mask, self._drop_last = (
+        self._preload_nchunks, self._mask, self._drop_undersized = (
             preload_nchunks,
             slice(start, stop),
-            drop_last,
+            drop_undersized,
         )
         self._n_iters = n_iters
         self._in_memory_size = self._chunk_size * self._preload_nchunks
@@ -116,7 +113,7 @@ class ChunkSampler(Sampler):
             return self._n_iters
         start, stop = self._resolve_start_stop(n_obs)
         total_obs = stop - start
-        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
+        return total_obs // self._batch_size if self._drop_undersized else math.ceil(total_obs / self._batch_size)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -153,10 +150,10 @@ class ChunkSampler(Sampler):
             worker_info is not None
             and worker_info.num_workers > 1
             and self._n_iters is None
-            and not self._drop_last
+            and not self._drop_undersized
             and self._batch_size != 1
         ):
-            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
+            raise ValueError("When using DataLoader with multiple workers drop_undersized=False is not supported.")
 
         start, stop = self._resolve_start_stop(n_obs)
         # Compute chunks directly from resolved mask range
@@ -176,13 +173,14 @@ class ChunkSampler(Sampler):
     def _iter_with_replacement(
         self, chunk_pool: list[slice], stop: int, rng: np.random.Generator, worker_info: WorkerInfo | None
     ) -> Iterator[LoadRequest]:
-        # Fix up incomplete last chunk with overlapping full-size chunk
-        # so that all obs are covered if n_iters is set large enough.
         last = chunk_pool[-1]
         if last.stop - last.start < self._chunk_size:
-            new_stop = min(last.start + self._chunk_size, stop)
-            new_start = new_stop - self._chunk_size
-            chunk_pool[-1] = slice(new_start, new_stop)
+            if self._drop_undersized:
+                chunk_pool = chunk_pool[:-1]
+            else:
+                new_stop = min(last.start + self._chunk_size, stop)
+                new_start = new_stop - self._chunk_size
+                chunk_pool[-1] = slice(new_start, new_stop)
 
         n_pool = len(chunk_pool)
 
@@ -238,7 +236,7 @@ class ChunkSampler(Sampler):
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
         if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
-        if self._drop_last:
+        if self._drop_undersized:
             if total_obs_in_last_batch < self._batch_size:
                 return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size

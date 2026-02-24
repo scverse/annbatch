@@ -30,7 +30,7 @@ def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle,drop_last",
+    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle,drop_undersized",
     [
         # Basic full dataset
         pytest.param(100, 10, None, None, 5, 2, False, False, id="full_dataset"),
@@ -66,7 +66,7 @@ def test_mask_coverage(
     batch_size: int,
     preload_nchunks: int,
     shuffle: bool,
-    drop_last: bool,
+    drop_undersized: bool,
 ):
     """Test sampler covers exactly the expected range, and ordering is correct when not shuffled."""
     sampler = ChunkSampler(
@@ -75,14 +75,13 @@ def test_mask_coverage(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         shuffle=shuffle,
-        drop_last=drop_last,
+        drop_undersized=drop_undersized,
         rng=np.random.default_rng(42) if shuffle else None,
     )
 
     expected_start = start if start is not None else 0
     expected_stop = stop if stop is not None else n_obs
-    if drop_last:
-        # With drop_last, only complete batches are yielded
+    if drop_undersized:
         total_obs = expected_stop - expected_start
         expected_stop = expected_start + (total_obs // batch_size) * batch_size
     expected_indices = list(range(expected_start, expected_stop))
@@ -141,7 +140,7 @@ def test_batch_sizes_match_expected_pattern():
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,num_workers,drop_last",
+    "n_obs,chunk_size,preload_nchunks,batch_size,num_workers,drop_undersized",
     [
         pytest.param(200, 10, 2, 10, 2, True, id="two_workers"),
         pytest.param(300, 10, 3, 10, 3, True, id="three_workers"),
@@ -158,7 +157,7 @@ def test_workers_cover_full_dataset_without_overlap(
     preload_nchunks: int,
     batch_size: int,
     num_workers: int,
-    drop_last: bool,
+    drop_undersized: bool,
 ):
     """Test workers cover full dataset without overlap. Also checks if there are empty splits in any of the load requests."""
     all_worker_indices = []
@@ -168,7 +167,7 @@ def test_workers_cover_full_dataset_without_overlap(
             batch_size=batch_size,
             chunk_size=chunk_size,
             preload_nchunks=preload_nchunks,
-            drop_last=drop_last,
+            drop_undersized=drop_undersized,
         )
         # we patch the function where it is called
         with patch(
@@ -251,7 +250,7 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
 
 
 @pytest.mark.parametrize(
-    "mask,shuffle,drop_last,n_iters,error_match",
+    "mask,shuffle,drop_undersized,n_iters,error_match",
     [
         # Invalid mask
         pytest.param(slice(-1, 100), False, None, None, "mask.start must be >= 0", id="negative_start"),
@@ -261,13 +260,12 @@ def test_validate(mask: slice, n_obs: int, n_iters: int | None, error_match: str
         # Invalid n_iters
         pytest.param(None, True, None, 0, "n_iters must be greater than 1", id="zero_n_iters"),
         pytest.param(None, True, None, -5, "n_iters must be greater than 1", id="negative_n_iters"),
-        pytest.param(None, True, True, 10, "drop_last must be False when n_iters is set", id="n_iters_drop_last"),
     ],
 )
 def test_invalid_init(
     mask: slice | None,
     shuffle: bool,
-    drop_last: bool | None,
+    drop_undersized: bool | None,
     n_iters: int | None,
     error_match: str,
 ):
@@ -279,7 +277,7 @@ def test_invalid_init(
             batch_size=5,
             mask=mask,
             shuffle=shuffle,
-            drop_last=drop_last,
+            drop_undersized=drop_undersized,
             n_iters=n_iters,
         )
 
