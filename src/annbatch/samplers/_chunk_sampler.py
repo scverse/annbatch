@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -12,7 +12,7 @@ from annbatch.samplers._utils import get_torch_worker_info
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from annbatch.types import LoadRequest
 
@@ -184,3 +184,127 @@ class ChunkSampler(Sampler):
         offsets = np.cumsum(offsets)
         starts, stops = offsets[:-1][chunk_indices], offsets[1:][chunk_indices]
         return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
+
+
+def _get_dist_info_torch() -> tuple[int, int]:
+    """Get rank and world_size from ``torch.distributed``."""
+    import torch.distributed as dist
+
+    if not dist.is_initialized():
+        raise RuntimeError(
+            "torch.distributed is not initialized. "
+            "Initialize it before creating a ChunkSamplerDistributed with dist_info='torch'."
+        )
+    return dist.get_rank(), dist.get_world_size()
+
+
+def _get_dist_info_jax() -> tuple[int, int]:
+    """Get rank and world_size from JAX multi-process API."""
+    import jax
+
+    if not jax.distributed.is_initialized():
+        raise RuntimeError(
+            "JAX distributed is not initialized. "
+            "Call jax.distributed.initialize() before creating a ChunkSamplerDistributed with dist_info='jax'."
+        )
+    return jax.process_index(), jax.process_count()
+
+
+DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
+    "torch": _get_dist_info_torch,
+    "jax": _get_dist_info_jax,
+}
+
+
+class ChunkSamplerDistributed(ChunkSampler):
+    """Distributed chunk-based sampler that shards data across distributed processes.
+
+    Partitions the full observation range into ``world_size`` contiguous shards
+    using the ``mask`` mechanism of :class:`ChunkSampler`.  Each rank receives a
+    non-overlapping slice of the data.  The shard boundaries are computed lazily
+    when ``n_obs`` becomes known.
+
+    When ``enforce_equal_batches`` is *True* (the default), the per-rank observation
+    count is rounded down to the nearest multiple of ``batch_size``,
+    guaranteeing that every rank yields exactly the same number of complete
+    batches.
+
+    Rank and world size are obtained from ``dist_info`` at construction time.
+    The corresponding distributed framework must already be initialized.
+
+    Parameters
+    ----------
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    preload_nchunks
+        Number of chunks to load per iteration.
+    batch_size
+        Number of observations per batch.
+    dist_info
+        How to obtain rank and world size.
+        Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
+        or a callable that returns ``(rank, world_size)``.
+    shuffle
+        Whether to shuffle chunk and index order.
+    drop_last
+        Whether to drop the last incomplete batch.
+    rng
+        Random number generator for shuffling.
+    enforce_equal_batches
+        If *True*, round each rank's observation count down to a multiple of ``batch_size`` so that all workers (ranks) yield the same number of batches.
+        Set to *False* to use the raw ``n_obs // world_size`` split, which may result in an uneven number of batches per worker.
+    """
+
+    _rank: int
+    _world_size: int
+    _enforce_equal_batches: bool
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]],
+        shuffle: bool = False,
+        drop_last: bool = False,
+        rng: np.random.Generator | None = None,
+        enforce_equal_batches: bool = True,
+    ):
+        if callable(dist_info):
+            self._rank, self._world_size = dist_info()
+        elif dist_info in DISTRIBUTED_BACKENDS:
+            self._rank, self._world_size = DISTRIBUTED_BACKENDS[dist_info]()
+        else:
+            raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
+        self._enforce_equal_batches = enforce_equal_batches
+
+        super().__init__(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            rng=_spawn_worker_rng(rng, self._rank) if rng else None,
+        )
+
+    def _shard_mask(self, n_obs: int) -> slice:
+        """Return the contiguous observation slice for this rank."""
+        per_rank = n_obs // self._world_size
+        if self._enforce_equal_batches:
+            per_rank = per_rank // self._batch_size * self._batch_size
+        rank_start = self._rank * per_rank
+        rank_stop = rank_start + per_rank
+        return slice(rank_start, rank_stop)
+
+    def n_iters(self, n_obs: int) -> int:
+        self._mask = self._shard_mask(n_obs)
+        return super().n_iters(n_obs)
+
+    def validate(self, n_obs: int) -> None:
+        self._mask = self._shard_mask(n_obs)
+        super().validate(n_obs)
+
+    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
+        self._mask = self._shard_mask(n_obs)
+        yield from super()._sample(n_obs)
