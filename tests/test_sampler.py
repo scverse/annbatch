@@ -510,6 +510,40 @@ class TestChunkSamplerDistributed:
         indices = collect_indices(sampler, n_obs)
         assert len(set(indices)) == expected
 
+    def test_batch_shuffle_is_reproducible_with_same_seed_rng(self, make_distributed_sampler):
+        """Test that batch shuffling is reproducible when passing in rngs with identical seeds."""
+        n_obs, chunk_size, preload_nchunks, batch_size = 200, 10, 2, 5
+        world_size = 4
+        seed = 42
+
+        def collect_splits(sampler: ChunkSamplerDistributed) -> list[list[int]]:
+            all_splits: list[list[int]] = []
+            for load_request in sampler.sample(n_obs):
+                for split in load_request["splits"]:
+                    all_splits.append(split.tolist())
+            return all_splits
+
+        splits_per_run: list[dict[int, list[list[int]]]] = []
+        for _ in range(3):  # test 3 runs to ensure reproducibility
+            splits_by_rank: dict[int, list[list[int]]] = {}
+            for rank in range(world_size):
+                sampler = make_distributed_sampler(
+                    rank=rank,
+                    world_size=world_size,
+                    chunk_size=chunk_size,
+                    preload_nchunks=preload_nchunks,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    rng=np.random.default_rng(seed),
+                )
+                splits_by_rank[rank] = collect_splits(sampler)
+            splits_per_run.append(splits_by_rank)
+
+        for rank in range(world_size):
+            assert splits_per_run[0][rank] == splits_per_run[1][rank], (
+                f"Rank {rank}: batch shuffling should be reproducible with same seed"
+            )
+
     def test_n_iters_matches_actual_batch_count(self, make_distributed_sampler):
         """n_iters should match the actual number of yielded batches."""
         n_obs, world_size = 205, 3
