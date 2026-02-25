@@ -13,7 +13,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import ChunkSampler, Loader, write_sharded
+from annbatch import ChunkSampler, GroupedCollection, Loader, write_sharded
 from annbatch.abc import Sampler
 
 try:
@@ -680,6 +680,41 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     # Verify we got exactly the expected range
     assert set(stacked_indices) == set(range(start_idx, end_idx))
     assert len(stacked_indices) == end_idx - start_idx
+
+
+def test_use_grouped_collection(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path], tmp_path: Path):
+    paths = sorted(p for p in adata_with_h5_path_different_var_space[1].iterdir() if p.suffix == ".h5ad")[:3]
+    grouped = GroupedCollection(tmp_path / "grouped_for_loader.zarr").add_adatas(
+        paths,
+        groupby=["label", "store_id"],
+        zarr_sparse_chunk_size=10,
+        zarr_sparse_shard_size=20,
+        zarr_dense_chunk_size=5,
+        zarr_dense_shard_size=10,
+        n_obs_per_dataset=70,
+        random_seed=0,
+    )
+    loader = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=20,
+        shuffle=False,
+        return_index=True,
+        preload_to_gpu=False,
+        to_torch=False,
+    ).use_collection(grouped)
+
+    all_indices = []
+    saw_obs = False
+    for batch in loader:
+        assert batch["X"].shape[0] > 0
+        all_indices.append(batch["index"])
+        if batch["obs"] is not None:
+            saw_obs = True
+    stacked_indices = np.concatenate(all_indices)
+    assert saw_obs
+    assert len(stacked_indices) == loader.n_obs
+    assert np.array_equal(np.sort(stacked_indices), np.arange(loader.n_obs))
 
 
 @pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
