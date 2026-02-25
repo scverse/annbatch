@@ -12,7 +12,7 @@ from annbatch.samplers._utils import get_torch_worker_info
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from annbatch.types import LoadRequest
 
@@ -193,7 +193,7 @@ def _get_dist_info_torch() -> tuple[int, int]:
     if not dist.is_initialized():
         raise RuntimeError(
             "torch.distributed is not initialized. "
-            "Initialize it before creating a ChunkSamplerDistributed with backend='torch'."
+            "Initialize it before creating a ChunkSamplerDistributed with dist_info='torch'."
         )
     return dist.get_rank(), dist.get_world_size()
 
@@ -205,12 +205,12 @@ def _get_dist_info_jax() -> tuple[int, int]:
     if not jax.distributed.is_initialized():
         raise RuntimeError(
             "JAX distributed is not initialized. "
-            "Call jax.distributed.initialize() before creating a ChunkSamplerDistributed with backend='jax'."
+            "Call jax.distributed.initialize() before creating a ChunkSamplerDistributed with dist_info='jax'."
         )
     return jax.process_index(), jax.process_count()
 
 
-DISTRIBUTED_BACKENDS: dict[str, callable] = {
+DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
     "torch": _get_dist_info_torch,
     "jax": _get_dist_info_jax,
 }
@@ -229,9 +229,8 @@ class ChunkSamplerDistributed(ChunkSampler):
     guaranteeing that every rank yields exactly the same number of complete
     batches.
 
-    Rank and world size are obtained from the distributed framework specified by
-    ``backend`` at construction time, so the framework must be initialized
-    before creating an instance of this sampler.
+    Rank and world size are obtained from ``dist_info`` at construction time.
+    The corresponding distributed framework must already be initialized.
 
     Parameters
     ----------
@@ -241,10 +240,10 @@ class ChunkSamplerDistributed(ChunkSampler):
         Number of chunks to load per iteration.
     batch_size
         Number of observations per batch.
-    backend
-        Distributed backend to query for rank and world size.
-        Supported values: ``"torch"`` (uses :mod:`torch.distributed`) and
-        ``"jax"`` (uses :func:`jax.process_index` / :func:`jax.process_count`).
+    dist_info
+        How to obtain rank and world size.
+        Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
+        or a callable that returns ``(rank, world_size)``.
     shuffle
         Whether to shuffle chunk and index order.
     drop_last
@@ -252,10 +251,8 @@ class ChunkSamplerDistributed(ChunkSampler):
     rng
         Random number generator for shuffling.
     enforce_equal_batches
-        If *True*, round each rank's observation count down to a multiple of
-        ``batch_size`` so that all ranks yield the same number of batches.
-        Set to *False* to use the raw ``n_obs // world_size`` split, which may
-        result in an uneven number of batches per worker.
+        If *True*, round each rank's observation count down to a multiple of ``batch_size`` so that all workers (ranks) yield the same number of batches.
+        Set to *False* to use the raw ``n_obs // world_size`` split, which may result in an uneven number of batches per worker.
     """
 
     _rank: int
@@ -268,16 +265,18 @@ class ChunkSamplerDistributed(ChunkSampler):
         preload_nchunks: int,
         batch_size: int,
         *,
-        backend: Literal["torch", "jax"],
+        dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]],
         shuffle: bool = False,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
         enforce_equal_batches: bool = True,
     ):
-        if backend not in DISTRIBUTED_BACKENDS:
-            raise ValueError(f"Unknown backend {backend!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
-
-        self._rank, self._world_size = DISTRIBUTED_BACKENDS[backend]()
+        if callable(dist_info):
+            self._rank, self._world_size = dist_info()
+        elif dist_info in DISTRIBUTED_BACKENDS:
+            self._rank, self._world_size = DISTRIBUTED_BACKENDS[dist_info]()
+        else:
+            raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
 
         super().__init__(
@@ -286,7 +285,7 @@ class ChunkSamplerDistributed(ChunkSampler):
             batch_size=batch_size,
             shuffle=shuffle,
             drop_last=drop_last,
-            rng=rng,
+            rng=_spawn_worker_rng(rng, self._rank) if rng else None,
         )
 
     def _shard_mask(self, n_obs: int) -> slice:

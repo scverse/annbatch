@@ -386,7 +386,7 @@ def _make_distributed_sampler_torch(rank: int, world_size: int, **kwargs) -> Chu
     mock_torch = MagicMock()
     mock_torch.distributed = mock_dist
     with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
-        return ChunkSamplerDistributed(backend="torch", **kwargs)
+        return ChunkSamplerDistributed(dist_info="torch", **kwargs)
 
 
 def _make_distributed_sampler_jax(rank: int, world_size: int, **kwargs) -> ChunkSamplerDistributed:
@@ -396,7 +396,7 @@ def _make_distributed_sampler_jax(rank: int, world_size: int, **kwargs) -> Chunk
     mock_jax.process_count.return_value = world_size
     mock_jax.distributed.is_initialized.return_value = True
     with patch.dict(sys.modules, {"jax": mock_jax}):
-        return ChunkSamplerDistributed(backend="jax", **kwargs)
+        return ChunkSamplerDistributed(dist_info="jax", **kwargs)
 
 
 _SAMPLER_FACTORIES = {
@@ -422,7 +422,7 @@ class TestChunkSamplerDistributed:
         mock_torch.distributed = mock_dist
         with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
             with pytest.raises(RuntimeError, match="torch.distributed is not initialized"):
-                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, backend="torch")
+                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="torch")
 
     def test_not_initialized_raises_jax(self):
         """RuntimeError when jax.distributed is not initialized."""
@@ -430,12 +430,12 @@ class TestChunkSamplerDistributed:
         mock_jax.distributed.is_initialized.return_value = False
         with patch.dict(sys.modules, {"jax": mock_jax}):
             with pytest.raises(RuntimeError, match="JAX distributed is not initialized"):
-                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, backend="jax")
+                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="jax")
 
-    def test_unknown_backend_raises(self):
-        """ValueError for an unsupported backend string."""
-        with pytest.raises(ValueError, match="Unknown backend"):
-            ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, backend="mpi")
+    def test_unknown_dist_info_raises(self):
+        """ValueError for an unsupported dist_info string."""
+        with pytest.raises(ValueError, match="Unknown dist_info"):
+            ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="mpi")
 
     def test_shards_are_disjoint_and_cover_full_dataset(self, make_distributed_sampler):
         """All ranks receive non-overlapping shards that together cover the full dataset."""
@@ -489,8 +489,13 @@ class TestChunkSamplerDistributed:
 
         assert len(set(batch_counts)) == 1, f"Batch counts differ across ranks: {batch_counts}"
 
-    def test_enforce_equal_batches_rounds_down_per_rank(self, make_distributed_sampler):
-        """enforce_equal_batches=True rounds per_rank down to a multiple of batch_size."""
+    @pytest.mark.parametrize(
+        ("enforce_equal_batches", "expected"),
+        [(True, 30), (False, 35)],
+        ids=["rounded", "raw"],
+    )
+    def test_enforce_equal_batches_per_rank_count(self, make_distributed_sampler, enforce_equal_batches, expected):
+        """enforce_equal_batches controls whether per_rank is rounded down to a multiple of batch_size."""
         n_obs, world_size = 107, 3
         chunk_size, preload_nchunks, batch_size = 10, 1, 10
         # raw per_rank = 107 // 3 = 35, rounded = 35 // 10 * 10 = 30
@@ -500,26 +505,10 @@ class TestChunkSamplerDistributed:
             chunk_size=chunk_size,
             preload_nchunks=preload_nchunks,
             batch_size=batch_size,
-            enforce_equal_batches=True,
+            enforce_equal_batches=enforce_equal_batches,
         )
         indices = collect_indices(sampler, n_obs)
-        assert len(set(indices)) == 30
-
-    def test_enforce_equal_batches_false_uses_raw_split(self, make_distributed_sampler):
-        """enforce_equal_batches=False uses n_obs // world_size without rounding."""
-        n_obs, world_size = 107, 3
-        chunk_size, preload_nchunks, batch_size = 10, 1, 10
-        # raw per_rank = 107 // 3 = 35 (not rounded to 30)
-        sampler = make_distributed_sampler(
-            rank=0,
-            world_size=world_size,
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            enforce_equal_batches=False,
-        )
-        indices = collect_indices(sampler, n_obs)
-        assert len(set(indices)) == 35
+        assert len(set(indices)) == expected
 
     def test_n_iters_matches_actual_batch_count(self, make_distributed_sampler):
         """n_iters should match the actual number of yielded batches."""
