@@ -510,7 +510,6 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
-        rng: np.random.Generator,
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         zarr_sparse_chunk_size: int = 32768,
@@ -522,6 +521,7 @@ class DatasetCollection:
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        rng: np.random.Generator,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
@@ -537,8 +537,6 @@ class DatasetCollection:
         ----------
             adata_paths
                 Paths to the AnnData files used to create the zarr store.
-            rng
-                Random number generator for shuffling.
             load_adata
                 Function to customize lazy-loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
@@ -569,6 +567,8 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
+            rng
+                Random number generator for shuffling.
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
