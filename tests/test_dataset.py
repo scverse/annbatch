@@ -117,7 +117,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 ).use_collection(
                     collection,
                     **(
-                        {"load_anndata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                        {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
                         if open_func is not None
                         else {}
                     ),
@@ -519,7 +519,7 @@ def test_no_obs_no_var(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         batch_size=20,
     ).use_collection(
         simple_collection[1],
-        load_anndata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
+        load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
     )
     assert next(iter(ds))["obs"] is None
 
@@ -558,10 +558,10 @@ def test_mismatched_var_raises_error(tmp_path: Path, subtests):
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
             loader.add_anndata(adata2_on_disk)
 
-    with subtests.test(msg="add_anndatas"):
+    with subtests.test(msg="add_adata"):
         loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
-            loader.add_anndatas([adata1_on_disk, adata2_on_disk])
+            loader.add_adata([adata1_on_disk, adata2_on_disk])
 
     with subtests.test(msg="add_dataset"):
         loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)

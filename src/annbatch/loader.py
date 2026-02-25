@@ -299,45 +299,45 @@ class Loader[
         self,
         collection: DatasetCollection,
         *,
-        load_anndata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
+        load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
     ) -> Self:
         """Load from an existing :class:`annbatch.DatasetCollection`.
 
-        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_anndatas` or open an issue.
+        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_adata` or open an issue.
 
         Parameters
         ----------
         collection
             The collection whose on-disk datasets should be used in this loader.
-        load_anndata
+        load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
             Default is to just load `X` and all of `obs`.
-            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_anndata` argument.
+            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_adata` argument.
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
         if self._collection_added:
             raise RuntimeError(
-                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_anndatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_anndatas`."
+                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_adata` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_adata`."
             )
-        adatas = [load_anndata(g) for g in collection]
-        self.add_anndatas(adatas)
+        adatas = [load_adata(g) for g in collection]
+        self.add_adata(adatas)
         self._collection_added = True
         return self
 
     @validate_sampler
-    def add_anndatas(
+    def add_adata(
         self,
         adatas: list[ad.AnnData],
     ) -> Self:
-        """Append anndatas to this dataset.
+        """Append adata to this dataset.
 
         Parameters
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
-        check_lt_1([len(adatas)], ["Number of anndatas"])
+        check_lt_1([len(adatas)], ["Number of adata"])
         for adata in adatas:
             dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
             self._add_dataset_unchecked(dataset, obs, var)

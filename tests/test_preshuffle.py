@@ -51,7 +51,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
-        DatasetCollection(tmp_path / "collection.zarr").add_anndatas(
+        DatasetCollection(tmp_path / "collection.zarr").add_adata(
             [path_1, path_2],
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
@@ -69,7 +69,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
     path_2 = tmp_path / "with_extra_key.h5ad"
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
-    collection = DatasetCollection(tmp_path / "collection.zarr").add_anndatas(
+    collection = DatasetCollection(tmp_path / "collection.zarr").add_adata(
         [path_1, path_2],
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -77,7 +77,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
         zarr_dense_shard_size=10,
         n_obs_per_dataset=10,
         shuffle_chunk_size=5,
-        load_anndata=lambda x: ad.AnnData(X=ad.io.read_elem(h5py.File(x)["X"])),
+        load_adata=lambda x: ad.AnnData(X=ad.io.read_elem(h5py.File(x)["X"])),
     )
     assert len(ad.read_zarr(next(iter(collection))).layers.keys()) == 0
 
@@ -91,7 +91,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     adata_2.write_h5ad(path_2)
     paths = [path_1, path_2]
     output_dir = tmp_path / "path_src_collection.zarr"
-    collection = DatasetCollection(output_dir).add_anndatas(
+    collection = DatasetCollection(output_dir).add_adata(
         paths,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -109,18 +109,18 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
 
 
 @pytest.mark.parametrize("elem_name", ["obsm", "layers", "raw", "obs"])
-@pytest.mark.parametrize("load_anndata", [ad.read_h5ad, ad.experimental.read_lazy])
+@pytest.mark.parametrize("load_adata", [ad.read_h5ad, ad.experimental.read_lazy])
 def test_store_addition_different_keys(
     elem_name: Literal["obsm", "layers", "raw"],
     tmp_path: Path,
-    load_anndata: Callable[[PathLike[str] | str], ad.AnnData],
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData],
 ):
     adata_orig = ad.AnnData(X=np.random.randn(100, 20))
     orig_path = tmp_path / "orig.h5ad"
     adata_orig.write_h5ad(orig_path)
     output_path = tmp_path / "zarr_store_addition_different_keys.zarr"
     collection = DatasetCollection(output_path)
-    collection.add_anndatas(
+    collection.add_adata(
         [orig_path],
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -136,9 +136,9 @@ def test_store_addition_different_keys(
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
-        collection.add_anndatas(
+        collection.add_adata(
             [additional_path],
-            load_anndata=load_anndata,
+            load_adata=load_adata,
             zarr_sparse_chunk_size=10,
             zarr_sparse_shard_size=20,
             zarr_dense_chunk_size=5,
@@ -169,7 +169,7 @@ def test_store_creation_default(
         else r"Loading h5ad is currently not supported",
     ):
         kwargs = {} if is_zarr else {"is_collection_h5ad": True}
-        collection = DatasetCollection(output_path, **kwargs).add_anndatas(
+        collection = DatasetCollection(output_path, **kwargs).add_adata(
             [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
         )
     assert isinstance(
@@ -188,20 +188,20 @@ def test_store_creation_default(
 
 @pytest.mark.parametrize("shuffle", [pytest.param(True, id="shuffle"), pytest.param(False, id="no_shuffle")])
 @pytest.mark.parametrize(
-    "load_anndata", [pytest.param(None, id="default_read"), pytest.param(ad.experimental.read_lazy, id="fully_lazy")]
+    "load_adata", [pytest.param(None, id="default_read"), pytest.param(ad.experimental.read_lazy, id="fully_lazy")]
 )
 def test_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     shuffle: bool,
-    load_anndata: Callable[[str], ad.AnnData],
+    load_adata: Callable[[str], ad.AnnData],
 ):
     var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = (
         adata_with_h5_path_different_var_space[1].parent
-        / f"zarr_store_creation_test_{shuffle}_{'default_read' if load_anndata is None else 'custom_read'}.zarr"
+        / f"zarr_store_creation_test_{shuffle}_{'default_read' if load_adata is None else 'custom_read'}.zarr"
     )
-    collection = DatasetCollection(output_path).add_anndatas(
+    collection = DatasetCollection(output_path).add_adata(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
         zarr_sparse_chunk_size=10,
@@ -211,7 +211,7 @@ def test_store_creation(
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
         shuffle=shuffle,
-        **({"load_anndata": load_anndata} if load_anndata is not None else {}),
+        **({"load_adata": load_adata} if load_adata is not None else {}),
     )
     assert not DatasetCollection(output_path).is_empty
     assert V1_ENCODING.items() <= zarr.open(output_path).attrs.items()
@@ -292,7 +292,7 @@ def test_mismatched_raw_concat(
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = adata_with_h5_path_different_var_space[1].parent / "zarr_store_creation_test_heterogeneous.zarr"
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
-    collection = DatasetCollection(output_path).add_anndatas(
+    collection = DatasetCollection(output_path).add_adata(
         h5_paths,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -301,7 +301,7 @@ def test_mismatched_raw_concat(
         n_obs_per_dataset=30,
         shuffle_chunk_size=10,
         shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
-        load_anndata=_read_lazy_x_and_obs_only_from_raw,
+        load_adata=_read_lazy_x_and_obs_only_from_raw,
     )
 
     adatas_orig = []
@@ -324,20 +324,20 @@ def test_mismatched_raw_concat(
     np.testing.assert_array_equal(adata_orig.X.toarray(), adata.X.toarray())
 
 
-@pytest.mark.parametrize("load_anndata", [ad.read_h5ad, ad.experimental.read_lazy])
+@pytest.mark.parametrize("load_adata", [ad.read_h5ad, ad.experimental.read_lazy])
 def test_store_extension(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
-    load_anndata: Callable[[PathLike[str] | str], ad.AnnData],
+    load_adata: Callable[[PathLike[str] | str], ad.AnnData],
 ):
     all_h5_paths = sorted(p for p in adata_with_h5_path_different_var_space[1].iterdir() if p.suffix == ".h5ad")
     store_path = (
-        adata_with_h5_path_different_var_space[1].parent / f"zarr_store_extension_test_{load_anndata.__name__}.zarr"
+        adata_with_h5_path_different_var_space[1].parent / f"zarr_store_extension_test_{load_adata.__name__}.zarr"
     )
     original = all_h5_paths
     additional = all_h5_paths[4:]  # don't add everything to get a "different" var space
     # create new store
     collection = DatasetCollection(store_path)
-    collection.add_anndatas(
+    collection.add_adata(
         original,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
@@ -348,9 +348,9 @@ def test_store_extension(
         shuffle=True,
     )
     # add h5ads to existing store
-    collection.add_anndatas(
+    collection.add_adata(
         additional,
-        load_anndata=load_anndata,
+        load_adata=load_adata,
         zarr_sparse_chunk_size=10,
         zarr_sparse_shard_size=20,
         zarr_dense_chunk_size=5,
@@ -379,5 +379,5 @@ def test_empty(tmp_path: Path):
     assert collection.is_empty
     # Doesn't matter what errors as long as this function runs, but not to completion
     with pytest.raises(TypeError):
-        collection.add_anndatas()
+        collection.add_adata()
     assert not (V1_ENCODING.items() <= g.attrs.items())
