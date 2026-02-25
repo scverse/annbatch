@@ -11,8 +11,11 @@ and this project adheres to [Semantic Versioning][].
 ## [0.0.9]
 
 ### Breaking
-- Renamed `annbatch.DatasetCollection.add_adatas` to {meth}`annbatch.DatasetCollection.add_anndatas` and renamed `adata_paths` argument to `anndata_paths` to be consistent with the rest of the API.
-- In similar fashion, renamed `load_adata` argument to `load_anndata` in {meth}`annbatch.DatasetCollection.add_anndatas` and {meth}`annbatch.Loader.use_collection`.
+- Renamed `annbatch.DatasetCollection.add_adatas` to {meth}`annbatch.DatasetCollection.add_adata`.
+- Renamed `annbatch.Loader.add_anndatas` to {meth}`annbatch.Loader.add_adata`.
+
+### Fixed
+- Formatted progress bar descriptions to be more readable.
 
 ## [0.0.8]
 
