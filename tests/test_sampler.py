@@ -230,6 +230,11 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng():
         pytest.param(slice(0, 100), 100, False, None, None, id="valid_config"),
         pytest.param(slice(0, 200), 100, False, None, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
         pytest.param(slice(0, 5), 100, True, 10, "at least one full chunk", id="replacement_mask_too_small"),
+        pytest.param(
+            slice(0, 100), 100, False, 21, "n_iters.*exceeds.*possible iterations", id="n_iters_exceeds_possible"
+        ),
+        pytest.param(slice(0, 100), 100, False, 20, None, id="n_iters_equals_possible"),
+        pytest.param(slice(0, 100), 100, False, 5, None, id="n_iters_less_than_possible"),
     ],
 )
 def test_validate(mask: slice, n_obs: int, with_replacement: bool, n_iters: int | None, error_match: str | None):
@@ -319,7 +324,7 @@ def test_n_obs_coverage(n_obs_values: list[int], expected_ranges: list[range]):
 class SimpleSampler(Sampler):
     """Test sampler that yields LoadRequests without splits."""
 
-    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool | None = True) -> None:
+    def __init__(self, batch_size: int | None, provide_splits: bool = False, shuffle: bool | None = True):
         self._batch_size = batch_size
         self._provide_splits = provide_splits
         self._shuffle = shuffle
@@ -339,6 +344,7 @@ class SimpleSampler(Sampler):
 
     def validate(self, n_obs: int) -> None:
         """No validation needed for test sampler."""
+        pass
 
     def _sample(self, n_obs: int):
         """Yield LoadRequests with or without splits."""
@@ -405,6 +411,63 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
         assert all_indices != list(range(n_obs)), "Indices should be shuffled"
     else:
         assert all_indices == list(range(n_obs)), "Indices should be sequential"
+
+
+@pytest.mark.parametrize(
+    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,shuffle,drop_undersized",
+    [
+        # batches_per_request = (10*2)//5 = 4
+        # possible_n_iters(drop=False) = ceil(100/5) = 20
+        pytest.param(100, 10, 2, 5, 1, False, False, id="single_batch"),
+        pytest.param(100, 10, 2, 5, 4, False, False, id="exact_one_request"),
+        pytest.param(100, 10, 2, 5, 5, False, False, id="one_request_plus_one"),
+        pytest.param(100, 10, 2, 5, 10, False, False, id="mid_epoch"),
+        pytest.param(100, 10, 2, 5, 20, False, False, id="full_epoch"),
+        pytest.param(100, 10, 2, 5, 10, True, False, id="shuffled"),
+        # Non-divisible n_obs: ceil(103/5) = 21 possible
+        pytest.param(103, 10, 2, 5, 15, False, False, id="non_divisible_obs"),
+        # With drop_undersized: 103//5 = 20 possible
+        pytest.param(103, 10, 2, 5, 15, False, True, id="non_divisible_drop_undersized"),
+    ],
+)
+def test_truncation(
+    n_obs: int,
+    chunk_size: int,
+    preload_nchunks: int,
+    batch_size: int,
+    n_iters: int,
+    shuffle: bool,
+    drop_undersized: bool,
+):
+    """Test without-replacement truncation: n_iters method, exact batch count, and prefix subset."""
+    common = {
+        "chunk_size": chunk_size,
+        "preload_nchunks": preload_nchunks,
+        "batch_size": batch_size,
+        "drop_undersized": drop_undersized,
+        "with_replacement": False,
+    }
+    truncated = ChunkSampler(**common, shuffle=shuffle, n_iters=n_iters, rng=np.random.default_rng(42))
+    full = ChunkSampler(**common, shuffle=False)
+
+    truncated.validate(n_obs)
+
+    # n_iters() must return the truncated value
+    assert truncated.n_iters(n_obs) == n_iters
+    # full sampler returns possible n_iters
+    possible = n_obs // batch_size if drop_undersized else math.ceil(n_obs / batch_size)
+    assert full.n_iters(n_obs) == possible
+
+    # sampling must yield exactly n_iters batches
+    total_batches = sum(len(lr["splits"]) for lr in truncated.sample(n_obs))
+    assert total_batches == n_iters
+
+    # unshuffled truncated indices must be a prefix of the full epoch
+    if not shuffle:
+        truncated_indices = collect_indices(ChunkSampler(**common, shuffle=False, n_iters=n_iters), n_obs)
+        full_indices = collect_indices(full, n_obs)
+        assert len(truncated_indices) <= n_iters * batch_size
+        assert truncated_indices == full_indices[: len(truncated_indices)]
 
 
 @pytest.mark.parametrize(
