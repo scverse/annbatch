@@ -104,7 +104,7 @@ def write_sharded(
             iospec: ad.experimental.IOSpec,
         ):
             # Ensure we're not overriding anything here
-            dataset_kwargs = dataset_kwargs.copy()
+            dataset_kwargs = dict(dataset_kwargs)
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
@@ -136,7 +136,7 @@ def write_sharded(
 
 
 def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](
-    paths_or_anndatas: Iterable[T | ad.AnnData],
+    paths_or_adata: Iterable[T | ad.AnnData],
     *,
     load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
@@ -146,7 +146,7 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
+    for path_or_anndata in tqdm(paths_or_adata, desc="Checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
             adata = load_adata(path_or_anndata)
         else:
@@ -158,31 +158,31 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
                     key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != (num_anndatas := len(list(paths_or_anndatas))) and num_raw_in_adata != 0:
+    if num_raw_in_adata != (num_anndatas := len(list(paths_or_adata))) and num_raw_in_adata != 0:
         warnings.warn(
-            f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
+            f"Found raw keys not present in all anndatas {paths_or_adata}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
         elem_keys_mismatched = [key for key, count in key_count.items() if (count != num_anndatas and count != 0)]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
-                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
+                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_adata}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
 
 
-def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
+def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
     load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
-    for i, path in tqdm(enumerate(paths), desc="loading"):
+    for i, path in tqdm(enumerate(paths), total=len(paths), desc="Lazy loading adata"):
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
-            np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
+            np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
         )
         # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
@@ -239,11 +239,13 @@ def _create_chunks_for_shuffling(
     if use_single_chunking:
         return [np.concatenate(idxs)]
     # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
-    idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
+    idxs_as_slices = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
     return [
         np.concatenate([np.arange(s.start, s.stop) for s in idx])
         for idx in (
-            split_given_size(idxs, n_slices_per_dataset) if n_chunkings is None else np.array_split(idxs, n_chunkings)
+            split_given_size(idxs_as_slices, n_slices_per_dataset)
+            if n_chunkings is None
+            else np.array_split(idxs_as_slices, n_chunkings)
         )
     ]
 
@@ -385,7 +387,7 @@ class DatasetCollection:
 
     @property
     def is_empty(self) -> bool:
-        """Wether or not there is an existing store at the group location."""
+        """Whether or not there is an existing store at the group location."""
         return (
             (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
             if isinstance(self._group, zarr.Group)
@@ -393,7 +395,7 @@ class DatasetCollection:
         )
 
     @_with_settings
-    def add_adatas(
+    def add_adata(
         self,
         adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
@@ -473,7 +475,7 @@ class DatasetCollection:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_adatas(
+            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_adata(
             ...    datasets,
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
@@ -562,7 +564,7 @@ class DatasetCollection:
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
@@ -571,7 +573,7 @@ class DatasetCollection:
 
         if var_subset is None:
             var_subset = adata_concat.var_names
-        for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
+        for i, chunk in enumerate(tqdm(chunks, desc="Creating collection")):
             var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
@@ -647,11 +649,11 @@ class DatasetCollection:
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
         """
         if self.is_empty:
-            raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")
+            raise ValueError("Store is empty. Please run `DatasetCollection.add_adata` first.")
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
@@ -665,7 +667,7 @@ class DatasetCollection:
 
         adata_concat.obs_names_make_unique()
         for dataset, chunk in tqdm(
-            zip(self._dataset_keys, chunks, strict=True), total=len(self._dataset_keys), desc="processing chunks"
+            zip(self._dataset_keys, chunks, strict=True), total=len(self._dataset_keys), desc="Extending collection"
         ):
             adata_dataset = ad.io.read_elem(self._group[dataset])
             subset_adata = _to_categorical_obs(

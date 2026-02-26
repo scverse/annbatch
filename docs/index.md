@@ -9,7 +9,7 @@ Let's go through the above example:
 ### Preprocessing
 
 ```python
-colleciton = DatasetCollection("path/to/output/store.zarr").add_adatas(
+colleciton = DatasetCollection("path/to/output/store.zarr").add_adata(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
