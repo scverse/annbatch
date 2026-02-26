@@ -156,7 +156,7 @@ class ChunkSampler(Sampler):
         if not self._with_replacement and self._n_iters is not None and self._n_iters > self._possible_n_iters(n_obs):
             raise ValueError(
                 f"n_iters ({self._n_iters}) exceeds the number of possible iterations "
-                f"({possible}) for n_obs={n_obs} without replacement. "
+                f"({self._possible_n_iters(n_obs)}) for n_obs={n_obs} without replacement. "
                 "Use with_replacement=True to allow more iterations than the dataset provides."
             )
 
