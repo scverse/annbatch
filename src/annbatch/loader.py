@@ -197,6 +197,9 @@ class Loader[
             sampler_args_processed = {
                 k: (v if v is not None else Loader._COMMON_SAMPLER_ARGS[k]) for k, v in sampler_args.items()
             }
+            # rename drop_last to drop_undersized for the sampler
+            sampler_args_processed["drop_undersized"] = sampler_args_processed["drop_last"]
+            del sampler_args_processed["drop_last"]
             self._batch_sampler = ChunkSampler(**sampler_args_processed)
 
         if to_torch and not find_spec("torch"):
