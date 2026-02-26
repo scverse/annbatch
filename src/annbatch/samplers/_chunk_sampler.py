@@ -153,14 +153,12 @@ class ChunkSampler(Sampler):
                 f"With-replacement mode requires at least one full chunk: "
                 f"(stop - start) = {stop - start} < chunk_size = {self._chunk_size}."
             )
-        if not self._with_replacement and self._n_iters is not None:
-            possible = self._possible_n_iters(n_obs)
-            if self._n_iters > possible:
-                raise ValueError(
-                    f"n_iters ({self._n_iters}) exceeds the number of possible iterations "
-                    f"({possible}) for n_obs={n_obs} without replacement. "
-                    "Use with_replacement=True to allow more iterations than the dataset provides."
-                )
+        if not self._with_replacement and self._n_iters is not None and self._n_iters > self._possible_n_iters(n_obs):
+            raise ValueError(
+                f"n_iters ({self._n_iters}) exceeds the number of possible iterations "
+                f"({possible}) for n_obs={n_obs} without replacement. "
+                "Use with_replacement=True to allow more iterations than the dataset provides."
+            )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
