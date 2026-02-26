@@ -239,7 +239,9 @@ class ChunkSampler(Sampler):
 
             yield {"chunks": chunks, "splits": splits}
 
-    def _truncate_epoch(self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator) -> Iterator[LoadRequest]:
+    def _truncate_epoch(
+        self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator
+    ) -> Iterator[LoadRequest]:
         """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
         batches_per_request = self._in_memory_size // self._batch_size
         chunks_per_batch = self._batch_size // self._chunk_size
@@ -247,7 +249,10 @@ class ChunkSampler(Sampler):
         yield from itertools.islice(epoch, n_full)
         if tail > 0:
             load_request = next(epoch)
-            yield {"chunks": load_request["chunks"][:chunks_per_batch], "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail)}
+            yield {
+                "chunks": load_request["chunks"][:chunks_per_batch],
+                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
+            }
 
     def _iter_epoch(
         self,
