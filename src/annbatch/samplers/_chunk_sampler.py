@@ -40,7 +40,7 @@ class ChunkSampler(Sampler):
         Whether to sample chunks with replacement.
     n_iters
         Number of batches to yield.
-        When ``with_replacement`` is ``True``, this is required .
+        When ``with_replacement`` is ``True``, this is required.
         When ``with_replacement`` is ``False``, this is optional and truncates the epoch
         (i.e. stop after ``n_iters`` batches). Must not exceed the number of possible
         iterations given the dataset size; raises :class:`ValueError` during
