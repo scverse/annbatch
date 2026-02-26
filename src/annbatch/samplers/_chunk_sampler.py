@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 from typing import TYPE_CHECKING
 
@@ -37,10 +38,13 @@ class ChunkSampler(Sampler):
         Whether to drop the last batch when it is smaller than ``batch_size``.
     with_replacement
         Whether to sample chunks with replacement.
-        If ``None``, it's set to True if ``n_iters`` is provided, otherwise False.
     n_iters
-        Number of batches to yield. Required when ``with_replacement`` is True.
-        Can't be provided if with_replacement is False.
+        Number of batches to yield.
+        When ``with_replacement`` is ``True``, this is required .
+        When ``with_replacement`` is ``False``, this is optional and truncates the epoch
+        (i.e. stop after ``n_iters`` batches). Must not exceed the number of possible
+        iterations given the dataset size; raises :class:`ValueError` during
+        :meth:`validate` if it does.
     rng
         Random number generator for shuffling. Note that ``torch.manual_seed``
         has no effect on reproducibility here; pass a seeded
@@ -53,7 +57,7 @@ class ChunkSampler(Sampler):
     _preload_nchunks: int
     _mask: slice
     _drop_undersized: bool
-    _with_replacement: bool | None
+    _with_replacement: bool
     _n_iters: int | None
     _rng: np.random.Generator
 
@@ -66,7 +70,7 @@ class ChunkSampler(Sampler):
         mask: slice | None = None,
         shuffle: bool = False,
         drop_undersized: bool = False,
-        with_replacement: bool | None = None,
+        with_replacement: bool = False,
         n_iters: int | None = None,
         rng: np.random.Generator | None = None,
     ):
@@ -95,12 +99,8 @@ class ChunkSampler(Sampler):
             )
         if n_iters is not None:
             check_lt_1([n_iters], ["n_iters"])
-        if with_replacement is None:
-            with_replacement = n_iters is not None
         if with_replacement and n_iters is None:
             raise ValueError("n_iters is required when with_replacement is True.")
-        if not with_replacement and n_iters is not None:
-            raise ValueError("n_iters is only supported when with_replacement is True.")
         self._n_iters, self._with_replacement = n_iters, with_replacement
 
         self._rng = rng or np.random.default_rng()
@@ -122,7 +122,10 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        return self._possible_n_iters(n_obs) if not self._with_replacement else self._n_iters
+        if self._with_replacement:
+            return self._n_iters
+        possible = self._possible_n_iters(n_obs)
+        return possible if self._n_iters is None else min(self._n_iters, possible)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -150,6 +153,14 @@ class ChunkSampler(Sampler):
                 f"With-replacement mode requires at least one full chunk: "
                 f"(stop - start) = {stop - start} < chunk_size = {self._chunk_size}."
             )
+        if not self._with_replacement and self._n_iters is not None:
+            possible = self._possible_n_iters(n_obs)
+            if self._n_iters > possible:
+                raise ValueError(
+                    f"n_iters ({self._n_iters}) exceeds the number of possible iterations "
+                    f"({possible}) for n_obs={n_obs} without replacement. "
+                    "Use with_replacement=True to allow more iterations than the dataset provides."
+                )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
@@ -177,7 +188,11 @@ class ChunkSampler(Sampler):
         if self._with_replacement:
             yield from self._iter_with_replacement(chunks, stop, rng=worker_aware_rng, worker_info=worker_info)
         else:
-            yield from self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+            epoch = self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+            if self._n_iters is not None:
+                yield from self._truncate_epoch(epoch, self._n_iters, batch_rng=worker_aware_rng)
+            else:
+                yield from epoch
 
     def _iter_with_replacement(
         self, chunk_pool: list[slice], stop: int, rng: np.random.Generator, worker_info: WorkerInfo | None
@@ -224,8 +239,21 @@ class ChunkSampler(Sampler):
 
             yield {"chunks": chunks, "splits": splits}
 
+    def _truncate_epoch(self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator) -> Iterator[LoadRequest]:
+        """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
+        batches_per_request = self._in_memory_size // self._batch_size
+        chunks_per_batch = self._batch_size // self._chunk_size
+        n_full, tail = divmod(n_iters, batches_per_request)
+        yield from itertools.islice(epoch, n_full)
+        if tail > 0:
+            load_request = next(epoch)
+            yield {"chunks": load_request["chunks"][:chunks_per_batch], "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail)}
+
     def _iter_epoch(
-        self, chunks: list[slice], batch_rng: np.random.Generator, worker_info: WorkerInfo | None
+        self,
+        chunks: list[slice],
+        batch_rng: np.random.Generator,
+        worker_info: WorkerInfo | None,
     ) -> Iterator[LoadRequest]:
         # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_info is not None:
