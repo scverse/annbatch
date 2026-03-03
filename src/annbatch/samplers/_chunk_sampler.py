@@ -34,8 +34,17 @@ class ChunkSampler(Sampler):
         Whether to shuffle chunk and index order.
     preload_nchunks
         Number of chunks to load per iteration.
-    drop_undersized
-        Whether to drop the undersized batch i.e., when it is smaller than ``batch_size``. When `with_replacement` is `True`, this setting ensures all batches are the same size. When `with_replacement` is `False`, this setting drops the final undersized batch, comparable to other libraries' (like `torch`) `drop_last` parameter.
+    drop_last
+        Whether to drop the last incomplete batch.
+        Only allowed when ``with_replacement`` is ``False`` and it defaults to ``False`` in that case.
+    incomplete_chunk_strategy
+        How to handle the tail chunk when it is smaller than ``chunk_size``.
+        Only allowed when ``with_replacement`` is ``True``.
+        ``"drop"`` removes the undersized chunk from the pool;
+        ``"extend"`` shifts it backwards so it has exactly ``chunk_size``
+        observations (some observations will appear twice in that chunk).
+        Defaults to ``None``; when ``with_replacement`` is ``True`` and
+        not set, defaults to ``"extend"``.
     with_replacement
         Whether to sample chunks with replacement.
     n_iters
@@ -51,12 +60,15 @@ class ChunkSampler(Sampler):
         :class:`numpy.random.Generator` to control randomness.
     """
 
+    _INCOMPLETE_CHUNK_STRATEGIES: frozenset[str] = frozenset({"drop", "extend"})
+
     _batch_size: int
     _chunk_size: int
     _shuffle: bool
     _preload_nchunks: int
     _mask: slice
-    _drop_undersized: bool
+    _drop_last: bool
+    _incomplete_chunk_strategy: str
     _with_replacement: bool
     _n_iters: int | None
     _rng: np.random.Generator
@@ -69,7 +81,8 @@ class ChunkSampler(Sampler):
         *,
         mask: slice | None = None,
         shuffle: bool = False,
-        drop_undersized: bool = False,
+        drop_last: bool = False,
+        incomplete_chunk_strategy: str | None = None,
         with_replacement: bool = False,
         n_iters: int | None = None,
         rng: np.random.Generator | None = None,
@@ -99,16 +112,28 @@ class ChunkSampler(Sampler):
             )
         if n_iters is not None:
             check_lt_1([n_iters], ["n_iters"])
+        if drop_last and with_replacement:
+            raise ValueError("drop_last cannot be used with with_replacement. Use incomplete_chunk_strategy instead.")
+        if incomplete_chunk_strategy is not None and not with_replacement:
+            raise ValueError("incomplete_chunk_strategy can only be set when with_replacement is True.")
+        if incomplete_chunk_strategy is not None and incomplete_chunk_strategy not in self._INCOMPLETE_CHUNK_STRATEGIES:
+            raise ValueError(
+                f"incomplete_chunk_strategy must be one of {set(self._INCOMPLETE_CHUNK_STRATEGIES)}, "
+                f"got '{incomplete_chunk_strategy}'."
+            )
         if with_replacement and n_iters is None:
             raise ValueError("n_iters is required when with_replacement is True.")
         self._n_iters, self._with_replacement = n_iters, with_replacement
+        self._drop_last = drop_last
+        self._incomplete_chunk_strategy = (
+            incomplete_chunk_strategy if incomplete_chunk_strategy is not None else "extend"
+        )
 
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
-        self._preload_nchunks, self._mask, self._drop_undersized = (
+        self._preload_nchunks, self._mask = (
             preload_nchunks,
             slice(start, stop),
-            drop_undersized,
         )
         self._n_iters = n_iters
         self._in_memory_size = self._chunk_size * self._preload_nchunks
@@ -167,15 +192,10 @@ class ChunkSampler(Sampler):
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
         # Worker mode validation - only check when there are multiple workers
-        # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
-        if (
-            worker_info is not None
-            and worker_info.num_workers > 1
-            and not self._with_replacement
-            and not self._drop_undersized
-            and self._batch_size != 1
-        ):
-            raise ValueError("When using DataLoader with multiple workers drop_undersized=False is not supported.")
+
+        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
+            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
+            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
         start, stop = self._resolve_start_stop(n_obs)
         # Compute chunks directly from resolved mask range
@@ -188,7 +208,8 @@ class ChunkSampler(Sampler):
         worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
 
         if self._with_replacement:
-            yield from self._iter_with_replacement(chunks, stop, rng=worker_aware_rng, worker_info=worker_info)
+            chunk_pool = self._build_chunk_pool(chunks, stop)
+            yield from self._iter_with_replacement(chunk_pool, rng=worker_aware_rng, worker_info=worker_info)
         else:
             epoch = self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
             if self._n_iters is not None:
@@ -196,18 +217,37 @@ class ChunkSampler(Sampler):
             else:
                 yield from epoch
 
-    def _iter_with_replacement(
-        self, chunk_pool: list[slice], stop: int, rng: np.random.Generator, worker_info: WorkerInfo | None
-    ) -> Iterator[LoadRequest]:
+    def _build_chunk_pool(self, chunks: list[slice], stop: int) -> list[slice]:
+        """Build a chunk pool for with-replacement sampling.
+
+        When the tail chunk is smaller than ``chunk_size``, delegates to
+        the method selected by ``incomplete_chunk_strategy``.
+        Subclasses can extend the set of strategies by adding entries to
+        ``_INCOMPLETE_CHUNK_STRATEGIES`` and implementing the
+        corresponding ``_build_chunk_pool_<strategy>`` method.
+        """
+        chunk_pool = list(chunks)
         last = chunk_pool[-1]
         if last.stop - last.start < self._chunk_size:
-            if self._drop_undersized:
-                chunk_pool = chunk_pool[:-1]
-            else:
-                new_stop = min(last.start + self._chunk_size, stop)
-                new_start = new_stop - self._chunk_size
-                chunk_pool[-1] = slice(new_start, new_stop)
+            handler = getattr(self, f"_build_chunk_pool_{self._incomplete_chunk_strategy}")
+            chunk_pool = handler(chunk_pool, stop)
+        return chunk_pool
 
+    def _build_chunk_pool_drop(self, chunk_pool: list[slice], stop: int) -> list[slice]:
+        """Drop the undersized tail chunk from the pool."""
+        return chunk_pool[:-1]
+
+    def _build_chunk_pool_extend(self, chunk_pool: list[slice], stop: int) -> list[slice]:
+        """Shift the tail chunk backwards so it has exactly ``chunk_size`` observations."""
+        last = chunk_pool[-1]
+        new_stop = min(last.start + self._chunk_size, stop)
+        new_start = new_stop - self._chunk_size
+        chunk_pool[-1] = slice(new_start, new_stop)
+        return chunk_pool
+
+    def _iter_with_replacement(
+        self, chunk_pool: list[slice], rng: np.random.Generator, worker_info: WorkerInfo | None
+    ) -> Iterator[LoadRequest]:
         n_pool = len(chunk_pool)
 
         batches_per_request = self._in_memory_size // self._batch_size
@@ -264,7 +304,7 @@ class ChunkSampler(Sampler):
     ) -> Iterator[LoadRequest]:
         # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_info is not None:
-            chunks = np.array_split(np.array(chunks), worker_info.num_workers)[worker_info.id]
+            chunks = np.array_split(chunks, worker_info.num_workers)[worker_info.id]
         # Set up the iterator for chunks and the batch indices for splits
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(self._in_memory_size)
@@ -275,12 +315,14 @@ class ChunkSampler(Sampler):
                 batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
-        # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
+        # On the last yield, create new batch_indices since the in-memory size
+        # of this last yield could be divisible by batch_size but smaller than
+        # preload_nchunks * chunk_size.
         final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
         if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
-        if self._drop_undersized:
+        if self._drop_last:
             if total_obs_in_last_batch < self._batch_size:
                 return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
@@ -311,4 +353,4 @@ class ChunkSampler(Sampler):
     def _possible_n_iters(self, n_obs: int) -> int:
         start, stop = self._resolve_start_stop(n_obs)
         total_obs = stop - start
-        return total_obs // self._batch_size if self._drop_undersized else math.ceil(total_obs / self._batch_size)
+        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
