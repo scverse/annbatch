@@ -30,7 +30,7 @@ def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle,drop_undersized",
+    ("n_obs", "chunk_size", "start", "stop", "batch_size", "preload_nchunks", "shuffle", "drop_undersized"),
     [
         # Basic full dataset
         pytest.param(100, 10, None, None, 5, 2, False, False, id="full_dataset"),
@@ -140,7 +140,7 @@ def test_batch_sizes_match_expected_pattern():
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,num_workers,drop_undersized",
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "num_workers", "drop_undersized"),
     [
         pytest.param(200, 10, 2, 10, 2, True, id="two_workers"),
         pytest.param(300, 10, 3, 10, 3, True, id="three_workers"),
@@ -225,7 +225,7 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng():
 
 
 @pytest.mark.parametrize(
-    "mask,n_obs,with_replacement,n_iters,error_match",
+    ("mask", "n_obs", "with_replacement", "n_iters", "error_match"),
     [
         pytest.param(slice(0, 100), 100, False, None, None, id="valid_config"),
         pytest.param(slice(0, 200), 100, False, None, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
@@ -256,7 +256,7 @@ def test_validate(mask: slice, n_obs: int, with_replacement: bool, n_iters: int 
 
 
 @pytest.mark.parametrize(
-    "mask,shuffle,drop_undersized,with_replacement,n_iters,error_match",
+    ("mask", "shuffle", "drop_undersized", "with_replacement", "n_iters", "error_match"),
     [
         # Invalid mask
         pytest.param(slice(-1, 100), False, None, None, None, "mask.start must be >= 0", id="negative_start"),
@@ -300,7 +300,7 @@ def test_invalid_init(
 
 
 @pytest.mark.parametrize(
-    "n_obs_values,expected_ranges",
+    ("n_obs_values", "expected_ranges"),
     [
         pytest.param([50, 100], [range(50), range(100)], id="increase_changes_result"),
         pytest.param([100, 100], [range(100), range(100)], id="same_gives_same_coverage"),
@@ -365,7 +365,7 @@ class SimpleSampler(Sampler):
 
 
 @pytest.mark.parametrize(
-    "batch_size,shuffle",
+    ("batch_size", "shuffle"),
     [
         pytest.param(None, True, id="missing_batch_size"),
         pytest.param(3, None, id="missing_shuffle"),
@@ -414,7 +414,7 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
 
 
 @pytest.mark.parametrize(
-    "n_obs,n_iters,shuffle,drop_undersized",
+    ("n_obs", "n_iters", "shuffle", "drop_undersized"),
     [
         # batches_per_request = (10*2)//5 = 4
         # possible_n_iters(drop=False) = ceil(100/5) = 20
@@ -469,7 +469,7 @@ def test_truncation(
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,mask,check_coverage",
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "n_iters", "mask", "check_coverage"),
     [
         pytest.param(100, 10, 2, 5, 1, None, False, id="single_iter"),
         pytest.param(100, 10, 2, 5, 4, None, False, id="exact_one_request"),
@@ -545,7 +545,7 @@ def test_replacement_deterministic_with_seed():
 
 
 @pytest.mark.parametrize(
-    ("n_iters,num_workers",),
+    ("n_iters", "num_workers"),
     [
         pytest.param(7, 3, id="uneven_split"),
         pytest.param(6, 3, id="even_split"),
