@@ -259,22 +259,53 @@ def test_validate(mask: slice, n_obs: int, with_replacement: bool, n_iters: int 
     [
         # Invalid mask
         pytest.param(slice(-1, 100), False, False, None, None, None, "mask.start must be >= 0", id="negative_start"),
-        pytest.param(slice(50, 50), False, False, None, None, None, "mask.start must be < mask.stop", id="start_equals_stop"),
         pytest.param(
-            slice(100, 50), False, False, None, None, None, "mask.start must be < mask.stop", id="start_greater_than_stop"
+            slice(50, 50), False, False, None, None, None, "mask.start must be < mask.stop", id="start_equals_stop"
         ),
-        pytest.param(slice(0, 100, 2), False, False, None, None, None, "mask.step must be 1, but got 2", id="step_not_one"),
+        pytest.param(
+            slice(100, 50),
+            False,
+            False,
+            None,
+            None,
+            None,
+            "mask.start must be < mask.stop",
+            id="start_greater_than_stop",
+        ),
+        pytest.param(
+            slice(0, 100, 2), False, False, None, None, None, "mask.step must be 1, but got 2", id="step_not_one"
+        ),
         # Invalid n_iters
         pytest.param(None, True, False, None, None, 0, "n_iters must be greater than 1", id="zero_n_iters"),
         pytest.param(None, True, False, None, None, -5, "n_iters must be greater than 1", id="negative_n_iters"),
         # with_replacement / n_iters mismatch
         pytest.param(None, True, False, None, True, None, "n_iters is required", id="replacement_without_n_iters"),
         # drop_last with with_replacement
-        pytest.param(None, False, True, None, True, 10, "drop_last cannot be used with with_replacement", id="drop_last_with_replacement"),
+        pytest.param(
+            None,
+            False,
+            True,
+            None,
+            True,
+            10,
+            "drop_last cannot be used with with_replacement",
+            id="drop_last_with_replacement",
+        ),
         # incomplete_chunk_strategy without with_replacement
-        pytest.param(None, False, False, "drop", False, None, "incomplete_chunk_strategy can only be set when with_replacement", id="strategy_without_replacement"),
+        pytest.param(
+            None,
+            False,
+            False,
+            "drop",
+            False,
+            None,
+            "incomplete_chunk_strategy can only be set when with_replacement",
+            id="strategy_without_replacement",
+        ),
         # invalid strategy value
-        pytest.param(None, False, False, "bad", True, 10, "incomplete_chunk_strategy must be one of", id="invalid_strategy"),
+        pytest.param(
+            None, False, False, "bad", True, 10, "incomplete_chunk_strategy must be one of", id="invalid_strategy"
+        ),
     ],
 )
 def test_invalid_init(
