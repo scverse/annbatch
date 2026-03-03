@@ -665,7 +665,7 @@ class DatasetCollection:
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
         """
         if self.is_empty:
-            raise ValueError("Store is empty. Please run `DatasetCollection.add_adata` first.")
+            raise ValueError("Store is empty. Please run `DatasetCollection.add_adatas` first.")
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
 
