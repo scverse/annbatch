@@ -395,7 +395,7 @@ class DatasetCollection:
         )
 
     @_with_settings
-    def add_adata(
+    def add_adatas(
         self,
         adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
@@ -478,7 +478,7 @@ class DatasetCollection:
             ...     "path/to/second_adata.h5ad",
             ...     "path/to/third_adata.h5ad",
             ... ]
-            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_adata(
+            >>> DatasetCollection("path/to/output/zarr_store.zarr").add_adatas(
             ...    datasets,
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
