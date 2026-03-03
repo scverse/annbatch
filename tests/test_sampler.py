@@ -414,31 +414,29 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,shuffle,drop_undersized",
+    "n_obs,n_iters,shuffle,drop_undersized",
     [
         # batches_per_request = (10*2)//5 = 4
         # possible_n_iters(drop=False) = ceil(100/5) = 20
-        pytest.param(100, 10, 2, 5, 1, False, False, id="single_batch"),
-        pytest.param(100, 10, 2, 5, 4, False, False, id="exact_one_request"),
-        pytest.param(100, 10, 2, 5, 5, False, False, id="one_request_plus_one"),
-        pytest.param(100, 10, 2, 5, 10, False, False, id="mid_epoch"),
-        pytest.param(100, 10, 2, 5, 20, False, False, id="full_epoch"),
-        pytest.param(100, 10, 2, 5, 10, True, False, id="shuffled"),
+        pytest.param(100, 1, False, False, id="single_batch"),
+        pytest.param(100, 4, False, False, id="exact_one_request"),
+        pytest.param(100, 5, False, False, id="one_request_plus_one"),
+        pytest.param(100, 10, False, False, id="mid_epoch"),
+        pytest.param(100, 20, False, False, id="full_epoch"),
+        pytest.param(100, 10, True, False, id="shuffled"),
         # Non-divisible n_obs: ceil(103/5) = 21 possible
-        pytest.param(103, 10, 2, 5, 15, False, False, id="non_divisible_obs"),
+        pytest.param(103, 15, False, False, id="non_divisible_obs"),
         # With drop_undersized: 103//5 = 20 possible
-        pytest.param(103, 10, 2, 5, 15, False, True, id="non_divisible_drop_undersized"),
+        pytest.param(103, 15, False, True, id="non_divisible_drop_undersized"),
     ],
 )
 def test_truncation(
     n_obs: int,
-    chunk_size: int,
-    preload_nchunks: int,
-    batch_size: int,
     n_iters: int,
     shuffle: bool,
     drop_undersized: bool,
 ):
+    chunk_size, preload_nchunks, batch_size = 10, 2, 5
     """Test without-replacement truncation: n_iters method, exact batch count, and prefix subset."""
     common = {
         "chunk_size": chunk_size,
