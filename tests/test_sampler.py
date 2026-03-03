@@ -474,9 +474,9 @@ def test_truncation(
         pytest.param(100, 10, 2, 5, 1, None, False, id="single_iter"),
         pytest.param(100, 10, 2, 5, 4, None, False, id="exact_one_request"),
         pytest.param(100, 10, 2, 5, 7, None, False, id="partial_last_request"),
-        pytest.param(100, 10, 2, 5, 100, None, False, id="many_iters"),
-        pytest.param(1000, 256, 4, 256, 50, None, False, id="large_chunks"),
-        pytest.param(1000, 256, 4, 256, 1, None, False, id="single_iter_large"),
+        pytest.param(100, 10, 2, 5, 100, None, False, id="more_iters_than_obs"),
+        pytest.param(1000, 256, 4, 256, 50, None, False, id="large_chunk_equal_batch"),
+        pytest.param(1000, 256, 4, 256, 1, None, False, id="single_iter_large_chunk_equal_batch"),
         # Non-divisible n_obs (triggers overlapping tail chunk)
         pytest.param(103, 10, 2, 5, 10, None, False, id="non_divisible_obs"),
         # With mask and non-divisible range -- also check full coverage
@@ -545,23 +545,20 @@ def test_replacement_deterministic_with_seed():
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,num_workers",
+    ("n_iters,num_workers",),
     [
-        pytest.param(100, 10, 2, 5, 7, 3, id="uneven_split"),
-        pytest.param(100, 10, 2, 5, 6, 3, id="even_split"),
-        pytest.param(100, 10, 2, 5, 10, 2, id="two_workers"),
-        pytest.param(100, 10, 2, 5, 1, 4, id="fewer_iters_than_workers"),
+        pytest.param(7, 3, id="uneven_split"),
+        pytest.param(6, 3, id="even_split"),
+        pytest.param(10, 2, id="two_workers"),
+        pytest.param(1, 4, id="fewer_iters_than_workers"),
     ],
 )
 def test_replacement_workers_split_n_iters(
-    n_obs: int,
-    chunk_size: int,
-    preload_nchunks: int,
-    batch_size: int,
     n_iters: int,
     num_workers: int,
 ):
     """Test that with-replacement worker sharding distributes n_iters across workers."""
+    n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
     worker_batch_counts = []
     for worker_id in range(num_workers):
         sampler = ChunkSampler(
