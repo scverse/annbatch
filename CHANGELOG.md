@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 - Formatted progress bar descriptions to be more readable.
+=======
+- {class}`annbatch.DatasetCollection` now accepts a `rng` argument to the {meth}`annbatch.DatasetCollection.add_adatas` method.
+
 
 ## [0.0.8]
 
