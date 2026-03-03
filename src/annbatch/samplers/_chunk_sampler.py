@@ -35,7 +35,7 @@ class ChunkSampler(Sampler):
     preload_nchunks
         Number of chunks to load per iteration.
     drop_undersized
-        Whether to drop the last batch when it is smaller than ``batch_size``.
+        Whether to drop the undersized batch i.e., when it is smaller than ``batch_size``. When `with_replacement` is `True`, this setting ensures all batches are the same size. When `with_replacement` is `False`, this setting drops the final undersized batch, comparable to other libraries' (like `torch`) `drop_last` parameter.
     with_replacement
         Whether to sample chunks with replacement.
     n_iters
