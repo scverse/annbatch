@@ -11,12 +11,11 @@ and this project adheres to [Semantic Versioning][].
 ## [0.0.9]
 
 ### Breaking
-- Renamed `annbatch.DatasetCollection.add_adatas` to {meth}`annbatch.DatasetCollection.add_adata`.
-- Renamed `annbatch.Loader.add_anndatas` to {meth}`annbatch.Loader.add_adata`.
+- Renamed `annbatch.Loader.add_anndatas` to {meth}`annbatch.Loader.add_adatas`.
+- Renamed `annbatch.Loader.add_anndata` to {meth}`annbatch.Loader.add_adata`.
 
 ### Fixed
 - Formatted progress bar descriptions to be more readable.
-=======
 - {class}`annbatch.DatasetCollection` now accepts a `rng` argument to the {meth}`annbatch.DatasetCollection.add_adatas` method.
 
 

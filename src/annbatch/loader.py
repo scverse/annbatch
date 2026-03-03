@@ -131,7 +131,7 @@ class Loader[
                 batch_size=4096,
                 chunk_size=32,
                 preload_nchunks=512,
-            ).add_anndata(my_anndata)
+            ).add_adata(my_anndata)
         >>> for batch in ds:
                 # optionally convert to dense
                 # batch = batch.to_dense()
@@ -303,7 +303,7 @@ class Loader[
     ) -> Self:
         """Load from an existing :class:`annbatch.DatasetCollection`.
 
-        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_adata` or open an issue.
+        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_adatas` or open an issue.
 
         Parameters
         ----------
@@ -318,33 +318,33 @@ class Loader[
             raise ValueError("DatasetCollection is empty")
         if self._collection_added:
             raise RuntimeError(
-                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_adata` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_adata`."
+                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_adatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_adatas`."
             )
         adatas = [load_adata(g) for g in collection]
-        self.add_adata(adatas)
+        self.add_adatas(adatas)
         self._collection_added = True
         return self
 
     @validate_sampler
-    def add_adata(
+    def add_adatas(
         self,
         adatas: list[ad.AnnData],
     ) -> Self:
-        """Append adata to this dataset.
+        """Append adatas to this dataset.
 
         Parameters
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
-        check_lt_1([len(adatas)], ["Number of adata"])
+        check_lt_1([len(adatas)], ["Number of adatas"])
         for adata in adatas:
             dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
             self._add_dataset_unchecked(dataset, obs, var)
         return self
 
-    def add_anndata(self, adata: ad.AnnData) -> Self:
-        """Append an anndata to this dataset.
+    def add_adata(self, adata: ad.AnnData) -> Self:
+        """Append an adata to this dataset.
 
         Parameters
         ----------
