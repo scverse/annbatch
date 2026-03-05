@@ -104,20 +104,29 @@ class ChunkSampler(Sampler):
             raise ValueError("drop_last cannot be used with with_replacement. Use incomplete_chunk_strategy instead.")
         if not with_replacement and drop_last is None:
             drop_last = False
-
         if with_replacement and n_iters is None:
             raise ValueError("n_iters is required when with_replacement is True.")
-        self._n_iters, self._with_replacement = n_iters, with_replacement
-        self._drop_last = drop_last
-
         self._rng = rng or np.random.default_rng()
-        self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
-        self._preload_nchunks, self._mask = (
+        self._in_memory_size = chunk_size * preload_nchunks
+        self._mask = slice(start, stop)
+        # leaving the straight assignments like this for readability
+        (
+            self._n_iters,
+            self._with_replacement,
+            self._drop_last,
+            self._batch_size,
+            self._chunk_size,
+            self._shuffle,
+            self._preload_nchunks,
+        ) = (
+            n_iters,
+            with_replacement,
+            drop_last,
+            batch_size,
+            chunk_size,
+            shuffle,
             preload_nchunks,
-            slice(start, stop),
         )
-        self._n_iters = n_iters
-        self._in_memory_size = self._chunk_size * self._preload_nchunks
 
     @property
     def batch_size(self) -> int:
@@ -219,9 +228,7 @@ class ChunkSampler(Sampler):
                 batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
-        # On the last yield, create new batch_indices since the in-memory size
-        # of this last yield could be divisible by batch_size but smaller than
-        # preload_nchunks * chunk_size.
+        # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
         final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
         if total_obs_in_last_batch == 0:  # pragma: no cover
