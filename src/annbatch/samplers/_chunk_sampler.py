@@ -225,18 +225,11 @@ class ChunkSamplerWithReplacement(ChunkSampler):
     pre-built pool with replacement and is not limited to a single epoch.
     The number of batches to yield (``n_iters``) is required.
 
+    See :class:`ChunkSampler` for the shared parameters
+
+
     Parameters
     ----------
-    batch_size
-        Number of observations per batch.
-    chunk_size
-        Size of each chunk i.e. the range of each chunk yielded.
-    mask
-        A slice defining the observation range to sample from (start:stop).
-    shuffle
-        Whether to shuffle batch indices within each loaded group.
-    preload_nchunks
-        Number of chunks to load per iteration.
     n_iters
         Number of batches to yield. Required.
     incomplete_chunk_strategy : ``"drop"`` | ``"extend"``
@@ -245,10 +238,6 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         ``"extend"`` shifts it backwards so it has exactly ``chunk_size``
         observations (some observations will appear twice in that chunk).
         Defaults to ``"extend"``.
-    rng
-        Random number generator. Note that :func:`torch.manual_seed`
-        has no effect on reproducibility here; pass a seeded
-        :class:`numpy.random.Generator` to control randomness.
     """
 
     _INCOMPLETE_CHUNK_STRATEGIES: frozenset[str] = frozenset({"drop", "extend"})
@@ -292,18 +281,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         return self._n_iters
 
     def validate(self, n_obs: int) -> None:
-        """Validate the sampler configuration against the loader's n_obs and make sure at least one full chunk is present.
-
-        Parameters
-        ----------
-        n_obs
-            The total number of observations in the loader.
-
-        Raises
-        ------
-        ValueError
-            If the sampler configuration is invalid for the given n_obs.
-        """
+        """Like :meth:`ChunkSampler.validate`, but also requires at least one full chunk."""
         super().validate(n_obs)
         start, stop = self._resolve_start_stop(n_obs)
         if (stop - start) < self._chunk_size:
@@ -313,7 +291,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
             )
 
     def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:
-        """Compute chunks and apply the incomplete-chunk strategy to make sure all chunks are full-sized."""
+        """Like :meth:`ChunkSampler._compute_chunks`, but applies ``incomplete_chunk_strategy`` to the tail chunk."""
         chunks = super()._compute_chunks(chunk_indices, start, stop)
         last = chunks[-1]
         if last.stop - last.start < self._chunk_size:
@@ -337,11 +315,10 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         rng: np.random.Generator,
         worker_info: WorkerInfo | None,
     ) -> Iterator[LoadRequest]:
-        """Sample chunks from the pool with replacement and yield batched requests.
+        """Like :meth:`ChunkSampler._iter_from_chunks`, but samples chunks from the pool with replacement.
 
-        ``rng`` is used both to sample which chunks to load from the
-        pool (with replacement) and to shuffle batch indices within each
-        loaded group.
+        ``rng`` is used both to select which chunks to load from the
+        pool and to shuffle batch indices within each loaded group.
         """
         n_pool = len(chunks)
         batches_per_request = self._in_memory_size // self._batch_size
