@@ -158,18 +158,6 @@ class ChunkSampler(Sampler):
         batch indices within each loaded group of chunks; the chunks
         themselves are not reordered. If shuffling of chunks is expected,
         it should be done before calling this method.
-
-        Parameters
-        ----------
-        chunks
-            Ordered chunk slices to iterate through.
-        rng
-            Random number generator used to shuffle batch indices
-            within each preloaded group when ``shuffle`` is enabled.
-            Does not affect the chunk order.
-        worker_info
-            Worker information for multi-worker sharding. When set, the
-            chunks are split evenly across workers.
         """
         if worker_info is not None:
             chunks = np.array_split(chunks, worker_info.num_workers)[worker_info.id]
