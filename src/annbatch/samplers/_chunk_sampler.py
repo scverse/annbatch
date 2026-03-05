@@ -37,14 +37,6 @@ class ChunkSampler(Sampler):
     drop_last
         Whether to drop the last incomplete batch.
         Only allowed when ``with_replacement`` is ``False`` and it defaults to ``False`` in that case.
-    incomplete_chunk_strategy
-        How to handle the tail chunk when it is smaller than ``chunk_size``.
-        Only allowed when ``with_replacement`` is ``True``.
-        ``"drop"`` removes the undersized chunk from the pool;
-        ``"extend"`` shifts it backwards so it has exactly ``chunk_size``
-        observations (some observations will appear twice in that chunk).
-        Defaults to ``None``; when ``with_replacement`` is ``True`` and
-        not set, defaults to ``"extend"``.
     with_replacement
         Whether to sample chunks with replacement.
     n_iters
