@@ -210,7 +210,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
     """Chunk-based sampler that draws chunks with replacement.
 
     Unlike :class:`ChunkSampler`, this sampler draws chunks from a
-    pre-built pool with replacement and is not limited to a single epoch.
+    pool of full chunks with replacement and is not limited to a single epoch.
     The number of batches to yield (``n_iters``) is required.
 
     See :class:`ChunkSampler` for the shared parameters
