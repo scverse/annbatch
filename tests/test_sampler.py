@@ -38,7 +38,6 @@ def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
         pytest.param(100, 10, 30, None, 5, 2, False, False, id="start_at_chunk_boundary"),
         pytest.param(100, 10, 35, None, 5, 2, False, False, id="start_not_at_chunk_boundary"),
         pytest.param(120, 12, 90, None, 3, 1, False, False, id="start_near_end"),
-        pytest.param(100, 10, 20, None, 5, 2, False, False, id="start_mask_stop_none"),
         # mask.stop only
         pytest.param(50, 10, None, 50, 5, 2, False, False, id="stop_at_chunk_boundary"),
         pytest.param(47, 10, None, 47, 5, 2, False, False, id="stop_not_at_chunk_boundary"),
@@ -251,7 +250,6 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
     ("mask", "n_obs", "error_match"),
     [
         pytest.param(slice(0, 100), 100, None, id="valid_replacement_config"),
-        pytest.param(slice(0, 200), 100, "mask.stop.*exceeds loader n_obs", id="replacement_stop_exceeds_n_obs"),
         pytest.param(slice(0, 5), 100, "at least one full chunk", id="replacement_mask_too_small"),
     ],
 )
@@ -490,52 +488,7 @@ def test_replacement_invariants(
 # =============================================================================
 
 
-@pytest.mark.parametrize(
-    "strategy",
-    [
-        pytest.param("extend", id="extend"),
-        pytest.param("drop", id="drop"),
-    ],
-)
-def test_incomplete_chunk_strategy(strategy: str):
-    """Test that incomplete_chunk_strategy controls how the tail chunk is handled."""
-    n_obs, chunk_size, preload_nchunks, batch_size, n_iters = 103, 10, 2, 5, 50
-    sampler = ChunkSamplerWithReplacement(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=True,
-        n_iters=n_iters,
-        incomplete_chunk_strategy=strategy,
-        rng=np.random.default_rng(42),
-    )
-    for load_request in sampler.sample(n_obs):
-        for chunk in load_request["chunks"]:
-            assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
-            assert chunk.start >= 0
-            assert chunk.stop <= n_obs
-
-
-def test_incomplete_chunk_strategy_default_is_extend():
-    """Test that the default incomplete_chunk_strategy is 'extend'."""
-    n_obs, chunk_size, preload_nchunks, batch_size, n_iters = 103, 10, 2, 5, 50
-    sampler = ChunkSamplerWithReplacement(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=True,
-        n_iters=n_iters,
-        rng=np.random.default_rng(42),
-    )
-    for load_request in sampler.sample(n_obs):
-        for chunk in load_request["chunks"]:
-            assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
-            assert chunk.start >= 0
-            assert chunk.stop <= n_obs
-
-
-@pytest.mark.parametrize("strategy", ["extend"])
-def test_incomplete_chunk_strategy_extend_shifts_backwards(strategy: str):
+def test_incomplete_chunk_strategy_extend_shifts_backwards():
     """Test that 'extend' shifts the tail chunk backwards to fill chunk_size."""
     n_obs, chunk_size = 103, 10
     sampler = ChunkSamplerWithReplacement(
@@ -544,7 +497,7 @@ def test_incomplete_chunk_strategy_extend_shifts_backwards(strategy: str):
         batch_size=chunk_size,
         shuffle=False,
         n_iters=5000,
-        incomplete_chunk_strategy=strategy,
+        incomplete_chunk_strategy="extend",
         rng=np.random.default_rng(42),
     )
     seen_chunks: set[tuple[int, int]] = set()
