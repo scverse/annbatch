@@ -348,23 +348,29 @@ class ChunkSamplerWithReplacement(ChunkSampler):
 
         n_iters = self._n_iters
         if worker_info is not None:
-            num_workers = worker_info.num_workers
-            worker_id = worker_info.id
-            base, remainder = divmod(n_iters, num_workers)
-            n_iters = base + (1 if worker_id < remainder else 0)
+            base, remainder = divmod(n_iters, worker_info.num_workers)
+            n_iters = base + (1 if worker_info.id < remainder else 0)
 
-        n_requests = math.ceil(n_iters / batches_per_request)
-        last_n_batches = n_iters - (n_requests - 1) * batches_per_request
+        n_full_requests, last_n_batches = divmod(n_iters, batches_per_request)
+        n_requests = n_full_requests + (1 if last_n_batches else 0)
+        if n_requests == 0:  # can happen only with worker case
+            return
+
+        chunk_ids = rng.integers(0, n_pool, size=n_requests * self._preload_nchunks)
+        chunks_to_load = split_given_size([chunks[i] for i in chunk_ids], self._preload_nchunks)
         batch_indices = np.arange(self._in_memory_size)
 
-        for request_idx in range(n_requests):
-            sampled = rng.integers(0, n_pool, size=self._preload_nchunks)
-            sampled_chunks = [chunks[i] for i in sampled]
-
+        for request_chunks in chunks_to_load[: -1 if last_n_batches > 0 else None]:
             if self._shuffle:
                 rng.shuffle(batch_indices)
-            splits = split_given_size(batch_indices, self._batch_size)
-            if request_idx == n_requests - 1:
-                splits = splits[:last_n_batches]
-
-            yield {"chunks": sampled_chunks, "splits": splits}
+            yield {
+                "chunks": request_chunks,
+                "splits": split_given_size(batch_indices, self._batch_size),
+            }
+        if last_n_batches > 0:
+            if self._shuffle:
+                rng.shuffle(batch_indices)
+            yield {
+                "chunks": chunks_to_load[-1],
+                "splits": split_given_size(batch_indices, self._batch_size)[:last_n_batches],
+            }
