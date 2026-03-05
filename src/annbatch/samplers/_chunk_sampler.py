@@ -182,6 +182,7 @@ class ChunkSampler(Sampler):
             if self._with_replacement:
                 raise ValueError("Multiple workers are not supported with with_replacement=True.")
             if not self._drop_last and self._batch_size != 1:
+                # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
                 raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
         start, stop = self._resolve_start_stop(n_obs)
@@ -263,6 +264,8 @@ class ChunkSampler(Sampler):
         The chunks are computed such that the last chunk is the incomplete chunk if the total number of observations is not divisible by the chunk size.
         Supposed to also work with shuffled chunk indices so that the last chunk computed isn't always the incomplete chunk.
         """
+        # Compute chunks directly from resolved mask range
+        # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self._shuffle:
             rng.shuffle(chunk_indices)
