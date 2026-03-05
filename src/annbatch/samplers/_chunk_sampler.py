@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 from typing import TYPE_CHECKING
 
@@ -13,7 +14,6 @@ from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from typing import Literal
 
     from annbatch.samplers._utils import WorkerInfo
     from annbatch.types import LoadRequest
@@ -36,6 +36,24 @@ class ChunkSampler(Sampler):
         Number of chunks to load per iteration.
     drop_last
         Whether to drop the last incomplete batch.
+        Only allowed when ``with_replacement`` is ``False`` and it defaults to ``False`` in that case.
+    incomplete_chunk_strategy
+        How to handle the tail chunk when it is smaller than ``chunk_size``.
+        Only allowed when ``with_replacement`` is ``True``.
+        ``"drop"`` removes the undersized chunk from the pool;
+        ``"extend"`` shifts it backwards so it has exactly ``chunk_size``
+        observations (some observations will appear twice in that chunk).
+        Defaults to ``None``; when ``with_replacement`` is ``True`` and
+        not set, defaults to ``"extend"``.
+    with_replacement
+        Whether to sample chunks with replacement.
+    n_iters
+        Number of batches to yield.
+        When ``with_replacement`` is ``True``, this is required.
+        When ``with_replacement`` is ``False``, this is optional and truncates the epoch
+        (i.e. stop after ``n_iters`` batches). Must not exceed the number of possible
+        iterations given the dataset size; raises :class:`ValueError` during
+        :meth:`validate` if it does.
     rng
         Random number generator for shuffling. Note that :func:`torch.manual_seed`
         has no effect on reproducibility here; pass a seeded
@@ -48,6 +66,8 @@ class ChunkSampler(Sampler):
     _preload_nchunks: int
     _mask: slice
     _drop_last: bool
+    _with_replacement: bool
+    _n_iters: int | None
     _rng: np.random.Generator
 
     def __init__(
@@ -58,7 +78,9 @@ class ChunkSampler(Sampler):
         *,
         mask: slice | None = None,
         shuffle: bool = False,
-        drop_last: bool = False,
+        drop_last: bool | None = None,
+        with_replacement: bool = False,
+        n_iters: int | None = None,
         rng: np.random.Generator | None = None,
     ):
         if mask is None:
@@ -84,13 +106,25 @@ class ChunkSampler(Sampler):
                 "chunk_size * preload_nchunks must be divisible by batch_size. "
                 f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
             )
+        if n_iters is not None:
+            check_lt_1([n_iters], ["n_iters"])
+        if with_replacement and drop_last is not None:
+            raise ValueError("drop_last cannot be used with with_replacement. Use incomplete_chunk_strategy instead.")
+        if not with_replacement and drop_last is None:
+            drop_last = False
+
+        if with_replacement and n_iters is None:
+            raise ValueError("n_iters is required when with_replacement is True.")
+        self._n_iters, self._with_replacement = n_iters, with_replacement
+        self._drop_last = drop_last
+
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
-        self._preload_nchunks, self._mask, self._drop_last = (
+        self._preload_nchunks, self._mask = (
             preload_nchunks,
             slice(start, stop),
-            drop_last,
         )
+        self._n_iters = n_iters
         self._in_memory_size = self._chunk_size * self._preload_nchunks
 
     @property
@@ -102,7 +136,10 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        return self._possible_n_iters(n_obs)
+        if self._with_replacement:
+            return self._n_iters
+        possible = self._possible_n_iters(n_obs)
+        return possible if self._n_iters is None else min(self._n_iters, possible)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -125,51 +162,74 @@ class ChunkSampler(Sampler):
             )
         if start >= stop:
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+        if (
+            not self._with_replacement
+            and self._n_iters is not None
+            and self._n_iters > (possible := self._possible_n_iters(n_obs))
+        ):
+            raise ValueError(
+                f"n_iters ({self._n_iters}) exceeds the number of possible iterations "
+                f"({possible}) for n_obs={n_obs} without replacement. "
+                "Use with_replacement=True to allow more iterations than the dataset provides."
+            )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
-        self._validate_worker_mode(worker_info)
-
-        start, stop = self._resolve_start_stop(n_obs)
-        chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
-        if self._shuffle:
-            self._rng.shuffle(chunk_indices)
-        chunks = self._compute_chunks(chunk_indices, start, stop)
-        rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
-
-        yield from self._iter_from_chunks(chunks, rng=rng, worker_info=worker_info)
-
-    def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
         # Worker mode validation - only check when there are multiple workers
 
-        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
-            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
-            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
+        if worker_info is not None and worker_info.num_workers > 1:
+            if self._with_replacement:
+                raise ValueError("Multiple workers are not supported with with_replacement=True.")
+            if not self._drop_last and self._batch_size != 1:
+                raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
-    def _iter_from_chunks(
+        start, stop = self._resolve_start_stop(n_obs)
+        worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
+
+        chunks = self._compute_chunks(start, stop, rng=self._rng)
+        epoch = self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+        if self._n_iters is not None:
+            yield from self._truncate_epoch(epoch, self._n_iters, batch_rng=worker_aware_rng)
+        else:
+            yield from epoch
+
+    def _truncate_epoch(
+        self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator
+    ) -> Iterator[LoadRequest]:
+        """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
+        batches_per_request = self._in_memory_size // self._batch_size
+        chunks_per_batch = self._batch_size // self._chunk_size
+        n_full, tail = divmod(n_iters, batches_per_request)
+        yield from itertools.islice(epoch, n_full)
+        if tail > 0:
+            load_request = next(epoch)
+            yield {
+                "chunks": load_request["chunks"][:chunks_per_batch],
+                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
+            }
+
+    def _iter_epoch(
         self,
         chunks: list[slice],
-        rng: np.random.Generator,
+        batch_rng: np.random.Generator,
         worker_info: WorkerInfo | None,
     ) -> Iterator[LoadRequest]:
-        """Iterate through chunks sequentially, yielding batched load requests.
-
-        Chunks are consumed in order. ``rng`` is used only to reorder
-        batch indices within each loaded group of chunks; the chunks
-        themselves are not reordered. If shuffling of chunks is expected,
-        it should be done before calling this method.
-        """
+        # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_info is not None:
             chunks = np.array_split(chunks, worker_info.num_workers)[worker_info.id]
+        # Set up the iterator for chunks and the batch indices for splits
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(self._in_memory_size)
         split_batch_indices = split_given_size(batch_indices, self._batch_size)
         for request_chunks in chunks_per_request[:-1]:
             if self._shuffle:
                 # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
-                rng.shuffle(batch_indices)
+                batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self._batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
+        # On the last yield, create new batch_indices since the in-memory size
+        # of this last yield could be divisible by batch_size but smaller than
+        # preload_nchunks * chunk_size.
         final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
         if total_obs_in_last_batch == 0:  # pragma: no cover
@@ -178,17 +238,36 @@ class ChunkSampler(Sampler):
             if total_obs_in_last_batch < self._batch_size:
                 return
             total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
-        indices = rng.permutation(total_obs_in_last_batch) if self._shuffle else np.arange(total_obs_in_last_batch)
+        indices = (
+            batch_rng.permutation(total_obs_in_last_batch) if self._shuffle else np.arange(total_obs_in_last_batch)
+        )
         batch_indices = split_given_size(indices, self._batch_size)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
-    def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:
+    def _compute_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
+        if self._with_replacement:
+            return self._compute_chunks_with_replacement(start, stop, rng)
+        return self._compute_chunks_without_replacement(start, stop, rng)
+
+    def _compute_chunks_with_replacement(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
+        if stop - start < self._chunk_size:
+            return [slice(start, stop)]
+        start_indices = rng.integers(
+            start, stop - self._chunk_size + 1, size=math.ceil((self._n_iters * self._batch_size) / self._chunk_size)
+        )
+        chunks = [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
+        return chunks
+
+    def _compute_chunks_without_replacement(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
         """Compute chunks from start and stop indices.
 
         This function is used to compute the chunks for the data to load.
         The chunks are computed such that the last chunk is the incomplete chunk if the total number of observations is not divisible by the chunk size.
         Supposed to also work with shuffled chunk indices so that the last chunk computed isn't always the incomplete chunk.
         """
+        chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
+        if self._shuffle:
+            rng.shuffle(chunk_indices)
         n_chunks, pivot_index = len(chunk_indices), chunk_indices[-1]
         offsets = np.ones(n_chunks + 1, dtype=int) * self._chunk_size
         offsets[0] = start
@@ -204,138 +283,3 @@ class ChunkSampler(Sampler):
         start, stop = self._resolve_start_stop(n_obs)
         total_obs = stop - start
         return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
-
-
-class ChunkSamplerWithReplacement(ChunkSampler):
-    """Chunk-based sampler that draws chunks with replacement.
-
-    Unlike :class:`ChunkSampler`, this sampler draws chunks from a
-    pool of full chunks with replacement and is not limited to a single epoch.
-    The number of batches to yield (``n_iters``) is required.
-
-    See :class:`ChunkSampler` for the shared parameters
-
-
-    Parameters
-    ----------
-    n_iters
-        Number of batches to yield. Required.
-    incomplete_chunk_strategy : ``"drop"`` | ``"extend"``
-        How to handle the tail chunk when it is smaller than ``chunk_size``.
-        ``"drop"`` removes the undersized chunk from the pool;
-        ``"extend"`` shifts it backwards so it has exactly ``chunk_size``
-        observations (some observations will appear twice in that chunk).
-        Defaults to ``"extend"``.
-    """
-
-    _INCOMPLETE_CHUNK_STRATEGIES: frozenset[str] = frozenset({"drop", "extend"})
-
-    _n_iters: int
-    _incomplete_chunk_strategy: str
-
-    def __init__(
-        self,
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        *,
-        n_iters: int,
-        mask: slice | None = None,
-        shuffle: bool = False,
-        incomplete_chunk_strategy: Literal["drop", "extend"] = "extend",
-        rng: np.random.Generator | None = None,
-    ):
-        check_lt_1([n_iters], ["n_iters"])
-        if incomplete_chunk_strategy not in self._INCOMPLETE_CHUNK_STRATEGIES:
-            raise ValueError(
-                f"incomplete_chunk_strategy must be one of {set(self._INCOMPLETE_CHUNK_STRATEGIES)}, "
-                f"got '{incomplete_chunk_strategy}'."
-            )
-        super().__init__(
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            mask=mask,
-            shuffle=shuffle,
-            rng=rng,
-        )
-        self._n_iters = n_iters
-        self._incomplete_chunk_strategy = incomplete_chunk_strategy
-
-    def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
-        pass
-
-    def n_iters(self, n_obs: int) -> int:
-        return self._n_iters
-
-    def validate(self, n_obs: int) -> None:
-        """Like :meth:`ChunkSampler.validate`, but also requires at least one full chunk."""
-        super().validate(n_obs)
-        start, stop = self._resolve_start_stop(n_obs)
-        if (stop - start) < self._chunk_size:
-            raise ValueError(
-                f"With-replacement mode requires at least one full chunk: "
-                f"(stop - start) = {stop - start} < chunk_size = {self._chunk_size}."
-            )
-
-    def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:
-        """Like :meth:`ChunkSampler._compute_chunks`, but applies ``incomplete_chunk_strategy`` to the tail chunk."""
-        chunks = super()._compute_chunks(chunk_indices, start, stop)
-        last = chunks[-1]
-        if last.stop - last.start < self._chunk_size:
-            chunks = self._apply_incomplete_chunk_strategy(chunks, stop)
-        return chunks
-
-    def _apply_incomplete_chunk_strategy(self, chunks: list[slice], stop: int) -> list[slice]:
-        match self._incomplete_chunk_strategy:
-            case "drop":
-                return chunks[:-1]
-            case "extend":
-                last = chunks[-1]
-                new_stop = min(last.start + self._chunk_size, stop)
-                chunks[-1] = slice(new_stop - self._chunk_size, new_stop)
-                return chunks
-        raise ValueError(f"Invalid incomplete_chunk_strategy: {self._incomplete_chunk_strategy}.")  # pragma: no cover
-
-    def _iter_from_chunks(
-        self,
-        chunks: list[slice],
-        rng: np.random.Generator,
-        worker_info: WorkerInfo | None,
-    ) -> Iterator[LoadRequest]:
-        """Like :meth:`ChunkSampler._iter_from_chunks`, but samples chunks from the pool with replacement.
-
-        ``rng`` is used both to select which chunks to load from the
-        pool and to shuffle batch indices within each loaded group.
-        """
-        n_pool = len(chunks)
-        batches_per_request = self._in_memory_size // self._batch_size
-
-        n_iters = self._n_iters
-        if worker_info is not None:
-            base, remainder = divmod(n_iters, worker_info.num_workers)
-            n_iters = base + (1 if worker_info.id < remainder else 0)
-
-        n_full_requests, last_n_batches = divmod(n_iters, batches_per_request)
-        n_requests = n_full_requests + (1 if last_n_batches else 0)
-        if n_requests == 0:  # can happen only with worker case
-            return
-
-        chunk_ids = rng.integers(0, n_pool, size=n_requests * self._preload_nchunks)
-        chunks_to_load = split_given_size([chunks[i] for i in chunk_ids], self._preload_nchunks)
-        batch_indices = np.arange(self._in_memory_size)
-
-        for request_chunks in chunks_to_load[: -1 if last_n_batches > 0 else None]:
-            if self._shuffle:
-                rng.shuffle(batch_indices)
-            yield {
-                "chunks": request_chunks,
-                "splits": split_given_size(batch_indices, self._batch_size),
-            }
-        if last_n_batches > 0:
-            if self._shuffle:
-                rng.shuffle(batch_indices)
-            yield {
-                "chunks": chunks_to_load[-1],
-                "splits": split_given_size(batch_indices, self._batch_size)[:last_n_batches],
-            }
