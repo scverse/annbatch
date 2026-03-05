@@ -188,13 +188,12 @@ class ChunkSampler(Sampler):
         worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
 
         chunks = self._compute_chunks(start, stop, rng=self._rng)
-        epoch = self._iter_epoch(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+        load_requests = self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
         if self._n_iters is not None:
-            yield from self._truncate_epoch(epoch, self._n_iters, batch_rng=worker_aware_rng)
-        else:
-            yield from epoch
+            load_requests = self._truncate_by_n_iters(load_requests, self._n_iters, batch_rng=worker_aware_rng)
+        yield from load_requests
 
-    def _truncate_epoch(
+    def _truncate_by_n_iters(
         self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator
     ) -> Iterator[LoadRequest]:
         """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
@@ -209,7 +208,7 @@ class ChunkSampler(Sampler):
                 "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
             }
 
-    def _iter_epoch(
+    def _iter_from_chunks(
         self,
         chunks: list[slice],
         batch_rng: np.random.Generator,
