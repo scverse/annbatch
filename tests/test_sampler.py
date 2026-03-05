@@ -423,7 +423,7 @@ def test_n_iters_property(
     with_replacement: bool, n_iters_arg: int | None, n_obs: int, drop_last: bool | None, expected: int
 ):
     """Test that n_iters() returns the correct value for different configurations."""
-    kwargs = dict(chunk_size=10, preload_nchunks=2, batch_size=5)
+    kwargs = {"chunk_size": 10, "preload_nchunks": 2, "batch_size": 5}
     if with_replacement:
         kwargs.update(with_replacement=True, n_iters=n_iters_arg, rng=np.random.default_rng(42))
     else:
