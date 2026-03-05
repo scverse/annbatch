@@ -224,20 +224,28 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng():
 
 
 @pytest.mark.parametrize(
+    "sampler_cls,extra_kwargs",
+    [
+        pytest.param(ChunkSampler, {}, id="base"),
+        pytest.param(ChunkSamplerWithReplacement, {"n_iters": 10}, id="replacement"),
+    ],
+)
+@pytest.mark.parametrize(
     ("mask", "n_obs", "error_match"),
     [
         pytest.param(slice(0, 100), 100, None, id="valid_config"),
         pytest.param(slice(0, 200), 100, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
     ],
 )
-def test_validate(mask: slice, n_obs: int, error_match: str | None):
-    """Test validate behavior for ChunkSampler."""
-    sampler = ChunkSampler(
+def test_validate(sampler_cls: type, extra_kwargs: dict, mask: slice, n_obs: int, error_match: str | None):
+    """Test validate behavior inherited by both sampler classes."""
+    sampler = sampler_cls(
         mask=mask,
         batch_size=5,
         chunk_size=10,
         preload_nchunks=2,
         shuffle=False,
+        **extra_kwargs,
     )
     if error_match:
         with pytest.raises(ValueError, match=error_match):
