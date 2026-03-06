@@ -85,6 +85,7 @@ class ChunkSampler(Sampler):
                 f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
             )
         self._rng = rng or np.random.default_rng()
+        self._in_memory_size = chunk_size * preload_nchunks
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
             preload_nchunks,
@@ -240,6 +241,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
             drop_last=False,
             rng=rng,
         )
+        self._n_iters = n_iters
 
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
         if worker_info is not None and worker_info.num_workers > 1:
