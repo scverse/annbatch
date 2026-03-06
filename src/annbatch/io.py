@@ -135,10 +135,10 @@ def write_sharded(
         ):
             # Ensure we're not overriding anything here.
             dataset_kwargs = dataset_kwargs.copy()
-            elem_shard_size = _resolve_shard_obs(shard_size, elem)
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
+                elem_shard_size = _resolve_shard_obs(shard_size, elem)
                 # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
                 dense_chunk = min(chunk_size, _round_down(elem.shape[0], chunk_size))
                 if elem.shape[0] < dense_chunk or dense_chunk == 0:
@@ -154,6 +154,7 @@ def write_sharded(
                     "compressors": compressors,
                 }
             elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
+                elem_shard_size = _resolve_shard_obs(shard_size, elem)
                 nnz = elem.nnz
                 if elem.shape[0] == 0:
                     raise ValueError(f"Cannot write sharded sparse matrix {elem_name!r} with 0 observations.")
