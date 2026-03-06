@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from functools import partial
 from unittest.mock import patch
 
 import numpy as np
@@ -238,34 +239,23 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
 
 
 @pytest.mark.parametrize(
-    "error_match,kwargs",
+    "sampler_class",
+    [ChunkSampler, partial(ChunkSamplerWithReplacement, n_iters=10)],
+    ids=["without_replacement", "with_replacement"],
+)
+@pytest.mark.parametrize(
+    ("mask", "error_match"),
     [
-        pytest.param(
-            "mask.start must be >= 0",
-            {"mask": slice(-1, 100)},
-            id="negative_start",
-        ),
-        pytest.param(
-            "mask.start must be < mask.stop",
-            {"mask": slice(50, 50)},
-            id="start_equals_stop",
-        ),
-        pytest.param(
-            "mask.start must be < mask.stop",
-            {"mask": slice(100, 50)},
-            id="start_greater_than_stop",
-        ),
-        pytest.param(
-            "mask.step must be 1, but got 2",
-            {"mask": slice(0, 100, 2)},
-            id="step_not_one",
-        ),
+        pytest.param(slice(-1, 100), "mask.start must be >= 0", id="negative_start"),
+        pytest.param(slice(50, 50), "mask.start must be < mask.stop", id="start_equals_stop"),
+        pytest.param(slice(100, 50), "mask.start must be < mask.stop", id="start_greater_than_stop"),
+        pytest.param(slice(0, 100, 2), "mask.step must be 1, but got 2", id="step_not_one"),
     ],
 )
-def test_invalid_init(error_match: str, kwargs: dict):
+def test_invalid_init(sampler_class: type[Sampler], mask: slice, error_match: str):
     """Test that invalid configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
-        ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, **kwargs)
+        sampler_class(chunk_size=10, preload_nchunks=2, batch_size=5, mask=mask)
 
 
 @pytest.mark.parametrize(

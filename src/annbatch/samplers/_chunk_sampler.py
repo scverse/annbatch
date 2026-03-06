@@ -102,7 +102,9 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        return self._possible_n_iters(n_obs)
+        start, stop = self._resolve_start_stop(n_obs)
+        total_obs = stop - start
+        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -199,11 +201,6 @@ class ChunkSampler(Sampler):
 
     def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
         return self._mask.start or 0, self._mask.stop or n_obs
-
-    def _possible_n_iters(self, n_obs: int) -> int:
-        start, stop = self._resolve_start_stop(n_obs)
-        total_obs = stop - start
-        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
 
 
 class ChunkSamplerWithReplacement(ChunkSampler):
