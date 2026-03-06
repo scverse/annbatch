@@ -36,11 +36,6 @@ class ChunkSampler(Sampler):
         Number of chunks to load per iteration.
     drop_last
         Whether to drop the last incomplete batch.
-    n_iters
-        Number of batches to yield. Optional; when set, truncates the epoch
-        (i.e. stop after ``n_iters`` batches). Must not exceed the number of possible
-        iterations given the dataset size; raises :class:`ValueError` during
-        :meth:`validate` if it does.
     rng
         Random number generator for shuffling. Note that :func:`torch.manual_seed`
         has no effect on reproducibility here; pass a seeded
@@ -53,7 +48,6 @@ class ChunkSampler(Sampler):
     _preload_nchunks: int
     _mask: slice
     _drop_last: bool
-    _n_iters: int | None
     _rng: np.random.Generator
 
     def __init__(
@@ -100,7 +94,6 @@ class ChunkSampler(Sampler):
             slice(start, stop),
             drop_last,
         )
-        self._n_iters = n_iters
 
     @property
     def batch_size(self) -> int:
@@ -151,8 +144,6 @@ class ChunkSampler(Sampler):
 
         chunks = self._compute_chunks(start, stop, rng=self._rng)
         load_requests = self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
-        if self._n_iters is not None:
-            load_requests = self._truncate_by_n_iters(load_requests, self._n_iters, batch_rng=worker_aware_rng)
         yield from load_requests
 
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
@@ -160,21 +151,6 @@ class ChunkSampler(Sampler):
         if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
             # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
             raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
-
-    def _truncate_by_n_iters(
-        self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator
-    ) -> Iterator[LoadRequest]:
-        """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
-        batches_per_request = self._in_memory_size // self._batch_size
-        chunks_per_batch = self._batch_size // self._chunk_size
-        n_full, tail = divmod(n_iters, batches_per_request)
-        yield from itertools.islice(epoch, n_full)
-        if tail > 0:
-            load_request = next(epoch)
-            yield {
-                "chunks": load_request["chunks"][:chunks_per_batch],
-                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
-            }
 
     def _iter_from_chunks(
         self,
@@ -291,3 +267,24 @@ class ChunkSamplerWithReplacement(ChunkSampler):
             start, stop - self._chunk_size + 1, size=math.ceil((self._n_iters * self._batch_size) / self._chunk_size)
         )
         return [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
+
+    def _truncate_by_n_iters(
+        self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator
+    ) -> Iterator[LoadRequest]:
+        """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
+        batches_per_request = self._in_memory_size // self._batch_size
+        chunks_per_batch = self._batch_size // self._chunk_size
+        n_full, tail = divmod(n_iters, batches_per_request)
+        yield from itertools.islice(epoch, n_full)
+        if tail > 0:
+            load_request = next(epoch)
+            yield {
+                "chunks": load_request["chunks"][:chunks_per_batch],
+                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
+            }
+
+    def _iter_from_chunks(
+        self, chunks: list[slice], batch_rng: np.random.Generator, worker_info: WorkerInfo | None
+    ) -> Iterator[LoadRequest]:
+        load_requests = super()._iter_from_chunks(chunks, batch_rng, worker_info)
+        yield from self._truncate_by_n_iters(load_requests, self._n_iters, batch_rng=batch_rng)
