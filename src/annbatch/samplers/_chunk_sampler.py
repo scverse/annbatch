@@ -257,23 +257,17 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         )
         return [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
 
-    def _truncate_by_n_iters(
-        self, epoch: Iterator[LoadRequest], n_iters: int, batch_rng: np.random.Generator
-    ) -> Iterator[LoadRequest]:
-        """Wrap an epoch generator and stop after exactly ``n_iters`` batches."""
-        batches_per_request = self._in_memory_size // self._batch_size
-        chunks_per_batch = self._batch_size // self._chunk_size
-        n_full, tail = divmod(n_iters, batches_per_request)
-        yield from itertools.islice(epoch, n_full)
-        if tail > 0:
-            load_request = next(epoch)
-            yield {
-                "chunks": load_request["chunks"][:chunks_per_batch],
-                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
-            }
-
     def _iter_from_chunks(
         self, chunks: list[slice], batch_rng: np.random.Generator, worker_info: WorkerInfo | None
     ) -> Iterator[LoadRequest]:
         load_requests = super()._iter_from_chunks(chunks, batch_rng, worker_info)
-        yield from self._truncate_by_n_iters(load_requests, self._n_iters, batch_rng=batch_rng)
+        batches_per_request = self._in_memory_size // self._batch_size
+        chunks_per_batch = self._batch_size // self._chunk_size
+        n_full, tail = divmod(self._n_iters, batches_per_request)
+        yield from itertools.islice(load_requests, n_full)
+        if tail > 0:
+            load_request = next(load_requests)
+            yield {
+                "chunks": load_request["chunks"][:chunks_per_batch],
+                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
+            }
