@@ -84,7 +84,6 @@ class ChunkSampler(Sampler):
                 "chunk_size * preload_nchunks must be divisible by batch_size. "
                 f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
             )
-
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
