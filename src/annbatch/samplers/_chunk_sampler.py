@@ -59,7 +59,6 @@ class ChunkSampler(Sampler):
         mask: slice | None = None,
         shuffle: bool = False,
         drop_last: bool = False,
-        n_iters: int | None = None,
         rng: np.random.Generator | None = None,
     ):
         if mask is None:
@@ -85,8 +84,7 @@ class ChunkSampler(Sampler):
                 "chunk_size * preload_nchunks must be divisible by batch_size. "
                 f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
             )
-        if n_iters is not None:
-            check_lt_1([n_iters], ["n_iters"])
+
         self._rng = rng or np.random.default_rng()
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
@@ -104,8 +102,7 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        possible = self._possible_n_iters(n_obs)
-        return possible if self._n_iters is None else min(self._n_iters, possible)
+        return self._possible_n_iters(n_obs)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -128,12 +125,12 @@ class ChunkSampler(Sampler):
             )
         if start >= stop:
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
-        if self._n_iters is not None and self._n_iters > (possible := self._possible_n_iters(n_obs)):
-            raise ValueError(
-                f"n_iters ({self._n_iters}) exceeds the number of possible iterations "
-                f"({possible}) for n_obs={n_obs} without replacement. "
-                "Use with_replacement=True to allow more iterations than the dataset provides."
-            )
+
+    def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
+        # Worker mode validation - only check when there are multiple workers
+        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
+            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
+            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
@@ -145,12 +142,6 @@ class ChunkSampler(Sampler):
         chunks = self._compute_chunks(start, stop, rng=self._rng)
         load_requests = self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
         yield from load_requests
-
-    def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
-        # Worker mode validation - only check when there are multiple workers
-        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
-            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
-            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
     def _iter_from_chunks(
         self,
@@ -248,7 +239,6 @@ class ChunkSamplerWithReplacement(ChunkSampler):
             mask=mask,
             shuffle=True,
             drop_last=False,
-            n_iters=n_iters,
             rng=rng,
         )
 
