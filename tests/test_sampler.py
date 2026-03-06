@@ -1,4 +1,4 @@
-"""Tests for ChunkSampler."""
+"""Tests for ChunkSampler and ChunkSamplerWithReplacement."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from annbatch import ChunkSampler
+from annbatch import ChunkSampler, ChunkSamplerWithReplacement
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import WorkerInfo
 
@@ -261,16 +261,6 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
             id="step_not_one",
         ),
         pytest.param(
-            "n_iters is required when with_replacement is True",
-            {"with_replacement": True},
-            id="replacement_missing_n_iters",
-        ),
-        pytest.param(
-            "drop_last cannot be used with with_replacement",
-            {"with_replacement": True, "n_iters": 10, "drop_last": True},
-            id="replacement_with_drop_last",
-        ),
-        pytest.param(
             "n_iters",
             {"n_iters": 0},
             id="n_iters_zero",
@@ -286,6 +276,27 @@ def test_invalid_init(error_match: str, kwargs: dict):
     """Test that invalid configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
         ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "error_match,kwargs",
+    [
+        pytest.param(
+            "n_iters",
+            {"n_iters": 0},
+            id="n_iters_zero",
+        ),
+        pytest.param(
+            "n_iters",
+            {"n_iters": -1},
+            id="n_iters_negative",
+        ),
+    ],
+)
+def test_invalid_init_replacement(error_match: str, kwargs: dict):
+    """Test that invalid configurations raise ValueError for ChunkSamplerWithReplacement."""
+    with pytest.raises(ValueError, match=error_match):
+        ChunkSamplerWithReplacement(chunk_size=10, preload_nchunks=2, batch_size=5, **kwargs)
 
 
 # =============================================================================
@@ -306,15 +317,14 @@ def test_invalid_init(error_match: str, kwargs: dict):
 def test_replacement_invariants(
     n_obs: int, chunk_size: int, preload_nchunks: int, batch_size: int, n_iters: int, mask: slice
 ):
-    """Test with_replacement=True yields correct n_iters, chunks within bounds, uniform chunk sizes."""
+    """Test ChunkSamplerWithReplacement yields correct n_iters, chunks within bounds, uniform chunk sizes."""
     start = mask.start or 0
     stop = mask.stop or n_obs
-    sampler = ChunkSampler(
+    sampler = ChunkSamplerWithReplacement(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
         shuffle=True,
-        with_replacement=True,
         n_iters=n_iters,
         mask=mask,
         rng=np.random.default_rng(42),
@@ -336,12 +346,11 @@ def test_replacement_deterministic_with_seed():
         "preload_nchunks": 2,
         "batch_size": 5,
         "shuffle": True,
-        "with_replacement": True,
         "n_iters": 20,
     }
 
     def collect_chunks(seed: int) -> list[tuple[int, int]]:
-        sampler = ChunkSampler(**kwargs, rng=np.random.default_rng(seed))
+        sampler = ChunkSamplerWithReplacement(**kwargs, rng=np.random.default_rng(seed))
         return [(c.start, c.stop) for lr in sampler.sample(100) for c in lr["chunks"]]
 
     assert collect_chunks(42) == collect_chunks(42)
@@ -349,13 +358,12 @@ def test_replacement_deterministic_with_seed():
 
 
 def test_replacement_with_multiple_workers_raises():
-    """Test that with_replacement=True raises when used with multiple workers."""
-    sampler = ChunkSampler(
+    """Test that ChunkSamplerWithReplacement raises when used with multiple workers."""
+    sampler = ChunkSamplerWithReplacement(
         chunk_size=10,
         preload_nchunks=2,
         batch_size=5,
         shuffle=True,
-        with_replacement=True,
         n_iters=20,
         rng=np.random.default_rng(42),
     )
@@ -409,29 +417,36 @@ def test_n_iters_exceeds_possible_raises():
 
 
 @pytest.mark.parametrize(
-    "with_replacement,n_iters_arg,n_obs,drop_last,expected",
+    "sampler,n_obs,expected",
     [
-        pytest.param(True, 50, 100, None, 50, id="replacement_returns_n_iters"),
-        pytest.param(False, None, 100, False, 20, id="without_replacement_full_epoch"),
-        pytest.param(False, None, 100, True, 20, id="without_replacement_drop_last_exact"),
-        pytest.param(False, None, 103, False, 21, id="without_replacement_ceil"),
-        pytest.param(False, None, 103, True, 20, id="without_replacement_drop_last_floor"),
-        pytest.param(False, 5, 100, False, 5, id="without_replacement_truncated"),
+        pytest.param(
+            ChunkSamplerWithReplacement(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=50, rng=np.random.default_rng(42)),
+            100, 50, id="replacement_returns_n_iters",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5),
+            100, 20, id="without_replacement_full_epoch",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, drop_last=True),
+            100, 20, id="without_replacement_drop_last_exact",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5),
+            103, 21, id="without_replacement_ceil",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, drop_last=True),
+            103, 20, id="without_replacement_drop_last_floor",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=5),
+            100, 5, id="without_replacement_truncated",
+        ),
     ],
 )
-def test_n_iters_property(
-    with_replacement: bool, n_iters_arg: int | None, n_obs: int, drop_last: bool | None, expected: int
-):
+def test_n_iters_property(sampler: Sampler, n_obs: int, expected: int):
     """Test that n_iters() returns the correct value for different configurations."""
-    kwargs = {"chunk_size": 10, "preload_nchunks": 2, "batch_size": 5}
-    if with_replacement:
-        kwargs.update(with_replacement=True, n_iters=n_iters_arg, rng=np.random.default_rng(42))
-    else:
-        if n_iters_arg is not None:
-            kwargs["n_iters"] = n_iters_arg
-        if drop_last is not None:
-            kwargs["drop_last"] = drop_last
-    sampler = ChunkSampler(**kwargs)
     assert sampler.n_iters(n_obs) == expected
 
 
