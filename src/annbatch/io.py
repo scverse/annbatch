@@ -15,8 +15,10 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import zarr
+from anndata._core.sparse_dataset import BaseCompressedSparseDataset
 from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
+from humanfriendly import parse_size
 from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
@@ -59,18 +61,7 @@ def _round_down(num: int, divisor: int):
     return num - (num % divisor)
 
 
-def _parse_size_to_bytes(size: str) -> int:
-    """Parse a human-readable size string (e.g., '1GB', '512MB') to bytes."""
-    SIZE_UNITS = {"GB": 1024**3, "MB": 1024**2, "KB": 1024, "B": 1}
-
-    size = size.strip().upper()
-    for unit, multiplier in SIZE_UNITS.items():
-        if size.endswith(unit):
-            return int(float(size[: -len(unit)]) * multiplier)
-    raise ValueError(f"Cannot parse size string: {size!r}. Expected units: {', '.join(SIZE_UNITS)}")
-
-
-def _resolve_shard_obs(shard_size: int | str, elem, iospec: ad.experimental.IOSpec) -> int:
+def _resolve_shard_obs(shard_size: int | str, elem) -> int:
     """Convert *shard_size* to an observation count for a single array element.
 
     If *shard_size* is already an int it is returned as-is.  When it is a
@@ -79,26 +70,25 @@ def _resolve_shard_obs(shard_size: int | str, elem, iospec: ad.experimental.IOSp
     """
     if isinstance(shard_size, int):
         return shard_size
-    target_bytes = _parse_size_to_bytes(shard_size)
-    if iospec.encoding_type in {"array"}:
-        bytes_per_row = math.prod(elem.shape[1:], start=elem.dtype.itemsize)
-    elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
-        n_obs = elem.shape[0]
-        if n_obs == 0:
-            return 1
-        bytes_per_row = (elem.data.nbytes + elem.indices.nbytes + elem.indptr.nbytes) / n_obs
-    elif iospec.encoding_type == "coo_matrix":
-        n_obs = elem.shape[0]
-        if n_obs == 0:
-            return 1
-        bytes_per_row = (elem.data.nbytes + elem.row.nbytes + elem.col.nbytes) / n_obs
-    elif iospec.encoding_type == "dataframe":
-        n_rows = len(elem)
-        if n_rows == 0:
-            return 1
-        bytes_per_row = sum(elem[col].nbytes for col in elem.columns) / n_rows
-    else:
+    target_bytes = parse_size(shard_size, binary=True)
+
+    def _cs_bytes(x) -> int:
+        return int(x.data.nbytes + x.indptr.nbytes + x.indices.nbytes)
+
+    n_obs = elem.shape[0] if hasattr(elem, "shape") else len(elem)
+    if n_obs == 0:
         return 1
+
+    if isinstance(elem, h5py.Dataset):
+        total_bytes = int(np.array(elem.shape).prod() * elem.dtype.itemsize)
+    elif isinstance(elem, BaseCompressedSparseDataset):
+        total_bytes = _cs_bytes(elem._to_backed())
+    elif sp.issparse(elem):
+        total_bytes = _cs_bytes(elem)
+    else:
+        total_bytes = elem.__sizeof__()
+
+    bytes_per_row = total_bytes / n_obs
     return max(1, int(target_bytes / bytes_per_row)) if bytes_per_row > 0 else 1
 
 
@@ -145,7 +135,7 @@ def write_sharded(
         ):
             # Ensure we're not overriding anything here.
             dataset_kwargs = dataset_kwargs.copy()
-            elem_shard_size = _resolve_shard_obs(shard_size, elem, iospec)
+            elem_shard_size = _resolve_shard_obs(shard_size, elem)
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
@@ -165,7 +155,9 @@ def write_sharded(
                 }
             elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
                 nnz = elem.nnz
-                avg_nnz = nnz / elem.shape[0] if elem.shape[0] > 0 else 1.0
+                if elem.shape[0] == 0:
+                    raise ValueError(f"Cannot write sharded sparse matrix {elem_name!r} with 0 observations.")
+                avg_nnz = nnz / elem.shape[0]
                 sparse_chunk = max(1, int(chunk_size * avg_nnz))
                 sparse_shard = max(1, int(elem_shard_size * avg_nnz))
                 sparse_shard = min(sparse_shard, nnz) if nnz > 0 else sparse_shard
