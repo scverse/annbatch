@@ -260,16 +260,6 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
             {"mask": slice(0, 100, 2)},
             id="step_not_one",
         ),
-        pytest.param(
-            "n_iters",
-            {"n_iters": 0},
-            id="n_iters_zero",
-        ),
-        pytest.param(
-            "n_iters",
-            {"n_iters": -1},
-            id="n_iters_negative",
-        ),
     ],
 )
 def test_invalid_init(error_match: str, kwargs: dict):
@@ -324,7 +314,6 @@ def test_replacement_invariants(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
-        shuffle=True,
         n_iters=n_iters,
         mask=mask,
         rng=np.random.default_rng(42),
@@ -345,7 +334,6 @@ def test_replacement_deterministic_with_seed():
         "chunk_size": 10,
         "preload_nchunks": 2,
         "batch_size": 5,
-        "shuffle": True,
         "n_iters": 20,
     }
 
@@ -363,7 +351,6 @@ def test_replacement_with_multiple_workers_raises():
         chunk_size=10,
         preload_nchunks=2,
         batch_size=5,
-        shuffle=True,
         n_iters=20,
         rng=np.random.default_rng(42),
     )
@@ -372,48 +359,9 @@ def test_replacement_with_multiple_workers_raises():
             "annbatch.samplers._chunk_sampler.get_torch_worker_info",
             return_value=WorkerInfo(id=0, num_workers=2),
         ),
-        pytest.raises(ValueError, match="Multiple workers are not supported with with_replacement"),
+        pytest.raises(ValueError, match="Multiple workers are not supported with this sampler"),
     ):
         list(sampler.sample(100))
-
-
-# =============================================================================
-# n_iters truncation tests (without replacement)
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters",
-    [
-        pytest.param(100, 10, 2, 5, 3, id="small_n_iters"),
-        pytest.param(100, 10, 2, 5, 1, id="single_iter"),
-        pytest.param(100, 10, 2, 5, 4, id="exactly_one_request"),
-        pytest.param(100, 10, 2, 5, 5, id="one_request_plus_tail"),
-    ],
-)
-def test_n_iters_truncation(n_obs: int, chunk_size: int, preload_nchunks: int, batch_size: int, n_iters: int):
-    """Test that n_iters truncates the epoch to exactly n_iters batches without replacement."""
-    sampler = ChunkSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=False,
-        n_iters=n_iters,
-    )
-    count = sum(len(lr["splits"]) for lr in sampler.sample(n_obs))
-    assert count == n_iters, f"Expected {n_iters} batches, got {count}"
-
-
-def test_n_iters_exceeds_possible_raises():
-    """Test that validate rejects n_iters > possible iterations without replacement."""
-    sampler = ChunkSampler(
-        chunk_size=10,
-        preload_nchunks=2,
-        batch_size=5,
-        n_iters=999,
-    )
-    with pytest.raises(ValueError, match="n_iters.*exceeds the number of possible iterations"):
-        sampler.validate(n_obs=100)
 
 
 @pytest.mark.parametrize(
@@ -450,12 +398,6 @@ def test_n_iters_exceeds_possible_raises():
             103,
             20,
             id="without_replacement_drop_last_floor",
-        ),
-        pytest.param(
-            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=5),
-            100,
-            5,
-            id="without_replacement_truncated",
         ),
     ],
 )
