@@ -420,28 +420,42 @@ def test_n_iters_exceeds_possible_raises():
     "sampler,n_obs,expected",
     [
         pytest.param(
-            ChunkSamplerWithReplacement(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=50, rng=np.random.default_rng(42)),
-            100, 50, id="replacement_returns_n_iters",
+            ChunkSamplerWithReplacement(
+                chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=50, rng=np.random.default_rng(42)
+            ),
+            100,
+            50,
+            id="replacement_returns_n_iters",
         ),
         pytest.param(
             ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5),
-            100, 20, id="without_replacement_full_epoch",
+            100,
+            20,
+            id="without_replacement_full_epoch",
         ),
         pytest.param(
             ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, drop_last=True),
-            100, 20, id="without_replacement_drop_last_exact",
+            100,
+            20,
+            id="without_replacement_drop_last_exact",
         ),
         pytest.param(
             ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5),
-            103, 21, id="without_replacement_ceil",
+            103,
+            21,
+            id="without_replacement_ceil",
         ),
         pytest.param(
             ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, drop_last=True),
-            103, 20, id="without_replacement_drop_last_floor",
+            103,
+            20,
+            id="without_replacement_drop_last_floor",
         ),
         pytest.param(
             ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=5),
-            100, 5, id="without_replacement_truncated",
+            100,
+            5,
+            id="without_replacement_truncated",
         ),
     ],
 )
