@@ -119,7 +119,7 @@ def write_sharded(
             The destination group, must be zarr v3
         adata
             The source anndata object
-        chunk_size
+        obs_per_chunk
             Number of observations per chunk. For dense arrays this directly sets the first-axis chunk size.
             For sparse arrays it is converted to element counts using the average non-zero elements per row of the matrix being written.
         shard_size
