@@ -94,14 +94,13 @@ class ChunkSampler(Sampler):
         if n_iters is not None:
             check_lt_1([n_iters], ["n_iters"])
         self._rng = rng or np.random.default_rng()
-        self._in_memory_size = chunk_size * preload_nchunks
-        self._mask = slice(start, stop)
+        self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
+        self._preload_nchunks, self._mask, self._drop_last = (
+            preload_nchunks,
+            slice(start, stop),
+            drop_last,
+        )
         self._n_iters = n_iters
-        self._drop_last = drop_last
-        self._batch_size = batch_size
-        self._chunk_size = chunk_size
-        self._shuffle = shuffle
-        self._preload_nchunks = preload_nchunks
 
     @property
     def batch_size(self) -> int:
