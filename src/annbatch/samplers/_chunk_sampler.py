@@ -215,7 +215,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
     Parameters
     ----------
     n_iters
-        Number of batches to yield. Required.
+        Number of batches to yield.
     """
 
     def __init__(
