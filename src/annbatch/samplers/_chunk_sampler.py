@@ -142,8 +142,7 @@ class ChunkSampler(Sampler):
         worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
 
         chunks = self._compute_chunks(start, stop, rng=self._rng)
-        load_requests = self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
-        yield from load_requests
+        yield from self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
 
     def _iter_from_chunks(
         self,
