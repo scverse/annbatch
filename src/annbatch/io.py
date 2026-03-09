@@ -96,7 +96,7 @@ def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
     *,
-    chunk_size: int = 64,
+    obs_per_chunk: int = 64,
     shard_size: int | str = 2_097_152,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     key: str | None = None,
@@ -138,14 +138,14 @@ def write_sharded(
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
-                elem_shard_size = _resolve_shard_obs(shard_size, elem)
+                elem_shard_size = _shard_size_param_to_n_obs(shard_size, elem)
                 # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
-                dense_chunk = min(chunk_size, _round_down(elem.shape[0], chunk_size))
+                dense_chunk = min(obs_per_chunk, _round_down(elem.shape[0], obs_per_chunk))
                 if elem.shape[0] < dense_chunk or dense_chunk == 0:
                     raise ValueError(
-                        f"Choose a shard obs {shard_size} and chunk obs {chunk_size} with non-zero size less than the number of observations {elem.shape[0]}"
+                        f"Choose a shard obs {shard_size} and chunk obs {obs_per_chunk} with non-zero size less than the number of observations {elem.shape[0]}"
                     )
-                dense_shard = min(elem_shard_size, _round_down(elem.shape[0], chunk_size))
+                dense_shard = min(elem_shard_size, _round_down(elem.shape[0], obs_per_chunk))
                 dense_shard = max(dense_chunk, _round_down(dense_shard, dense_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
@@ -154,12 +154,12 @@ def write_sharded(
                     "compressors": compressors,
                 }
             elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
-                elem_shard_size = _resolve_shard_obs(shard_size, elem)
+                elem_shard_size = _shard_size_param_to_n_obs(shard_size, elem)
                 nnz = elem.nnz
                 if elem.shape[0] == 0:
                     raise ValueError(f"Cannot write sharded sparse matrix {elem_name!r} with 0 observations.")
                 avg_nnz = nnz / elem.shape[0]
-                sparse_chunk = max(1, int(chunk_size * avg_nnz))
+                sparse_chunk = max(1, int(obs_per_chunk * avg_nnz))
                 sparse_shard = max(1, int(elem_shard_size * avg_nnz))
                 sparse_shard = min(sparse_shard, nnz) if nnz > 0 else sparse_shard
                 sparse_chunk = min(sparse_chunk, sparse_shard)
@@ -641,7 +641,7 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata_chunk,
-                    chunk_size=zarr_chunk_size,
+                    obs_per_chunk=zarr_chunk_size,
                     shard_size=zarr_shard_size,
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
@@ -738,7 +738,7 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata,
-                    chunk_size=zarr_chunk_size,
+                    obs_per_chunk=zarr_chunk_size,
                     shard_size=zarr_shard_size,
                     compressors=zarr_compressor,
                     key=dataset,

@@ -25,7 +25,7 @@ def test_write_sharded_bad_chunk_size(tmp_path: Path):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
     with pytest.raises(ValueError, match=r"Choose a shard obs"):
-        write_sharded(z, adata, chunk_size=20)
+        write_sharded(z, adata, obs_per_chunk=20)
 
 
 @pytest.mark.parametrize(
@@ -35,7 +35,7 @@ def test_write_sharded_bad_chunk_size(tmp_path: Path):
 def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expected_shard_size: int):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
-    write_sharded(z, adata, chunk_size=chunk_size, shard_size=20)
+    write_sharded(z, adata, obs_per_chunk=chunk_size, shard_size=20)
     assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_size`
 
 

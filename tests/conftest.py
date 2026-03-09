@@ -51,7 +51,7 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
         write_sharded(
             f,
             adata,
-            chunk_size=10,
+            obs_per_chunk=10,
             shard_size=20,
         )
     yield (
