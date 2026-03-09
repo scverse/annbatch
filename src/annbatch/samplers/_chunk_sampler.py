@@ -49,6 +49,7 @@ class ChunkSampler(Sampler):
     _mask: slice
     _drop_last: bool
     _rng: np.random.Generator
+    _in_memory_size: int
 
     def __init__(
         self,
