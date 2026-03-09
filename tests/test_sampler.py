@@ -250,21 +250,23 @@ def test_invalid_mask_raises(sampler_class: type[Sampler], mask: slice, error_ma
 
 
 @pytest.mark.parametrize(
-    "n_iters",
+    ("kwargs", "n_obs", "error_match"),
     [
-        pytest.param(0, id="n_iters_zero"),
-        pytest.param(-1, id="n_iters_negative"),
+        pytest.param({"n_iters": 0}, None, "n_iters", id="n_iters_zero"),
+        pytest.param({"n_iters": -1}, None, "n_iters", id="n_iters_negative"),
+        pytest.param({"n_iters": 3}, 5, "smaller than chunk_size", id="n_obs_smaller_than_chunk"),
+        pytest.param(
+            {"n_iters": 3, "mask": slice(50, 55)}, 100, "smaller than chunk_size", id="mask_range_smaller_than_chunk"
+        ),
     ],
 )
-def test_invalid_init_replacement(n_iters: int):
+def test_invalid_sample_with_replacement(kwargs: dict, n_obs: int | None, error_match: str):
     """Test that invalid configurations raise ValueError for ChunkSamplerWithReplacement."""
-    with pytest.raises(ValueError, match="n_iters"):
-        ChunkSamplerWithReplacement(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=n_iters)
-
-
-# =============================================================================
-# with_replacement tests
-# =============================================================================
+    defaults = {"chunk_size": 10, "preload_nchunks": 2, "batch_size": 5}
+    with pytest.raises(ValueError, match=error_match):
+        sampler = ChunkSamplerWithReplacement(**(defaults | kwargs))
+        if n_obs is not None:
+            list(sampler.sample(n_obs))
 
 
 @pytest.mark.parametrize(
@@ -276,7 +278,6 @@ def test_invalid_init_replacement(n_iters: int):
         pytest.param(100, 10, 2, 5, 10, slice(20, 80), id="with_mask"),
         pytest.param(103, 10, 2, 5, 20, slice(0, None), id="non_divisible_obs"),
         pytest.param(100, 10, 2, 5, 7, slice(0, None), id="tail_with_batch_lt_chunk"),
-        pytest.param(5, 10, 1, 5, 3, slice(0, None), id="obs_smaller_than_chunk"),
     ],
 )
 def test_replacement_invariants(
@@ -297,12 +298,9 @@ def test_replacement_invariants(
     for load_request in sampler.sample(n_obs):
         assert len(load_request["chunks"]) > 0, "Load request must have at least one chunk"
         for chunk in load_request["chunks"]:
+            assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
             assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
             assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
-            if stop - start >= chunk_size:
-                assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
-            else:
-                assert chunk.stop - chunk.start == stop - start, f"Unexpected chunk size: {chunk}"
         count += len(load_request["splits"])
     assert count == n_iters, f"Expected {n_iters} batches, got {count}"
 

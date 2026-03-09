@@ -240,6 +240,15 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         )
         self._n_iters = n_iters
 
+    def validate(self, n_obs: int) -> None:
+        super().validate(n_obs)
+        start, stop = self._resolve_start_stop(n_obs)
+        if stop - start < self._chunk_size:
+            raise ValueError(
+                f"Observation range ({stop - start}) is smaller than chunk_size ({self._chunk_size}). "
+                "Reduce chunk_size or expand the mask range."
+            )
+
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
         if worker_info is not None and worker_info.num_workers > 1:
             raise ValueError("Multiple workers are not supported with this sampler.")
@@ -249,8 +258,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
 
     def _compute_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
         """Draw random contiguous chunks with replacement from the observation range."""
-        if stop - start < self._chunk_size:
-            return [slice(start, stop)]
+        # stop - start >= chunk_size is guaranteed by validate()
         start_indices = rng.integers(
             start, stop - self._chunk_size + 1, size=math.ceil((self._n_iters * self._batch_size) / self._chunk_size)
         )
