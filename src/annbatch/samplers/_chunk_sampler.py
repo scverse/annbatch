@@ -105,7 +105,7 @@ class ChunkSampler(Sampler):
     def n_iters(self, n_obs: int) -> int:
         start, stop = self._resolve_start_stop(n_obs)
         total_obs = stop - start
-        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
+        return total_obs // self.batch_size if self._drop_last else math.ceil(total_obs / self.batch_size)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -131,7 +131,7 @@ class ChunkSampler(Sampler):
 
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
         # Worker mode validation - only check when there are multiple workers
-        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
+        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self.batch_size != 1:
             # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
             raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
@@ -157,12 +157,12 @@ class ChunkSampler(Sampler):
         # Set up the iterator for chunks and the batch indices for splits
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
         batch_indices = np.arange(self._in_memory_size)
-        split_batch_indices = split_given_size(batch_indices, self._batch_size)
+        split_batch_indices = split_given_size(batch_indices, self.batch_size)
         for request_chunks in chunks_per_request[:-1]:
-            if self._shuffle:
-                # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
+            if self.shuffle:
+                # Avoid copies using in-place shuffling since `self.shuffle` should not change mid-training
                 batch_rng.shuffle(batch_indices)
-                split_batch_indices = split_given_size(batch_indices, self._batch_size)
+                split_batch_indices = split_given_size(batch_indices, self.batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
         final_chunks = chunks_per_request[-1]
@@ -170,13 +170,11 @@ class ChunkSampler(Sampler):
         if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
         if self._drop_last:
-            if total_obs_in_last_batch < self._batch_size:
+            if total_obs_in_last_batch < self.batch_size:
                 return
-            total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
-        indices = (
-            batch_rng.permutation(total_obs_in_last_batch) if self._shuffle else np.arange(total_obs_in_last_batch)
-        )
-        batch_indices = split_given_size(indices, self._batch_size)
+            total_obs_in_last_batch -= total_obs_in_last_batch % self.batch_size
+        indices = batch_rng.permutation(total_obs_in_last_batch) if self.shuffle else np.arange(total_obs_in_last_batch)
+        batch_indices = split_given_size(indices, self.batch_size)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
     def _compute_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
@@ -189,7 +187,7 @@ class ChunkSampler(Sampler):
         # Compute chunks directly from resolved mask range
         # Create chunk indices for possible shuffling and worker sharding
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
-        if self._shuffle:
+        if self.shuffle:
             rng.shuffle(chunk_indices)
         n_chunks, pivot_index = len(chunk_indices), chunk_indices[-1]
         offsets = np.ones(n_chunks + 1, dtype=int) * self._chunk_size
@@ -260,7 +258,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         """Draw random contiguous chunks with replacement from the observation range."""
         # stop - start >= chunk_size is guaranteed by validate()
         start_indices = rng.integers(
-            start, stop - self._chunk_size + 1, size=math.ceil((self._n_iters * self._batch_size) / self._chunk_size)
+            start, stop - self._chunk_size + 1, size=math.ceil((self._n_iters * self.batch_size) / self._chunk_size)
         )
         return [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
 
@@ -268,7 +266,7 @@ class ChunkSamplerWithReplacement(ChunkSampler):
         self, chunks: list[slice], batch_rng: np.random.Generator, worker_info: WorkerInfo | None
     ) -> Iterator[LoadRequest]:
         load_requests = super()._iter_from_chunks(chunks, batch_rng, worker_info)
-        batches_per_request = self._in_memory_size // self._batch_size
+        batches_per_request = self._in_memory_size // self.batch_size
         n_full, tail = divmod(self._n_iters, batches_per_request)
         yield from itertools.islice(load_requests, n_full)
         if tail > 0:
