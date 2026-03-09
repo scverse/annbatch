@@ -208,6 +208,10 @@ class ChunkSamplerWithReplacement(ChunkSampler):
     chunks from the observation range with replacement and is not limited
     to a single epoch. The number of batches to yield (``n_iters``) is required.
 
+    Shuffle is always enabled and drop_last is always disabled,
+    since the number of yielded batches is controlled exactly
+    by ``n_iters``.
+
     See :class:`ChunkSampler` for the shared parameters.
 
     Parameters
