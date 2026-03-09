@@ -275,6 +275,8 @@ def test_invalid_init_replacement(n_iters: int):
         pytest.param(100, 10, 2, 5, 1, slice(0, None), id="single_iter"),
         pytest.param(100, 10, 2, 5, 10, slice(20, 80), id="with_mask"),
         pytest.param(103, 10, 2, 5, 20, slice(0, None), id="non_divisible_obs"),
+        pytest.param(100, 10, 2, 5, 7, slice(0, None), id="tail_with_batch_lt_chunk"),
+        pytest.param(5, 10, 1, 5, 3, slice(0, None), id="obs_smaller_than_chunk"),
     ],
 )
 def test_replacement_invariants(
@@ -293,10 +295,14 @@ def test_replacement_invariants(
     )
     count = 0
     for load_request in sampler.sample(n_obs):
+        assert len(load_request["chunks"]) > 0, "Load request must have at least one chunk"
         for chunk in load_request["chunks"]:
-            assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
             assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
             assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
+            if stop - start >= chunk_size:
+                assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
+            else:
+                assert chunk.stop - chunk.start == stop - start, f"Unexpected chunk size: {chunk}"
         count += len(load_request["splits"])
     assert count == n_iters, f"Expected {n_iters} batches, got {count}"
 
