@@ -31,7 +31,7 @@ def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle,drop_last",
+    ("n_obs", "chunk_size", "start", "stop", "batch_size", "preload_nchunks", "shuffle", "drop_last"),
     [
         # Basic full dataset
         pytest.param(100, 10, None, None, 5, 2, False, False, id="full_dataset"),
@@ -142,7 +142,7 @@ def test_batch_sizes_match_expected_pattern():
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,num_workers,drop_last",
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "num_workers", "drop_last"),
     [
         pytest.param(200, 10, 2, 10, 2, True, id="two_workers"),
         pytest.param(300, 10, 3, 10, 3, True, id="three_workers"),
@@ -213,7 +213,7 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_class):
 
 
 @pytest.mark.parametrize(
-    "mask,n_obs,error_match",
+    ("mask", "n_obs", "error_match"),
     [
         pytest.param(slice(0, 100), 100, None, id="valid_config"),
         pytest.param(slice(0, 200), 100, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
@@ -250,24 +250,16 @@ def test_invalid_mask_raises(sampler_class: type[Sampler], mask: slice, error_ma
 
 
 @pytest.mark.parametrize(
-    "error_match,kwargs",
+    "n_iters",
     [
-        pytest.param(
-            "n_iters",
-            {"n_iters": 0},
-            id="n_iters_zero",
-        ),
-        pytest.param(
-            "n_iters",
-            {"n_iters": -1},
-            id="n_iters_negative",
-        ),
+        pytest.param(0, id="n_iters_zero"),
+        pytest.param(-1, id="n_iters_negative"),
     ],
 )
-def test_invalid_init_replacement(error_match: str, kwargs: dict):
+def test_invalid_init_replacement(n_iters: int):
     """Test that invalid configurations raise ValueError for ChunkSamplerWithReplacement."""
-    with pytest.raises(ValueError, match=error_match):
-        ChunkSamplerWithReplacement(chunk_size=10, preload_nchunks=2, batch_size=5, **kwargs)
+    with pytest.raises(ValueError, match="n_iters"):
+        ChunkSamplerWithReplacement(chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=n_iters)
 
 
 # =============================================================================
@@ -276,7 +268,7 @@ def test_invalid_init_replacement(error_match: str, kwargs: dict):
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,n_iters,mask",
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "n_iters", "mask"),
     [
         pytest.param(100, 10, 2, 5, 10, slice(0, None), id="basic"),
         pytest.param(100, 10, 2, 5, 50, slice(0, None), id="more_iters_than_obs"),
@@ -329,7 +321,7 @@ def test_replacement_with_multiple_workers_raises():
 
 
 @pytest.mark.parametrize(
-    "sampler,n_obs,expected",
+    ("sampler", "n_obs", "expected"),
     [
         pytest.param(
             ChunkSamplerWithReplacement(
@@ -376,7 +368,7 @@ def test_n_iters_property(sampler: Sampler, n_obs: int, expected: int):
 
 
 @pytest.mark.parametrize(
-    "n_obs_values,expected_ranges",
+    ("n_obs_values", "expected_ranges"),
     [
         pytest.param([50, 100], [range(50), range(100)], id="increase_changes_result"),
         pytest.param([100, 100], [range(100), range(100)], id="same_gives_same_coverage"),
@@ -441,7 +433,7 @@ class SimpleSampler(Sampler):
 
 
 @pytest.mark.parametrize(
-    "batch_size,shuffle",
+    ("batch_size", "shuffle"),
     [
         pytest.param(None, True, id="missing_batch_size"),
         pytest.param(3, None, id="missing_shuffle"),
