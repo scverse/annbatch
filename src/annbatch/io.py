@@ -62,7 +62,7 @@ def _round_down(num: int, divisor: int):
 
 
 def _shard_size_param_to_n_obs(shard_size: int | str, elem) -> int:
-    """Convert *shard_size* to an observation count for a single array element.
+    """Convert `shard_size` to a number of observations given the size of an element from the anndata object.
 
     If *shard_size* is already an int it is returned as-is.  When it is a
     size string the target byte budget is divided by the element's
