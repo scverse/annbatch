@@ -1,4 +1,4 @@
-"""Tests for ChunkSampler and ChunkSamplerWithReplacement."""
+"""Tests for ChunkSampler, ChunkSamplerWithReplacement, and ChunkSamplerDistributed."""
 
 from __future__ import annotations
 
@@ -491,7 +491,9 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
 # =============================================================================
 
 
-def _make_distributed_sampler_torch(rank: int, world_size: int, **kwargs) -> ChunkSamplerDistributed:
+def _make_distributed_sampler_torch(
+    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
+) -> ChunkSamplerDistributed:
     """Create a ChunkSamplerDistributed with mocked torch.distributed backend."""
     mock_dist = MagicMock()
     mock_dist.is_initialized.return_value = True
@@ -499,18 +501,22 @@ def _make_distributed_sampler_torch(rank: int, world_size: int, **kwargs) -> Chu
     mock_dist.get_world_size.return_value = world_size
     mock_torch = MagicMock()
     mock_torch.distributed = mock_dist
+    sampler = ChunkSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
-        return ChunkSamplerDistributed(dist_info="torch", **kwargs)
+        return ChunkSamplerDistributed(sampler, dist_info="torch", enforce_equal_batches=enforce_equal_batches)
 
 
-def _make_distributed_sampler_jax(rank: int, world_size: int, **kwargs) -> ChunkSamplerDistributed:
+def _make_distributed_sampler_jax(
+    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
+) -> ChunkSamplerDistributed:
     """Create a ChunkSamplerDistributed with mocked jax backend."""
     mock_jax = MagicMock()
     mock_jax.process_index.return_value = rank
     mock_jax.process_count.return_value = world_size
     mock_jax.distributed.is_initialized.return_value = True
+    sampler = ChunkSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"jax": mock_jax}):
-        return ChunkSamplerDistributed(dist_info="jax", **kwargs)
+        return ChunkSamplerDistributed(sampler, dist_info="jax", enforce_equal_batches=enforce_equal_batches)
 
 
 _SAMPLER_FACTORIES = {
@@ -534,22 +540,25 @@ class TestChunkSamplerDistributed:
         mock_dist.is_initialized.return_value = False
         mock_torch = MagicMock()
         mock_torch.distributed = mock_dist
+        sampler = ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
             with pytest.raises(RuntimeError, match="torch.distributed is not initialized"):
-                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="torch")
+                ChunkSamplerDistributed(sampler, dist_info="torch")
 
     def test_not_initialized_raises_jax(self):
         """RuntimeError when jax.distributed is not initialized."""
         mock_jax = MagicMock()
         mock_jax.distributed.is_initialized.return_value = False
+        sampler = ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"jax": mock_jax}):
             with pytest.raises(RuntimeError, match="JAX distributed is not initialized"):
-                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="jax")
+                ChunkSamplerDistributed(sampler, dist_info="jax")
 
     def test_unknown_dist_info_raises(self):
         """ValueError for an unsupported dist_info string."""
+        sampler = ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with pytest.raises(ValueError, match="Unknown dist_info"):
-            ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="mpi")
+            ChunkSamplerDistributed(sampler, dist_info="mpi")
 
     def test_shards_are_disjoint_and_cover_full_dataset(self, make_distributed_sampler):
         """All ranks receive non-overlapping shards that together cover the full dataset."""
