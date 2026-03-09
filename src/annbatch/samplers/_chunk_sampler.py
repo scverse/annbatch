@@ -261,12 +261,11 @@ class ChunkSamplerWithReplacement(ChunkSampler):
     ) -> Iterator[LoadRequest]:
         load_requests = super()._iter_from_chunks(chunks, batch_rng, worker_info)
         batches_per_request = self._in_memory_size // self._batch_size
-        chunks_per_batch = self._batch_size // self._chunk_size
         n_full, tail = divmod(self._n_iters, batches_per_request)
         yield from itertools.islice(load_requests, n_full)
         if tail > 0:
             load_request = next(load_requests)
             yield {
-                "chunks": load_request["chunks"][:chunks_per_batch],
+                "chunks": load_request["chunks"],
                 "splits": load_request["splits"][:tail],
             }
