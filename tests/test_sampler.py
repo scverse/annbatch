@@ -182,38 +182,29 @@ def test_workers_cover_full_dataset_without_overlap(
     assert set().union(*all_worker_indices) == set(range(n_obs))
 
 
-def test_batch_shuffle_is_reproducible_with_same_seed_rng():
-    """Test that batch shuffling is reproducible when passing in rngs with identical seeds to ChunkSampler directly."""
+@pytest.mark.parametrize(
+    "sampler_class",
+    [partial(ChunkSampler, shuffle=True), partial(ChunkSamplerWithReplacement, n_iters=10)],
+    ids=["without_replacement", "with_replacement"],
+)
+def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_class):
+    """Test that sampling is fully reproducible with the same seed and differs with another."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
-    seed = 42
 
-    def collect_splits(sampler: ChunkSampler) -> list[list[int]]:
-        all_splits: list[list[int]] = []
-        for load_request in sampler.sample(n_obs):
-            for split in load_request["splits"]:
-                all_splits.append(split.tolist())
-        return all_splits
+    def make_sampler(seed: int) -> Sampler:
+        return sampler_class(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            rng=np.random.default_rng(seed),
+        )
 
-    # Run twice with same seed - should get identical batch ordering
-    sampler1 = ChunkSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=True,
-        rng=np.random.default_rng(seed),
-    )
-    splits1 = collect_splits(sampler1)
+    indices1 = collect_indices(make_sampler(42), n_obs)
+    indices2 = collect_indices(make_sampler(42), n_obs)
+    indices3 = collect_indices(make_sampler(99), n_obs)
 
-    sampler2 = ChunkSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=True,
-        rng=np.random.default_rng(seed),
-    )
-    splits2 = collect_splits(sampler2)
-
-    assert splits1 == splits2, "Batch shuffling should be reproducible with same seed"
+    assert indices1 == indices2, "Sampling should be reproducible with same seed"
+    assert indices1 != indices3, "Different seeds should produce different results"
 
 
 # =============================================================================
@@ -252,8 +243,8 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
         pytest.param(slice(0, 100, 2), "mask.step must be 1, but got 2", id="step_not_one"),
     ],
 )
-def test_invalid_init(sampler_class: type[Sampler], mask: slice, error_match: str):
-    """Test that invalid configurations raise ValueError at construction."""
+def test_invalid_mask_raises(sampler_class: type[Sampler], mask: slice, error_match: str):
+    """Test that invalid mask configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
         sampler_class(chunk_size=10, preload_nchunks=2, batch_size=5, mask=mask)
 
@@ -316,23 +307,6 @@ def test_replacement_invariants(
             assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
         count += len(load_request["splits"])
     assert count == n_iters, f"Expected {n_iters} batches, got {count}"
-
-
-def test_replacement_deterministic_with_seed():
-    """Test that with_replacement sampling is reproducible with the same seed."""
-    kwargs = {
-        "chunk_size": 10,
-        "preload_nchunks": 2,
-        "batch_size": 5,
-        "n_iters": 20,
-    }
-
-    def collect_chunks(seed: int) -> list[tuple[int, int]]:
-        sampler = ChunkSamplerWithReplacement(**kwargs, rng=np.random.default_rng(seed))
-        return [(c.start, c.stop) for lr in sampler.sample(100) for c in lr["chunks"]]
-
-    assert collect_chunks(42) == collect_chunks(42)
-    assert collect_chunks(42) != collect_chunks(99)
 
 
 def test_replacement_with_multiple_workers_raises():

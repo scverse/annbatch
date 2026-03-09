@@ -267,5 +267,5 @@ class ChunkSamplerWithReplacement(ChunkSampler):
             load_request = next(load_requests)
             yield {
                 "chunks": load_request["chunks"][:chunks_per_batch],
-                "splits": load_request["splits"][:tail] if not self._shuffle else batch_rng.permutation(tail),
+                "splits": load_request["splits"][:tail],
             }
