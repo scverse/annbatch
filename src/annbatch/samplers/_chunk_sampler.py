@@ -19,7 +19,36 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class _ChunkSamplerBase(Sampler):
+class MaskableSampler(Sampler):
+    """A sampler whose observation range can be restricted via a mask.
+
+    Subclass this to create chunk-based samplers that can be wrapped
+    by :class:`ChunkSamplerDistributed`.
+    """
+
+    _mask: slice
+    _rng: np.random.Generator
+
+    @property
+    def mask(self) -> slice:
+        """The observation range this sampler operates on."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        self._mask = value
+
+    @property
+    def rng(self) -> np.random.Generator:
+        """The random number generator used by this sampler."""
+        return self._rng
+
+    @rng.setter
+    def rng(self, value: np.random.Generator) -> None:
+        self._rng = value
+
+
+class _ChunkSamplerBase(MaskableSampler):
     """Private base class for chunk-based sampling.
 
     Handles both epoch-based and with-replacement sampling modes.
@@ -31,9 +60,7 @@ class _ChunkSamplerBase(Sampler):
     _chunk_size: int
     _shuffle: bool
     _preload_nchunks: int
-    _mask: slice
     _drop_last: bool
-    _rng: np.random.Generator
     _in_memory_size: int
     _n_iters: int | None
 
@@ -375,11 +402,11 @@ class ChunkSamplerDistributed(Sampler):
     _rank: int
     _world_size: int
     _enforce_equal_batches: bool
-    _sampler: _ChunkSamplerBase
+    _sampler: MaskableSampler
 
     def __init__(
         self,
-        sampler: ChunkSampler | ChunkSamplerWithReplacement,
+        sampler: MaskableSampler,
         *,
         dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]],
         enforce_equal_batches: bool = True,
@@ -392,7 +419,7 @@ class ChunkSamplerDistributed(Sampler):
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
         self._sampler = sampler
-        sampler._rng = _spawn_worker_rng(sampler._rng, self._rank)
+        sampler.rng = _spawn_worker_rng(sampler.rng, self._rank)
 
     @property
     def batch_size(self) -> int:
@@ -412,13 +439,13 @@ class ChunkSamplerDistributed(Sampler):
         return slice(rank_start, rank_stop)
 
     def n_iters(self, n_obs: int) -> int:
-        self._sampler._mask = self._shard_mask(n_obs)
+        self._sampler.mask = self._shard_mask(n_obs)
         return self._sampler.n_iters(n_obs)
 
     def validate(self, n_obs: int) -> None:
-        self._sampler._mask = self._shard_mask(n_obs)
+        self._sampler.mask = self._shard_mask(n_obs)
         self._sampler.validate(n_obs)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        self._sampler._mask = self._shard_mask(n_obs)
+        self._sampler.mask = self._shard_mask(n_obs)
         yield from self._sampler._sample(n_obs)
