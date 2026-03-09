@@ -61,7 +61,7 @@ def _round_down(num: int, divisor: int):
     return num - (num % divisor)
 
 
-def _resolve_shard_obs(shard_size: int | str, elem) -> int:
+def _shard_size_param_to_n_obs(shard_size: int | str, elem) -> int:
     """Convert *shard_size* to an observation count for a single array element.
 
     If *shard_size* is already an int it is returned as-is.  When it is a
