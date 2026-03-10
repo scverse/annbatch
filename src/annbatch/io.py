@@ -198,7 +198,6 @@ def _estimate_bytes_per_obs_row(
     for k in adata.obsm.keys():
         elem_paths.append(f"obsm/{k}")
     elem_paths.append("obs")
-    elem_paths.append("var")
 
     total_bytes_per_row = 0.0
     for elem_path in elem_paths:
@@ -209,8 +208,8 @@ def _estimate_bytes_per_obs_row(
         if encoding in {"csr_matrix", "csc_matrix"}:
             data, indices, indptr = node["data"], node["indices"], node["indptr"]
             total_bytes_per_row += (
-                data.shape[0] * (data.dtype.itemsize + indices.dtype.itemsize) / n_obs + indptr.dtype.itemsize
-            )
+                data.shape[0] * (data.dtype.itemsize + indices.dtype.itemsize) + indptr.shape[0] * indptr.dtype.itemsize
+            ) / n_obs
         elif encoding == "coo_matrix":
             data, row, col = node["data"], node["row"], node["col"]
             total_bytes_per_row += (
