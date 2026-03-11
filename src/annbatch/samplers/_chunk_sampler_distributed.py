@@ -7,55 +7,12 @@ from typing import TYPE_CHECKING, Literal
 from annbatch.abc import Sampler
 from annbatch.utils import _spawn_worker_rng
 
-from ._chunk_sampler import ChunkSamplerBase
-
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-
-    import numpy as np
 
     from annbatch.types import LoadRequest
 
     from ._chunk_sampler import MaskableSampler
-
-
-class ChunkSamplerWithReplacement(ChunkSamplerBase):
-    """Chunk-based sampler that draws chunks with replacement.
-
-    Unlike :class:`ChunkSampler`, this sampler draws random contiguous
-    chunks from the observation range with replacement and is not limited
-    to a single epoch. The number of batches to yield (``n_iters``) is required.
-
-    Shuffle is always enabled and drop_last is always disabled,
-    since the number of yielded batches is controlled exactly
-    by ``n_iters``.
-
-    See :class:`ChunkSampler` for the shared parameters.
-
-    Parameters
-    ----------
-    n_iters
-        Number of batches to yield.
-    """
-
-    def __init__(
-        self,
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        *,
-        n_iters: int,
-        mask: slice | None = None,
-        rng: np.random.Generator | None = None,
-    ):
-        super().__init__(
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            n_iters=n_iters,
-            mask=mask,
-            rng=rng,
-        )
 
 
 def _get_dist_info_torch() -> tuple[int, int]:
