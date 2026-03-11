@@ -86,7 +86,7 @@ zarr.config.set(
 
 # Create a collection at the given path. The subgroups will all be anndata stores.
 collection = DatasetCollection("path/to/output/collection.zarr")
-collection.add_adatas(
+collection.add_adata(
     adata_paths=[
         "path/to/your/file1.h5ad",
         "path/to/your/file2.h5ad"
@@ -98,7 +98,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via {meth}`annbatch.Loader.use_collection` or `load_anndata{s}`  or `load_dataset{s}`, *all* columns of the (obs) {class}`pandas.DataFrame` will be loaded and yielded potentially degrading performance.
+> Without custom loading via {meth}`annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) {class}`pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path
