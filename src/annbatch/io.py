@@ -96,7 +96,7 @@ def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
     *,
-    obs_per_chunk: int = 64,
+    n_obs_per_chunk: int = 64,
     shard_size: int | str = 2_097_152,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     key: str | None = None,
@@ -109,7 +109,7 @@ def write_sharded(
             The destination group, must be zarr v3
         adata
             The source anndata object
-        obs_per_chunk
+        n_obs_per_chunk
             Number of observations per chunk. For dense arrays this directly sets the first-axis chunk size.
             For sparse arrays it is converted to element counts using the average non-zero elements per row of the matrix being written.
         shard_size
@@ -140,12 +140,12 @@ def write_sharded(
             ):
                 obs_per_shard = _shard_size_param_to_n_obs(shard_size, elem)
                 # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
-                dense_chunk = min(obs_per_chunk, _round_down(elem.shape[0], obs_per_chunk))
+                dense_chunk = min(n_obs_per_chunk, _round_down(elem.shape[0], n_obs_per_chunk))
                 if elem.shape[0] < dense_chunk or dense_chunk == 0:
                     raise ValueError(
-                        f"Choose a shard obs {shard_size} and chunk obs {obs_per_chunk} with non-zero size less than the number of observations {elem.shape[0]}"
+                        f"Choose a shard obs {shard_size} and chunk obs {n_obs_per_chunk} with non-zero size less than the number of observations {elem.shape[0]}"
                     )
-                dense_shard = min(obs_per_shard, _round_down(elem.shape[0], obs_per_chunk))
+                dense_shard = min(obs_per_shard, _round_down(elem.shape[0], n_obs_per_chunk))
                 dense_shard = max(dense_chunk, _round_down(dense_shard, dense_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
@@ -159,7 +159,7 @@ def write_sharded(
                 if elem.shape[0] == 0:
                     raise ValueError(f"Cannot write sharded sparse matrix {elem_name!r} with 0 observations.")
                 avg_nnz_per_obs = nnz / elem.shape[0]
-                sparse_chunk = max(1, int(obs_per_chunk * avg_nnz_per_obs))
+                sparse_chunk = max(1, int(n_obs_per_chunk * avg_nnz_per_obs))
                 sparse_chunk = min(sparse_chunk, nnz) if nnz > 0 else sparse_chunk
                 sparse_shard = max(1, int(obs_per_shard * avg_nnz_per_obs))
                 sparse_shard = min(sparse_shard, nnz) if nnz > 0 else sparse_shard
@@ -642,7 +642,7 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata_chunk,
-                    obs_per_chunk=n_obs_per_chunk,
+                    n_obs_per_chunk=n_obs_per_chunk,
                     shard_size=zarr_shard_size,
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
@@ -739,7 +739,7 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata,
-                    obs_per_chunk=n_obs_per_chunk,
+                    n_obs_per_chunk=n_obs_per_chunk,
                     shard_size=zarr_shard_size,
                     compressors=zarr_compressor,
                     key=dataset,
