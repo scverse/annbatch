@@ -114,7 +114,7 @@ def simple_collection(
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
     collection = DatasetCollection(output_path).add_adatas(
         zarr_stores,
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=60,
         shuffle_chunk_size=10,

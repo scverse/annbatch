@@ -53,7 +53,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
         DatasetCollection(tmp_path / "collection.zarr").add_adatas(
             [path_1, path_2],
-            zarr_chunk_size=5,
+            n_obs_per_chunk=5,
             zarr_shard_size=10,
             n_obs_per_dataset=10,
             shuffle_chunk_size=10,
@@ -69,7 +69,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
     adata_2.write_h5ad(path_2)
     collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
         [path_1, path_2],
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=10,
         shuffle_chunk_size=5,
@@ -89,7 +89,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     output_dir = tmp_path / "path_src_collection.zarr"
     collection = DatasetCollection(output_dir).add_adatas(
         paths,
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=10,
         shuffle_chunk_size=5,
@@ -116,7 +116,7 @@ def test_store_addition_different_keys(
     collection = DatasetCollection(output_path)
     collection.add_adatas(
         [orig_path],
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
@@ -131,7 +131,7 @@ def test_store_addition_different_keys(
         collection.add_adatas(
             [additional_path],
             load_adata=load_adata,
-            zarr_chunk_size=5,
+            n_obs_per_chunk=5,
             zarr_shard_size=10,
             shuffle_chunk_size=2,
         )
@@ -194,7 +194,7 @@ def test_store_creation(
     collection = DatasetCollection(output_path).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         var_subset=var_subset,
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
@@ -246,7 +246,7 @@ def test_store_creation(
 
     pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     z = zarr.open(output_path / "dataset_0")
-    # assert chunk behavior (unified zarr_chunk_size=5 for both sparse and dense)
+    # assert chunk behavior (unified n_obs_per_chunk=5 for both sparse and dense)
     assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
     # sparse indices use obs-based chunk; exact element count depends on per-dataset avg_nnz
     # ensure proper downcasting
@@ -282,7 +282,7 @@ def test_mismatched_raw_concat(
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
     collection = DatasetCollection(output_path).add_adatas(
         h5_paths,
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=30,
         shuffle_chunk_size=10,
@@ -325,7 +325,7 @@ def test_store_extension(
     collection = DatasetCollection(store_path)
     collection.add_adatas(
         original,
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=60,
         shuffle_chunk_size=10,
@@ -335,7 +335,7 @@ def test_store_extension(
     collection.add_adatas(
         additional,
         load_adata=load_adata,
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
@@ -371,7 +371,7 @@ def test_collection_rng_reproducibility(adata_with_zarr_path_same_var_space: tup
     zarr_stores = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     seed = 42
     kwargs = {
-        "zarr_chunk_size": 10,
+        "n_obs_per_chunk": 10,
         "zarr_shard_size": 20,
         "n_obs_per_dataset": 200,
         "shuffle_chunk_size": 10,
@@ -400,7 +400,7 @@ def test_string_size_params_end_to_end(tmp_path: Path):
     output = tmp_path / "collection.zarr"
     collection = DatasetCollection(output).add_adatas(
         [path],
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=target_shard_size,
         zarr_compressor=(),
         shuffle_chunk_size=10,
