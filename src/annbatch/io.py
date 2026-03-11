@@ -160,13 +160,10 @@ def write_sharded(
                     raise ValueError(f"Cannot write sharded sparse matrix {elem_name!r} with 0 observations.")
                 avg_nnz_per_obs = nnz / elem.shape[0]
                 sparse_chunk = max(1, int(obs_per_chunk * avg_nnz_per_obs))
+                sparse_chunk = min(sparse_chunk, nnz) if nnz > 0 else sparse_chunk
                 sparse_shard = max(1, int(obs_per_shard * avg_nnz_per_obs))
                 sparse_shard = min(sparse_shard, nnz) if nnz > 0 else sparse_shard
-                sparse_shard = _round_down(sparse_shard, sparse_chunk)
-                if sparse_shard < sparse_chunk:
-                    raise RuntimeError(
-                        f"Calculated invalid sparse chunk size {sparse_chunk} for shard size {sparse_shard}"
-                    )
+                sparse_shard = max(sparse_chunk, _round_down(sparse_shard, sparse_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
                     "shards": (sparse_shard,),
