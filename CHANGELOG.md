@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning][].
 ## [0.0.10]
 
 - Added {class}`annbatch.ChunkSamplerWithReplacement`, a sampler that draws random contiguous chunks with replacement and yields a fixed number of batches (`n_iters`).
+- Added {class}`annbatch.ChunkSamplerDistributed`, a sampler that distributes chunks across multiple processes.
 
 ## [0.0.9]
 
