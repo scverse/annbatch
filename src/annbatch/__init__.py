@@ -5,7 +5,7 @@ from importlib.metadata import version
 from . import abc, types
 from .io import DatasetCollection, write_sharded
 from .loader import Loader
-from .samplers._chunk_sampler import ChunkSampler, ChunkSamplerDistributed, ChunkSamplerWithReplacement, MaskableSampler
+from .samplers import ChunkSampler, ChunkSamplerDistributed, ChunkSamplerWithReplacement
 
 __version__ = version("annbatch")
 

@@ -10,9 +10,9 @@ from annbatch.utils import _spawn_worker_rng
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from annbatch.types import LoadRequest
+    import numpy as np
 
-    from ._chunk_sampler import MaskableSampler
+    from annbatch.types import LoadRequest
 
 
 def _get_dist_info_torch() -> tuple[int, int]:
@@ -43,6 +43,35 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
     "torch": _get_dist_info_torch,
     "jax": _get_dist_info_jax,
 }
+
+
+class MaskableSampler(Sampler):
+    """A sampler whose observation range can be restricted via a mask.
+
+    Subclass this to create chunk-based samplers that can be wrapped
+    by :class:`ChunkSamplerDistributed`.
+    """
+
+    _mask: slice
+    _rng: np.random.Generator
+
+    @property
+    def mask(self) -> slice:
+        """The observation range this sampler operates on."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        self._mask = value
+
+    @property
+    def rng(self) -> np.random.Generator:
+        """The random number generator used by this sampler."""
+        return self._rng
+
+    @rng.setter
+    def rng(self, value: np.random.Generator) -> None:
+        self._rng = value
 
 
 class ChunkSamplerDistributed(Sampler):
