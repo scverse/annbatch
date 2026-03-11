@@ -1,8 +1,7 @@
-from ._chunk_sampler import ChunkSampler, ChunkSamplerDistributed, ChunkSamplerWithReplacement, MaskableSampler
+from ._chunk_sampler import ChunkSampler, ChunkSamplerDistributed, ChunkSamplerWithReplacement
 
 __all__ = [
     "ChunkSampler",
     "ChunkSamplerDistributed",
     "ChunkSamplerWithReplacement",
-    "MaskableSampler",
 ]

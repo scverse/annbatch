@@ -48,7 +48,7 @@ class MaskableSampler(Sampler):
         self._rng = value
 
 
-class _ChunkSamplerBase(MaskableSampler):
+class ChunkSamplerBase(MaskableSampler):
     """Private base class for chunk-based sampling.
 
     Handles both epoch-based and with-replacement sampling modes.
@@ -256,7 +256,7 @@ class _ChunkSamplerBase(MaskableSampler):
         return self._mask.start or 0, self._mask.stop or n_obs
 
 
-class ChunkSampler(_ChunkSamplerBase):
+class ChunkSampler(ChunkSamplerBase):
     """Chunk-based sampler for batched data access.
 
     Parameters
@@ -301,7 +301,7 @@ class ChunkSampler(_ChunkSamplerBase):
         )
 
 
-class ChunkSamplerWithReplacement(_ChunkSamplerBase):
+class ChunkSamplerWithReplacement(ChunkSamplerBase):
     """Chunk-based sampler that draws chunks with replacement.
 
     Unlike :class:`ChunkSampler`, this sampler draws random contiguous
