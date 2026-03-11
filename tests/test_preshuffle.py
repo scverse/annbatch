@@ -26,7 +26,7 @@ def test_write_sharded_bad_chunk_size(tmp_path: Path):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
     with pytest.raises(ValueError, match=r"Choose a shard obs"):
-        write_sharded(z, adata, obs_per_chunk=20)
+        write_sharded(z, adata, n_obs_per_chunk=20)
 
 
 @pytest.mark.parametrize(
@@ -36,7 +36,7 @@ def test_write_sharded_bad_chunk_size(tmp_path: Path):
 def test_write_sharded_shard_size_too_big(tmp_path: Path, chunk_size: int, expected_shard_size: int):
     adata = ad.AnnData(np.random.randn(10, 20))
     z = zarr.open(tmp_path / "foo.zarr")
-    write_sharded(z, adata, obs_per_chunk=chunk_size, shard_size=20)
+    write_sharded(z, adata, n_obs_per_chunk=chunk_size, shard_size=20)
     assert z["X"].shards == (expected_shard_size, 20)  # i.e., the closest multiple to `dense_chunk_size`
 
 
@@ -54,7 +54,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
     with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
         DatasetCollection(tmp_path / "collection.zarr").add_adatas(
             [path_1, path_2],
-            zarr_chunk_size=5,
+            n_obs_per_chunk=5,
             zarr_shard_size=10,
             n_obs_per_dataset=10,
             shuffle_chunk_size=10,
@@ -70,7 +70,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
     adata_2.write_h5ad(path_2)
     collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
         [path_1, path_2],
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=10,
         shuffle_chunk_size=5,
@@ -90,7 +90,7 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     output_dir = tmp_path / "path_src_collection.zarr"
     collection = DatasetCollection(output_dir).add_adatas(
         paths,
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=10,
         shuffle_chunk_size=5,
@@ -117,7 +117,7 @@ def test_store_addition_different_keys(
     collection = DatasetCollection(output_path)
     collection.add_adatas(
         [orig_path],
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
@@ -132,7 +132,7 @@ def test_store_addition_different_keys(
         collection.add_adatas(
             [additional_path],
             load_adata=load_adata,
-            zarr_chunk_size=5,
+            n_obs_per_chunk=5,
             zarr_shard_size=10,
             shuffle_chunk_size=2,
         )
@@ -181,26 +181,27 @@ def test_store_creation_default(
 @pytest.mark.parametrize(
     "load_adata", [pytest.param(None, id="default_read"), pytest.param(ad.experimental.read_lazy, id="fully_lazy")]
 )
+@pytest.mark.parametrize("var_subset", [[f"gene_{i}" for i in range(100)], None], ids=["var_subset", "no_subset"])
 def test_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     shuffle: bool,
     load_adata: Callable[[str], ad.AnnData],
+    var_subset: list[str] | None,
 ):
-    var_subset = [f"gene_{i}" for i in range(100)]
     h5_files = sorted(adata_with_h5_path_different_var_space[1].iterdir())
     output_path = (
         adata_with_h5_path_different_var_space[1].parent
-        / f"zarr_store_creation_test_{shuffle}_{'default_read' if load_adata is None else 'custom_read'}.zarr"
+        / f"zarr_store_creation_test_{shuffle}_{'default_read' if load_adata is None else 'custom_read'}{'_with_var_subset' if var_subset is not None else ''}.zarr"
     )
     collection = DatasetCollection(output_path).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
-        var_subset=var_subset,
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
         shuffle=shuffle,
         **({"load_adata": load_adata} if load_adata is not None else {}),
+        **({"var_subset": var_subset} if var_subset is not None else {}),
     )
     assert not DatasetCollection(output_path).is_empty
     assert V1_ENCODING.items() <= zarr.open(output_path).attrs.items()
@@ -211,7 +212,7 @@ def test_store_creation(
     for adata in adatas_shuffled:
         assert adata.obs["label"].dtype == adata_orig.obs["label"].dtype
     # subset to var_subset
-    adata_orig = adata_orig[:, adata_orig.var.index.isin(var_subset)]
+    adata_orig = adata_orig[:, adata_orig.var.index.isin(var_subset) if var_subset is not None else slice(None)]
     adata_orig.obs_names_make_unique()
     adata = ad.concat(
         adatas_shuffled,
@@ -246,8 +247,9 @@ def test_store_creation(
     adata.obs["label"] = adata.obs["label"].cat.reorder_categories(adata_orig.obs["label"].dtype.categories)
 
     pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
+    pd.testing.assert_frame_equal(adata.var, adata_orig.var)
     z = zarr.open(output_path / "dataset_0")
-    # assert chunk behavior (unified zarr_chunk_size=5 for both sparse and dense)
+    # assert chunk behavior (unified n_obs_per_chunk=5 for both sparse and dense)
     assert z["obsm"]["arr"].chunks[0] == 5, z["obsm"]["arr"]
     # sparse indices use obs-based chunk; exact element count depends on per-dataset avg_nnz
     # ensure proper downcasting
@@ -283,7 +285,7 @@ def test_mismatched_raw_concat(
     h5_paths = [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")]
     collection = DatasetCollection(output_path).add_adatas(
         h5_paths,
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=30,
         shuffle_chunk_size=10,
@@ -326,7 +328,7 @@ def test_store_extension(
     collection = DatasetCollection(store_path)
     collection.add_adatas(
         original,
-        zarr_chunk_size=10,
+        n_obs_per_chunk=10,
         zarr_shard_size=20,
         n_obs_per_dataset=60,
         shuffle_chunk_size=10,
@@ -336,7 +338,7 @@ def test_store_extension(
     collection.add_adatas(
         additional,
         load_adata=load_adata,
-        zarr_chunk_size=5,
+        n_obs_per_chunk=5,
         zarr_shard_size=10,
         n_obs_per_dataset=50,
         shuffle_chunk_size=10,
@@ -372,7 +374,7 @@ def test_collection_rng_reproducibility(adata_with_zarr_path_same_var_space: tup
     zarr_stores = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     seed = 42
     kwargs = {
-        "zarr_chunk_size": 10,
+        "n_obs_per_chunk": 10,
         "zarr_shard_size": 20,
         "n_obs_per_dataset": 200,
         "shuffle_chunk_size": 10,
@@ -405,11 +407,12 @@ def test_string_size_params_end_to_end(tmp_path: Path, zarr_shard_size: int | st
     path = tmp_path / "sparse.h5ad"
     ad.AnnData(X=X, obsm=obsm).write_h5ad(path, compression=None)
 
+    target_shard_size = "1KB"
     output = tmp_path / "collection.zarr"
     collection = DatasetCollection(output).add_adatas(
         [path],
-        zarr_chunk_size=10,
-        zarr_shard_size=zarr_shard_size,
+        n_obs_per_chunk=10,
+        zarr_shard_size=target_shard_size,
         zarr_compressor=(),
         n_obs_per_dataset=n_obs_per_dataset,
         shuffle_chunk_size=10,

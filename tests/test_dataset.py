@@ -552,16 +552,16 @@ def test_mismatched_var_raises_error(tmp_path: Path, subtests):
         var=adata2.var,
     )
 
-    with subtests.test(msg="add_anndata"):
+    with subtests.test(msg="add_adata"):
         loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
-        loader.add_anndata(adata1_on_disk)
+        loader.add_adata(adata1_on_disk)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
-            loader.add_anndata(adata2_on_disk)
+            loader.add_adata(adata2_on_disk)
 
-    with subtests.test(msg="add_anndatas"):
+    with subtests.test(msg="add_adatas"):
         loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
-            loader.add_anndatas([adata1_on_disk, adata2_on_disk])
+            loader.add_adatas([adata1_on_disk, adata2_on_disk])
 
     with subtests.test(msg="add_dataset"):
         loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
@@ -585,7 +585,7 @@ def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
     z = zarr.open(tmp_path / "foo.zarr")
     write_sharded(z, ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr", rng=np.random.default_rng())))
     adata = ad.AnnData(X=ad.io.sparse_dataset(z["X"]))
-    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2, to_torch=False).add_anndata(
+    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2, to_torch=False).add_adata(
         adata
     )
     assert next(iter(loader))["X"].dtype == expected
