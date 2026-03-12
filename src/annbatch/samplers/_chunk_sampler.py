@@ -2,51 +2,39 @@
 
 from __future__ import annotations
 
+import itertools
 import math
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from annbatch.abc import Sampler
 from annbatch.samplers._utils import get_torch_worker_info
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
+
+from ._chunk_sampler_distributed import MaskableSampler
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from annbatch.samplers._utils import WorkerInfo
     from annbatch.types import LoadRequest
 
 
-class ChunkSampler(Sampler):
-    """Chunk-based sampler for batched data access.
+class ChunkSamplerBase(MaskableSampler):
+    """Private base class for chunk-based sampling.
 
-    Parameters
-    ----------
-    batch_size
-        Number of observations per batch.
-    chunk_size
-        Size of each chunk i.e. the range of each chunk yielded.
-    mask
-        A slice defining the observation range to sample from (start:stop).
-    shuffle
-        Whether to shuffle chunk and index order.
-    preload_nchunks
-        Number of chunks to load per iteration.
-    drop_last
-        Whether to drop the last incomplete batch.
-    rng
-        Random number generator for shuffling. Note that :func:`torch.manual_seed`
-        has no effect on reproducibility here; pass a seeded
-        :class:`numpy.random.Generator` to control randomness.
+    Handles both epoch-based and with-replacement sampling modes.
+    When ``n_iters`` is provided, operates in replacement mode with
+    shuffle forced on and drop_last forced off.
     """
 
     _batch_size: int
     _chunk_size: int
     _shuffle: bool
     _preload_nchunks: int
-    _mask: slice
     _drop_last: bool
-    _rng: np.random.Generator
+    _in_memory_size: int
+    _n_iters: int | None
 
     def __init__(
         self,
@@ -54,11 +42,17 @@ class ChunkSampler(Sampler):
         preload_nchunks: int,
         batch_size: int,
         *,
+        n_iters: int | None = None,
         mask: slice | None = None,
         shuffle: bool = False,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
+        if n_iters is not None:
+            check_lt_1([n_iters], ["n_iters"])
+            shuffle = True
+            drop_last = False
+
         if mask is None:
             mask = slice(0, None)
         if mask.step is not None and mask.step != 1:
@@ -83,6 +77,8 @@ class ChunkSampler(Sampler):
                 f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
             )
         self._rng = rng or np.random.default_rng()
+        self._n_iters = n_iters
+        self._in_memory_size = chunk_size * preload_nchunks
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
             preload_nchunks,
@@ -99,9 +95,11 @@ class ChunkSampler(Sampler):
         return self._shuffle
 
     def n_iters(self, n_obs: int) -> int:
-        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        if self._n_iters is not None:
+            return self._n_iters
+        start, stop = self._resolve_start_stop(n_obs)
         total_obs = stop - start
-        return total_obs // self._batch_size if self._drop_last else math.ceil(total_obs / self._batch_size)
+        return total_obs // self.batch_size if self._drop_last else math.ceil(total_obs / self.batch_size)
 
     def validate(self, n_obs: int) -> None:
         """Validate the sampler configuration against the loader's n_obs.
@@ -116,7 +114,7 @@ class ChunkSampler(Sampler):
         ValueError
             If the sampler configuration is invalid for the given n_obs.
         """
-        start, stop = self._mask.start or 0, self._mask.stop or n_obs
+        start, stop = self._resolve_start_stop(n_obs)
         if stop > n_obs:
             raise ValueError(
                 f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
@@ -124,36 +122,68 @@ class ChunkSampler(Sampler):
             )
         if start >= stop:
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+        if self._n_iters is not None and stop - start < self._chunk_size:
+            raise ValueError(
+                f"Observation range ({stop - start}) is smaller than chunk_size ({self._chunk_size}). "
+                "Reduce chunk_size or expand the mask range."
+            )
+
+    def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
+        if self._n_iters is not None:
+            if worker_info is not None and worker_info.num_workers > 1:
+                raise ValueError("Multiple workers are not supported with this sampler.")
+        elif worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self.batch_size != 1:
+            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
+            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
-        # Worker mode validation - only check when there are multiple workers
+        self._validate_worker_mode(worker_info)
 
-        if worker_info is not None and worker_info.num_workers > 1 and not self._drop_last and self._batch_size != 1:
-            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist
-            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
+        start, stop = self._resolve_start_stop(n_obs)
+        worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
 
-        start, stop = self._mask.start or 0, self._mask.stop or n_obs
-        # Compute chunks directly from resolved mask range
-        # Create chunk indices for possible shuffling and worker sharding
-        chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
-        if self._shuffle:
-            # Use sampler's RNG for chunk ordering - same across all workers
-            self._rng.shuffle(chunk_indices)
-        chunks = self._compute_chunks(chunk_indices, start, stop)
+        chunks = self._compute_chunks(start, stop, rng=self._rng)
+        yield from self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+
+    def _iter_from_chunks(
+        self,
+        chunks: list[slice],
+        batch_rng: np.random.Generator,
+        worker_info: WorkerInfo | None,
+    ) -> Iterator[LoadRequest]:
+        base = self._iter_from_chunks_base(chunks, batch_rng, worker_info)
+        if self._n_iters is None:
+            yield from base
+            return
+        batches_per_request = self._in_memory_size // self.batch_size
+        n_full, tail = divmod(self._n_iters, batches_per_request)
+        yield from itertools.islice(base, n_full)
+        if tail > 0:
+            load_request = next(base)
+            yield {
+                "chunks": load_request["chunks"],
+                "splits": load_request["splits"][:tail],
+            }
+
+    def _iter_from_chunks_base(
+        self,
+        chunks: list[slice],
+        batch_rng: np.random.Generator,
+        worker_info: WorkerInfo | None,
+    ) -> Iterator[LoadRequest]:
+        # Worker sharding: each worker gets a disjoint subset of chunks
         if worker_info is not None:
             chunks = np.array_split(chunks, worker_info.num_workers)[worker_info.id]
         # Set up the iterator for chunks and the batch indices for splits
-        in_memory_size = self._chunk_size * self._preload_nchunks
         chunks_per_request = split_given_size(chunks, self._preload_nchunks)
-        batch_indices = np.arange(in_memory_size)
-        split_batch_indices = split_given_size(batch_indices, self._batch_size)
-        batch_rng = _spawn_worker_rng(self._rng, worker_info.id) if worker_info else self._rng
+        batch_indices = np.arange(self._in_memory_size)
+        split_batch_indices = split_given_size(batch_indices, self.batch_size)
         for request_chunks in chunks_per_request[:-1]:
-            if self._shuffle:
-                # Avoid copies using in-place shuffling since `self._shuffle` should not change mid-training
+            if self.shuffle:
+                # Avoid copies using in-place shuffling since `self.shuffle` should not change mid-training
                 batch_rng.shuffle(batch_indices)
-                split_batch_indices = split_given_size(batch_indices, self._batch_size)
+                split_batch_indices = split_given_size(batch_indices, self.batch_size)
             yield {"chunks": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
         final_chunks = chunks_per_request[-1]
@@ -161,22 +191,31 @@ class ChunkSampler(Sampler):
         if total_obs_in_last_batch == 0:  # pragma: no cover
             raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
         if self._drop_last:
-            if total_obs_in_last_batch < self._batch_size:
+            if total_obs_in_last_batch < self.batch_size:
                 return
-            total_obs_in_last_batch -= total_obs_in_last_batch % self._batch_size
-        indices = (
-            batch_rng.permutation(total_obs_in_last_batch) if self._shuffle else np.arange(total_obs_in_last_batch)
-        )
-        batch_indices = split_given_size(indices, self._batch_size)
+            total_obs_in_last_batch -= total_obs_in_last_batch % self.batch_size
+        indices = batch_rng.permutation(total_obs_in_last_batch) if self.shuffle else np.arange(total_obs_in_last_batch)
+        batch_indices = split_given_size(indices, self.batch_size)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
-    def _compute_chunks(self, chunk_indices: np.ndarray, start: int, stop: int) -> list[slice]:
+    def _compute_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
         """Compute chunks from start and stop indices.
 
         This function is used to compute the chunks for the data to load.
         The chunks are computed such that the last chunk is the incomplete chunk if the total number of observations is not divisible by the chunk size.
         Supposed to also work with shuffled chunk indices so that the last chunk computed isn't always the incomplete chunk.
         """
+        if self._n_iters is not None:
+            # stop - start >= chunk_size is guaranteed by validate()
+            start_indices = rng.integers(
+                start, stop - self._chunk_size + 1, size=math.ceil((self._n_iters * self.batch_size) / self._chunk_size)
+            )
+            return [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
+        # Compute chunks directly from resolved mask range
+        # Create chunk indices for possible shuffling and worker sharding
+        chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
+        if self.shuffle:
+            rng.shuffle(chunk_indices)
         n_chunks, pivot_index = len(chunk_indices), chunk_indices[-1]
         offsets = np.ones(n_chunks + 1, dtype=int) * self._chunk_size
         offsets[0] = start
@@ -184,6 +223,93 @@ class ChunkSampler(Sampler):
         offsets = np.cumsum(offsets)
         starts, stops = offsets[:-1][chunk_indices], offsets[1:][chunk_indices]
         return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
+
+    def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
+        return self._mask.start or 0, self._mask.stop or n_obs
+
+
+class ChunkSampler(ChunkSamplerBase):
+    """Chunk-based sampler for batched data access.
+
+    Parameters
+    ----------
+    batch_size
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    mask
+        A slice defining the observation range to sample from (start:stop).
+    shuffle
+        Whether to shuffle chunk and index order.
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
+    rng
+        Random number generator for shuffling. Note that :func:`torch.manual_seed`
+        has no effect on reproducibility here; pass a seeded
+        :class:`numpy.random.Generator` to control randomness.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        mask: slice | None = None,
+        shuffle: bool = False,
+        drop_last: bool = False,
+        rng: np.random.Generator | None = None,
+    ):
+        super().__init__(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            mask=mask,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            rng=rng,
+        )
+
+
+class ChunkSamplerWithReplacement(ChunkSamplerBase):
+    """Chunk-based sampler that draws chunks with replacement.
+
+    Unlike :class:`ChunkSampler`, this sampler draws random contiguous
+    chunks from the observation range with replacement and is not limited
+    to a single epoch. The number of batches to yield (``n_iters``) is required.
+
+    Shuffle is always enabled and drop_last is always disabled,
+    since the number of yielded batches is controlled exactly
+    by ``n_iters``.
+
+    See :class:`ChunkSampler` for the shared parameters.
+
+    Parameters
+    ----------
+    n_iters
+        Number of batches to yield.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        n_iters: int,
+        mask: slice | None = None,
+        rng: np.random.Generator | None = None,
+    ):
+        super().__init__(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            n_iters=n_iters,
+            mask=mask,
+            rng=rng,
+        )
 
 
 def _get_dist_info_torch() -> tuple[int, int]:
@@ -214,97 +340,3 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
     "torch": _get_dist_info_torch,
     "jax": _get_dist_info_jax,
 }
-
-
-class ChunkSamplerDistributed(ChunkSampler):
-    """Distributed chunk-based sampler that shards data across distributed processes.
-
-    Partitions the full observation range into ``world_size`` contiguous shards
-    using the ``mask`` mechanism of :class:`ChunkSampler`.  Each rank receives a
-    non-overlapping slice of the data.  The shard boundaries are computed lazily
-    when ``n_obs`` becomes known.
-
-    When ``enforce_equal_batches`` is *True* (the default), the per-rank observation
-    count is rounded down to the nearest multiple of ``batch_size``,
-    guaranteeing that every rank yields exactly the same number of complete
-    batches.
-
-    Rank and world size are obtained from ``dist_info`` at construction time.
-    The corresponding distributed framework must already be initialized.
-
-    Parameters
-    ----------
-    chunk_size
-        Size of each chunk i.e. the range of each chunk yielded.
-    preload_nchunks
-        Number of chunks to load per iteration.
-    batch_size
-        Number of observations per batch.
-    dist_info
-        How to obtain rank and world size.
-        Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
-        or a callable that returns ``(rank, world_size)``.
-    shuffle
-        Whether to shuffle chunk and index order.
-    drop_last
-        Whether to drop the last incomplete batch.
-    rng
-        Random number generator for shuffling.
-    enforce_equal_batches
-        If *True*, round each rank's observation count down to a multiple of ``batch_size`` so that all workers (ranks) yield the same number of batches.
-        Set to *False* to use the raw ``n_obs // world_size`` split, which may result in an uneven number of batches per worker.
-    """
-
-    _rank: int
-    _world_size: int
-    _enforce_equal_batches: bool
-
-    def __init__(
-        self,
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        *,
-        dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]],
-        shuffle: bool = False,
-        drop_last: bool = False,
-        rng: np.random.Generator | None = None,
-        enforce_equal_batches: bool = True,
-    ):
-        if callable(dist_info):
-            self._rank, self._world_size = dist_info()
-        elif dist_info in DISTRIBUTED_BACKENDS:
-            self._rank, self._world_size = DISTRIBUTED_BACKENDS[dist_info]()
-        else:
-            raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
-        self._enforce_equal_batches = enforce_equal_batches
-
-        super().__init__(
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            drop_last=drop_last,
-            rng=_spawn_worker_rng(rng, self._rank) if rng else None,
-        )
-
-    def _shard_mask(self, n_obs: int) -> slice:
-        """Return the contiguous observation slice for this rank."""
-        per_rank = n_obs // self._world_size
-        if self._enforce_equal_batches:
-            per_rank = per_rank // self._batch_size * self._batch_size
-        rank_start = self._rank * per_rank
-        rank_stop = rank_start + per_rank
-        return slice(rank_start, rank_stop)
-
-    def n_iters(self, n_obs: int) -> int:
-        self._mask = self._shard_mask(n_obs)
-        return super().n_iters(n_obs)
-
-    def validate(self, n_obs: int) -> None:
-        self._mask = self._shard_mask(n_obs)
-        super().validate(n_obs)
-
-    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        self._mask = self._shard_mask(n_obs)
-        yield from super()._sample(n_obs)

@@ -1,15 +1,16 @@
-"""Tests for ChunkSampler."""
+"""Tests for ChunkSampler, ChunkSamplerWithReplacement, and ChunkSamplerDistributed."""
 
 from __future__ import annotations
 
 import math
 import sys
+from functools import partial
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from annbatch import ChunkSampler, ChunkSamplerDistributed
+from annbatch import ChunkSampler, ChunkSamplerDistributed, ChunkSamplerWithReplacement
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import WorkerInfo
 
@@ -31,7 +32,7 @@ def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,start,stop,batch_size,preload_nchunks,shuffle,drop_last",
+    ("n_obs", "chunk_size", "start", "stop", "batch_size", "preload_nchunks", "shuffle", "drop_last"),
     [
         # Basic full dataset
         pytest.param(100, 10, None, None, 5, 2, False, False, id="full_dataset"),
@@ -142,7 +143,7 @@ def test_batch_sizes_match_expected_pattern():
 
 
 @pytest.mark.parametrize(
-    "n_obs,chunk_size,preload_nchunks,batch_size,num_workers,drop_last",
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "num_workers", "drop_last"),
     [
         pytest.param(200, 10, 2, 10, 2, True, id="two_workers"),
         pytest.param(300, 10, 3, 10, 3, True, id="three_workers"),
@@ -182,38 +183,29 @@ def test_workers_cover_full_dataset_without_overlap(
     assert set().union(*all_worker_indices) == set(range(n_obs))
 
 
-def test_batch_shuffle_is_reproducible_with_same_seed_rng():
-    """Test that batch shuffling is reproducible when passing in rngs with identical seeds to ChunkSampler directly."""
+@pytest.mark.parametrize(
+    "sampler_class",
+    [partial(ChunkSampler, shuffle=True), partial(ChunkSamplerWithReplacement, n_iters=10)],
+    ids=["without_replacement", "with_replacement"],
+)
+def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_class):
+    """Test that sampling is fully reproducible with the same seed and differs with another."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
-    seed = 42
 
-    def collect_splits(sampler: ChunkSampler) -> list[list[int]]:
-        all_splits: list[list[int]] = []
-        for load_request in sampler.sample(n_obs):
-            for split in load_request["splits"]:
-                all_splits.append(split.tolist())
-        return all_splits
+    def make_sampler(seed: int) -> Sampler:
+        return sampler_class(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            rng=np.random.default_rng(seed),
+        )
 
-    # Run twice with same seed - should get identical batch ordering
-    sampler1 = ChunkSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=True,
-        rng=np.random.default_rng(seed),
-    )
-    splits1 = collect_splits(sampler1)
+    indices1 = collect_indices(make_sampler(42), n_obs)
+    indices2 = collect_indices(make_sampler(42), n_obs)
+    indices3 = collect_indices(make_sampler(99), n_obs)
 
-    sampler2 = ChunkSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        shuffle=True,
-        rng=np.random.default_rng(seed),
-    )
-    splits2 = collect_splits(sampler2)
-
-    assert splits1 == splits2, "Batch shuffling should be reproducible with same seed"
+    assert indices1 == indices2, "Sampling should be reproducible with same seed"
+    assert indices1 != indices3, "Different seeds should produce different results"
 
 
 # =============================================================================
@@ -222,7 +214,7 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng():
 
 
 @pytest.mark.parametrize(
-    "mask,n_obs,error_match",
+    ("mask", "n_obs", "error_match"),
     [
         pytest.param(slice(0, 100), 100, None, id="valid_config"),
         pytest.param(slice(0, 200), 100, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
@@ -239,7 +231,12 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
 
 
 @pytest.mark.parametrize(
-    "mask,error_match",
+    "sampler_class",
+    [ChunkSampler, partial(ChunkSamplerWithReplacement, n_iters=10)],
+    ids=["without_replacement", "with_replacement"],
+)
+@pytest.mark.parametrize(
+    ("mask", "error_match"),
     [
         pytest.param(slice(-1, 100), "mask.start must be >= 0", id="negative_start"),
         pytest.param(slice(50, 50), "mask.start must be < mask.stop", id="start_equals_stop"),
@@ -247,10 +244,127 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
         pytest.param(slice(0, 100, 2), "mask.step must be 1, but got 2", id="step_not_one"),
     ],
 )
-def test_invalid_mask_raises(mask: slice, error_match: str):
+def test_invalid_mask_raises(sampler_class: type[Sampler], mask: slice, error_match: str):
     """Test that invalid mask configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
-        ChunkSampler(mask=mask, batch_size=5, chunk_size=10, preload_nchunks=2)
+        sampler_class(chunk_size=10, preload_nchunks=2, batch_size=5, mask=mask)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "n_obs", "error_match"),
+    [
+        pytest.param({"n_iters": 0}, None, "n_iters", id="n_iters_zero"),
+        pytest.param({"n_iters": -1}, None, "n_iters", id="n_iters_negative"),
+        pytest.param({"n_iters": 3}, 5, "smaller than chunk_size", id="n_obs_smaller_than_chunk"),
+        pytest.param(
+            {"n_iters": 3, "mask": slice(50, 55)}, 100, "smaller than chunk_size", id="mask_range_smaller_than_chunk"
+        ),
+    ],
+)
+def test_invalid_sample_with_replacement(kwargs: dict, n_obs: int | None, error_match: str):
+    """Test that invalid configurations raise ValueError for ChunkSamplerWithReplacement."""
+    defaults = {"chunk_size": 10, "preload_nchunks": 2, "batch_size": 5}
+    with pytest.raises(ValueError, match=error_match):
+        sampler = ChunkSamplerWithReplacement(**(defaults | kwargs))
+        if n_obs is not None:
+            list(sampler.sample(n_obs))
+
+
+@pytest.mark.parametrize(
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "n_iters", "mask"),
+    [
+        pytest.param(100, 10, 2, 5, 10, slice(0, None), id="basic"),
+        pytest.param(100, 10, 2, 5, 50, slice(0, None), id="more_iters_than_obs"),
+        pytest.param(100, 10, 2, 5, 1, slice(0, None), id="single_iter"),
+        pytest.param(100, 10, 2, 5, 10, slice(20, 80), id="with_mask"),
+        pytest.param(103, 10, 2, 5, 20, slice(0, None), id="non_divisible_obs"),
+        pytest.param(100, 10, 2, 5, 7, slice(0, None), id="tail_with_batch_lt_chunk"),
+    ],
+)
+def test_replacement_invariants(
+    n_obs: int, chunk_size: int, preload_nchunks: int, batch_size: int, n_iters: int, mask: slice
+):
+    """Test ChunkSamplerWithReplacement yields correct n_iters, chunks within bounds, uniform chunk sizes."""
+    start = mask.start or 0
+    stop = mask.stop or n_obs
+    sampler = ChunkSamplerWithReplacement(
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        batch_size=batch_size,
+        n_iters=n_iters,
+        mask=mask,
+        rng=np.random.default_rng(42),
+    )
+    count = 0
+    for load_request in sampler.sample(n_obs):
+        assert len(load_request["chunks"]) > 0, "Load request must have at least one chunk"
+        for chunk in load_request["chunks"]:
+            assert chunk.stop - chunk.start == chunk_size, f"Non-uniform chunk: {chunk}"
+            assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
+            assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
+        count += len(load_request["splits"])
+    assert count == n_iters, f"Expected {n_iters} batches, got {count}"
+
+
+def test_replacement_with_multiple_workers_raises():
+    """Test that ChunkSamplerWithReplacement raises when used with multiple workers."""
+    sampler = ChunkSamplerWithReplacement(
+        chunk_size=10,
+        preload_nchunks=2,
+        batch_size=5,
+        n_iters=20,
+        rng=np.random.default_rng(42),
+    )
+    with (
+        patch(
+            "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+            return_value=WorkerInfo(id=0, num_workers=2),
+        ),
+        pytest.raises(ValueError, match="Multiple workers are not supported with this sampler"),
+    ):
+        list(sampler.sample(100))
+
+
+@pytest.mark.parametrize(
+    ("sampler", "n_obs", "expected"),
+    [
+        pytest.param(
+            ChunkSamplerWithReplacement(
+                chunk_size=10, preload_nchunks=2, batch_size=5, n_iters=50, rng=np.random.default_rng(42)
+            ),
+            100,
+            50,
+            id="replacement_returns_n_iters",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5),
+            100,
+            20,
+            id="without_replacement_full_epoch",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, drop_last=True),
+            100,
+            20,
+            id="without_replacement_drop_last_exact",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5),
+            103,
+            21,
+            id="without_replacement_ceil",
+        ),
+        pytest.param(
+            ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5, drop_last=True),
+            103,
+            20,
+            id="without_replacement_drop_last_floor",
+        ),
+    ],
+)
+def test_n_iters_property(sampler: Sampler, n_obs: int, expected: int):
+    """Test that n_iters() returns the correct value for different configurations."""
+    assert sampler.n_iters(n_obs) == expected
 
 
 # =============================================================================
@@ -259,7 +373,7 @@ def test_invalid_mask_raises(mask: slice, error_match: str):
 
 
 @pytest.mark.parametrize(
-    "n_obs_values,expected_ranges",
+    ("n_obs_values", "expected_ranges"),
     [
         pytest.param([50, 100], [range(50), range(100)], id="increase_changes_result"),
         pytest.param([100, 100], [range(100), range(100)], id="same_gives_same_coverage"),
@@ -324,7 +438,7 @@ class SimpleSampler(Sampler):
 
 
 @pytest.mark.parametrize(
-    "batch_size,shuffle",
+    ("batch_size", "shuffle"),
     [
         pytest.param(None, True, id="missing_batch_size"),
         pytest.param(3, None, id="missing_shuffle"),
@@ -377,7 +491,9 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
 # =============================================================================
 
 
-def _make_distributed_sampler_torch(rank: int, world_size: int, **kwargs) -> ChunkSamplerDistributed:
+def _make_distributed_sampler_torch(
+    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
+) -> ChunkSamplerDistributed:
     """Create a ChunkSamplerDistributed with mocked torch.distributed backend."""
     mock_dist = MagicMock()
     mock_dist.is_initialized.return_value = True
@@ -385,18 +501,22 @@ def _make_distributed_sampler_torch(rank: int, world_size: int, **kwargs) -> Chu
     mock_dist.get_world_size.return_value = world_size
     mock_torch = MagicMock()
     mock_torch.distributed = mock_dist
+    sampler = ChunkSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
-        return ChunkSamplerDistributed(dist_info="torch", **kwargs)
+        return ChunkSamplerDistributed(sampler, dist_info="torch", enforce_equal_batches=enforce_equal_batches)
 
 
-def _make_distributed_sampler_jax(rank: int, world_size: int, **kwargs) -> ChunkSamplerDistributed:
+def _make_distributed_sampler_jax(
+    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
+) -> ChunkSamplerDistributed:
     """Create a ChunkSamplerDistributed with mocked jax backend."""
     mock_jax = MagicMock()
     mock_jax.process_index.return_value = rank
     mock_jax.process_count.return_value = world_size
     mock_jax.distributed.is_initialized.return_value = True
+    sampler = ChunkSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"jax": mock_jax}):
-        return ChunkSamplerDistributed(dist_info="jax", **kwargs)
+        return ChunkSamplerDistributed(sampler, dist_info="jax", enforce_equal_batches=enforce_equal_batches)
 
 
 _SAMPLER_FACTORIES = {
@@ -420,22 +540,25 @@ class TestChunkSamplerDistributed:
         mock_dist.is_initialized.return_value = False
         mock_torch = MagicMock()
         mock_torch.distributed = mock_dist
+        sampler = ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
             with pytest.raises(RuntimeError, match="torch.distributed is not initialized"):
-                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="torch")
+                ChunkSamplerDistributed(sampler, dist_info="torch")
 
     def test_not_initialized_raises_jax(self):
         """RuntimeError when jax.distributed is not initialized."""
         mock_jax = MagicMock()
         mock_jax.distributed.is_initialized.return_value = False
+        sampler = ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"jax": mock_jax}):
             with pytest.raises(RuntimeError, match="JAX distributed is not initialized"):
-                ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="jax")
+                ChunkSamplerDistributed(sampler, dist_info="jax")
 
     def test_unknown_dist_info_raises(self):
         """ValueError for an unsupported dist_info string."""
+        sampler = ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with pytest.raises(ValueError, match="Unknown dist_info"):
-            ChunkSamplerDistributed(chunk_size=10, preload_nchunks=2, batch_size=10, dist_info="mpi")
+            ChunkSamplerDistributed(sampler, dist_info="mpi")
 
     def test_shards_are_disjoint_and_cover_full_dataset(self, make_distributed_sampler):
         """All ranks receive non-overlapping shards that together cover the full dataset."""

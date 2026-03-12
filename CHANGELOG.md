@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.0.10]
+
+- Added {class}`annbatch.ChunkSamplerWithReplacement`, a sampler that draws random contiguous chunks with replacement and yields a fixed number of batches (`n_iters`).
+- Added {class}`annbatch.ChunkSamplerDistributed`, a sampler that distributes chunks across multiple processes.
+
 ## [0.0.9]
 
 ### Breaking
