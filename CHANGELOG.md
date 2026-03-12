@@ -21,7 +21,6 @@ and this project adheres to [Semantic Versioning][].
 - `zarr_shard_size` in {meth}`annbatch.DatasetCollection.add_adatas` and `shard_size` in {func}`annbatch.write_sharded` now accept a human-readable size string (e.g. ``'1GB'``, ``'512MB'``) in addition to an integer number of observations. When a string is provided, the observation count is derived independently for each array element from its uncompressed bytes-per-row so that every shard stays close to the target size.
 - ``n_obs_per_dataset`` in {meth}`annbatch.DatasetCollection.add_adatas` now accepts a human-readable size string (e.g. ``'20GB'``, ``'512MB'``) in addition to an integer number of observations. When a string is provided, the per-row byte size is estimated from the on-disk metadata of the input datasets during validation and used to derive the observation count. The default has changed from ``2_097_152`` to ``'20GB'``.
 
-
 ## [0.0.8]
 
 - {class}`~annbatch.Loader` acccepts an `rng` argument now

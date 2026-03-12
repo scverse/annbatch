@@ -413,10 +413,10 @@ def test_string_size_params_end_to_end(tmp_path: Path, zarr_shard_size: int | st
         [path],
         n_obs_per_chunk=10,
         zarr_shard_size=target_shard_size,
-        zarr_compressor=(),
         n_obs_per_dataset=n_obs_per_dataset,
         shuffle_chunk_size=10,
         shuffle=False,
+        zarr_compressor=(),
     )
 
     assert not collection.is_empty

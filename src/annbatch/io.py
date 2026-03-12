@@ -139,12 +139,13 @@ def write_sharded(
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
                 obs_per_shard = _shard_size_param_to_n_obs(shard_size, elem)
+                # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
                 dense_chunk = min(n_obs_per_chunk, _round_down(elem.shape[0], n_obs_per_chunk))
                 if elem.shape[0] < dense_chunk or dense_chunk == 0:
                     raise ValueError(
                         f"Choose a shard obs {shard_size} and chunk obs {n_obs_per_chunk} with non-zero size less than the number of observations {elem.shape[0]}"
                     )
-                dense_shard = min(obs_per_shard, _round_down(elem.shape[0], dense_chunk))
+                dense_shard = min(obs_per_shard, _round_down(elem.shape[0], n_obs_per_chunk))
                 dense_shard = max(dense_chunk, _round_down(dense_shard, dense_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
@@ -612,10 +613,6 @@ class DatasetCollection:
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
         """
-        if isinstance(n_obs_per_dataset, int) and shuffle_chunk_size > n_obs_per_dataset:
-            raise ValueError(
-                "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `n_obs_per_dataset`."
-            )
         if rng is None:
             rng = np.random.default_rng()
         shared_kwargs = {
@@ -699,7 +696,6 @@ class DatasetCollection:
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-
         needs_estimate = isinstance(n_obs_per_dataset, str)
         estimated_bytes_per_row = _validate_anndatas(
             adata_paths, load_adata=load_adata, estimate_bytes_per_obs_row=needs_estimate
