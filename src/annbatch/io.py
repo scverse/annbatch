@@ -97,7 +97,7 @@ def write_sharded(
     adata: ad.AnnData,
     *,
     n_obs_per_chunk: int = 64,
-    shard_size: int | str = 2_097_152,
+    shard_size: int | str = "1GB",
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     key: str | None = None,
 ):
@@ -176,21 +176,105 @@ def write_sharded(
         zarr.consolidate_metadata(group.store)
 
 
-def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](
-    paths_or_adata: Iterable[T | ad.AnnData],
+def _estimate_bytes_per_obs_row(
+    adata: ad.AnnData,
+    backing: zarr.Group | h5py.Group,
+) -> float:
+    """Estimate uncompressed bytes per observation row from on-disk metadata.
+
+    Uses the lazy-loaded *adata* to determine which array keys are present, then
+    reads shapes and dtypes from *backing* (the on-disk h5py/zarr group) to
+    compute the per-row byte budget without materialising any data.
+    """
+    n_obs = adata.shape[0]
+    if n_obs == 0:
+        return 0.0
+
+    elem_paths: list[str] = []
+    if adata.X is not None:
+        elem_paths.append("X")
+    for k in adata.layers.keys():
+        elem_paths.append(f"layers/{k}")
+    for k in adata.obsm.keys():
+        elem_paths.append(f"obsm/{k}")
+    elem_paths.append("obs")
+
+    total_bytes_per_row = 0.0
+    for elem_path in elem_paths:
+        if elem_path not in backing:
+            continue
+        node = backing[elem_path]
+        encoding = dict(node.attrs).get("encoding-type", "")
+        if encoding in {"csr_matrix", "csc_matrix"}:
+            data, indices, indptr = node["data"], node["indices"], node["indptr"]
+            total_bytes_per_row += (
+                data.shape[0] * (data.dtype.itemsize + indices.dtype.itemsize) + indptr.shape[0] * indptr.dtype.itemsize
+            ) / n_obs
+        elif encoding in {"array", ""}:
+            total_bytes_per_row += int(np.prod(node.shape[1:])) * node.dtype.itemsize
+        elif encoding == "dataframe":
+            for col_key in node:
+                if col_key == "_index":
+                    continue
+                col_node = node[col_key]
+                col_encoding = dict(col_node.attrs).get("encoding-type", "")
+                if col_encoding == "categorical":
+                    col_node = col_node["codes"]
+                if hasattr(col_node, "shape") and hasattr(col_node, "dtype"):
+                    total_bytes_per_row += col_node.shape[0] * col_node.dtype.itemsize / n_obs
+        else:
+            raise ValueError(
+                f"Unsupported encoding-type {encoding!r} for element {elem_path!r}. Cannot estimate per-row byte size."
+            )
+
+    return total_bytes_per_row
+
+
+def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    paths_or_anndatas: Iterable[T | ad.AnnData],
     *,
     load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
-):
+    estimate_bytes_per_obs_row: bool = False,
+) -> float | None:
+    """Validate that all datasets share the same keys and optionally estimate bytes per observation row.
+
+    Parameters
+    ----------
+    paths_or_anndatas
+        Paths or AnnData objects to validate.
+    load_adata
+        Function to lazy-load an AnnData from a path.
+    estimate_bytes_per_obs_row
+        If ``True``, estimate the average uncompressed bytes per observation row from the on-disk data.
+        All entries must be paths or groups (not AnnData objects) in this case.
+
+    Returns
+    -------
+    The average bytes per observation row when *estimate_bytes_per_obs_row* is ``True``, otherwise ``None``.
+    """
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
         "layers": defaultdict(lambda: 0),
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path_or_anndata in tqdm(paths_or_adata, desc="Checking for mismatched keys"):
+    bytes_per_obs_samples: list[float] = []
+    for path_or_anndata in tqdm(paths_or_anndatas, desc="Validating anndatas"):
         if not isinstance(path_or_anndata, ad.AnnData):
             adata = load_adata(path_or_anndata)
+            if estimate_bytes_per_obs_row:
+                if isinstance(path_or_anndata, zarr.Group | h5py.Group):
+                    backing = path_or_anndata
+                else:
+                    p = Path(str(path_or_anndata))
+                    backing = h5py.File(str(p), "r") if p.is_file() else zarr.open_group(str(p), mode="r")
+                bytes_per_obs_samples.append(_estimate_bytes_per_obs_row(adata, backing=backing))
         else:
+            if estimate_bytes_per_obs_row:
+                raise TypeError(
+                    "Cannot estimate bytes per observation row from an AnnData object. "
+                    "Provide file paths or groups instead, or pass an integer for n_obs_per_dataset."
+                )
             adata = path_or_anndata
         for elem_name, key_count in found_keys.items():
             curr_keys = set(getattr(adata, elem_name).keys())
@@ -199,18 +283,19 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
                     key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != (num_anndatas := len(list(paths_or_adata))) and num_raw_in_adata != 0:
+    if num_raw_in_adata != (num_anndatas := len(list(paths_or_anndatas))) and num_raw_in_adata != 0:
         warnings.warn(
-            f"Found raw keys not present in all anndatas {paths_or_adata}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
+            f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
         elem_keys_mismatched = [key for key, count in key_count.items() if (count != num_anndatas and count != 0)]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
-                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_adata}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
+                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
+    return float(np.mean(bytes_per_obs_samples)) if bytes_per_obs_samples else None
 
 
 def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
@@ -444,10 +529,10 @@ class DatasetCollection:
         load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
-        zarr_shard_size: int | str = "1GB",
+        n_obs_per_shard: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-        n_obs_per_dataset: int = 2_097_152,
+        n_obs_per_dataset: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
         rng: np.random.Generator | None = None,
@@ -478,19 +563,21 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            zarr_shard_size
+            n_obs_per_shard
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
+                String sizes get parsed using the humanfriendly package.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
             zarr_compressor
                 Compressors to use to compress the data in the zarr store.
             h5ad_compressor
                 Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
             n_obs_per_dataset
-                Number of observations to load into memory at once for shuffling / pre-processing.
+                Number of observations to load into memory at once for shuffling / pre-processing, or a size string (e.g. ``'2GB'``, ``'512MB'``).
+                When a size string is provided, the observation count is derived from the estimated uncompressed bytes per row of the input data.
+                String sizes get parsed using the humanfriendly package.
                 The higher this number, the more memory is used, but the better the shuffling.
                 This corresponds to the size of the dataset level shards created.
-                Only applicable when adding datasets for the first time, otherwise ignored.
                 Only applicable when adding datasets for the first time, otherwise ignored.
             shuffle
                 Whether to shuffle the data before writing it to the store.
@@ -523,17 +610,13 @@ class DatasetCollection:
             ...    load_adata=read_lazy_x_and_obs_only,
             ...)
         """
-        if shuffle_chunk_size > n_obs_per_dataset:
-            raise ValueError(
-                "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `n_obs_per_dataset`."
-            )
         if rng is None:
             rng = np.random.default_rng()
         shared_kwargs = {
             "adata_paths": adata_paths,
             "load_adata": load_adata,
             "n_obs_per_chunk": n_obs_per_chunk,
-            "zarr_shard_size": zarr_shard_size,
+            "n_obs_per_shard": n_obs_per_shard,
             "zarr_compressor": zarr_compressor,
             "h5ad_compressor": h5ad_compressor,
             "shuffle_chunk_size": shuffle_chunk_size,
@@ -553,10 +636,10 @@ class DatasetCollection:
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
-        zarr_shard_size: int | str = "1GB",
+        n_obs_per_shard: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-        n_obs_per_dataset: int = 2_097_152,
+        n_obs_per_dataset: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
         rng: np.random.Generator,
@@ -586,7 +669,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            zarr_shard_size
+            n_obs_per_shard
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
@@ -595,7 +678,8 @@ class DatasetCollection:
             h5ad_compressor
                 Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
             n_obs_per_dataset
-                Number of observations to load into memory at once for shuffling / pre-processing.
+                Number of observations to load into memory at once for shuffling / pre-processing, or a size string (e.g. ``'2GB'``, ``'512MB'``).
+                When a size string is provided, the observation count is derived from the estimated uncompressed bytes per row of the input data.
                 The higher this number, the more memory is used, but the better the shuffling.
                 This corresponds to the size of the shards created.
                 Only applicable when adding datasets for the first time, otherwise ignored.
@@ -609,12 +693,20 @@ class DatasetCollection:
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
+        needs_estimate = isinstance(n_obs_per_dataset, str)
+        estimated_bytes_per_row = _validate_anndatas_and_maybe_get_bytes_per_row(
+            adata_paths, load_adata=load_adata, estimate_bytes_per_obs_row=needs_estimate
+        )
+
+        if needs_estimate:
+            target_bytes = parse_size(n_obs_per_dataset, binary=True)
+            n_obs_per_dataset = max(1, int(target_bytes / estimated_bytes_per_row))
+
         if shuffle_chunk_size > n_obs_per_dataset:
             raise ValueError(
                 "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `n_obs_per_dataset`."
             )
 
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
         adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
@@ -642,8 +734,8 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata_chunk,
-                    n_obs_per_chunk=n_obs_per_chunk,
-                    shard_size=zarr_shard_size,
+                    n_obs_per_chunk=min(n_obs_per_chunk, adata_chunk.shape[0]),
+                    shard_size=n_obs_per_shard,
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
                 )
@@ -662,7 +754,7 @@ class DatasetCollection:
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         n_obs_per_chunk: int = 64,
-        zarr_shard_size: int | str = "1GB",
+        n_obs_per_shard: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
@@ -687,7 +779,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            zarr_shard_size
+            n_obs_per_shard
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
@@ -704,7 +796,6 @@ class DatasetCollection:
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add_adatas` first.")
         # Check for mismatched keys among the inputs.
-        _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
         adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
@@ -712,7 +803,7 @@ class DatasetCollection:
                 "Open an issue if the incoming anndata is so small it cannot be distributed across the on-disk data"
             )
         # Check for mismatched keys between datasets and the inputs.
-        _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
+        _validate_anndatas_and_maybe_get_bytes_per_row([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0],
             rng=rng,
@@ -739,8 +830,8 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata,
-                    n_obs_per_chunk=n_obs_per_chunk,
-                    shard_size=zarr_shard_size,
+                    n_obs_per_chunk=min(n_obs_per_chunk, adata.shape[0]),
+                    shard_size=n_obs_per_shard,
                     compressors=zarr_compressor,
                     key=dataset,
                 )
