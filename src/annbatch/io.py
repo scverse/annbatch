@@ -210,11 +210,6 @@ def _estimate_bytes_per_obs_row(
             total_bytes_per_row += (
                 data.shape[0] * (data.dtype.itemsize + indices.dtype.itemsize) + indptr.shape[0] * indptr.dtype.itemsize
             ) / n_obs
-        elif encoding == "coo_matrix":
-            data, row, col = node["data"], node["row"], node["col"]
-            total_bytes_per_row += (
-                data.shape[0] * (data.dtype.itemsize + row.dtype.itemsize + col.dtype.itemsize) / n_obs
-            )
         elif encoding in {"array", ""}:
             total_bytes_per_row += int(np.prod(node.shape[1:])) * node.dtype.itemsize
         elif encoding == "dataframe":
@@ -235,7 +230,7 @@ def _estimate_bytes_per_obs_row(
     return total_bytes_per_row
 
 
-def _validate_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
+def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths_or_anndatas: Iterable[T | ad.AnnData],
     *,
     load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
@@ -571,6 +566,7 @@ class DatasetCollection:
             zarr_shard_size
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
+                String sizes get parsed using the humanfriendly package.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
             zarr_compressor
                 Compressors to use to compress the data in the zarr store.
@@ -579,6 +575,7 @@ class DatasetCollection:
             n_obs_per_dataset
                 Number of observations to load into memory at once for shuffling / pre-processing, or a size string (e.g. ``'2GB'``, ``'512MB'``).
                 When a size string is provided, the observation count is derived from the estimated uncompressed bytes per row of the input data.
+                String sizes get parsed using the humanfriendly package.
                 The higher this number, the more memory is used, but the better the shuffling.
                 This corresponds to the size of the dataset level shards created.
                 Only applicable when adding datasets for the first time, otherwise ignored.
@@ -697,7 +694,7 @@ class DatasetCollection:
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
         needs_estimate = isinstance(n_obs_per_dataset, str)
-        estimated_bytes_per_row = _validate_anndatas(
+        estimated_bytes_per_row = _validate_anndatas_and_maybe_get_bytes_per_row(
             adata_paths, load_adata=load_adata, estimate_bytes_per_obs_row=needs_estimate
         )
 
@@ -806,7 +803,7 @@ class DatasetCollection:
                 "Open an issue if the incoming anndata is so small it cannot be distributed across the on-disk data"
             )
         # Check for mismatched keys between datasets and the inputs.
-        _validate_anndatas([adata_concat] + [self._group[k] for k in self._dataset_keys])
+        _validate_anndatas_and_maybe_get_bytes_per_row([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0],
             rng=rng,
