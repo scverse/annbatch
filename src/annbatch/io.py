@@ -529,7 +529,7 @@ class DatasetCollection:
         load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
-        zarr_shard_size: int | str = "1GB",
+        n_obs_per_shard: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int | str = "20GB",
@@ -563,7 +563,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            zarr_shard_size
+            n_obs_per_shard
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 String sizes get parsed using the humanfriendly package.
@@ -616,7 +616,7 @@ class DatasetCollection:
             "adata_paths": adata_paths,
             "load_adata": load_adata,
             "n_obs_per_chunk": n_obs_per_chunk,
-            "zarr_shard_size": zarr_shard_size,
+            "n_obs_per_shard": n_obs_per_shard,
             "zarr_compressor": zarr_compressor,
             "h5ad_compressor": h5ad_compressor,
             "shuffle_chunk_size": shuffle_chunk_size,
@@ -636,7 +636,7 @@ class DatasetCollection:
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
-        zarr_shard_size: int | str = "1GB",
+        n_obs_per_shard: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int | str = "20GB",
@@ -669,7 +669,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            zarr_shard_size
+            n_obs_per_shard
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
@@ -735,7 +735,7 @@ class DatasetCollection:
                     self._group,
                     adata_chunk,
                     n_obs_per_chunk=min(n_obs_per_chunk, adata_chunk.shape[0]),
-                    shard_size=zarr_shard_size,
+                    shard_size=n_obs_per_shard,
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
                 )
@@ -754,7 +754,7 @@ class DatasetCollection:
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         n_obs_per_chunk: int = 64,
-        zarr_shard_size: int | str = "1GB",
+        n_obs_per_shard: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
@@ -779,7 +779,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            zarr_shard_size
+            n_obs_per_shard
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
@@ -831,7 +831,7 @@ class DatasetCollection:
                     self._group,
                     adata,
                     n_obs_per_chunk=min(n_obs_per_chunk, adata.shape[0]),
-                    shard_size=zarr_shard_size,
+                    shard_size=n_obs_per_shard,
                     compressors=zarr_compressor,
                     key=dataset,
                 )

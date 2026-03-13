@@ -115,7 +115,7 @@ def simple_collection(
     collection = DatasetCollection(output_path).add_adatas(
         zarr_stores,
         n_obs_per_chunk=10,
-        zarr_shard_size=20,
+        n_obs_per_shard=20,
         n_obs_per_dataset=60,
         shuffle_chunk_size=10,
     )
