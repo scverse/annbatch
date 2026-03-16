@@ -55,8 +55,8 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
         DatasetCollection(tmp_path / "collection.zarr").add_adatas(
             [path_1, path_2],
             n_obs_per_chunk=5,
-            n_obs_per_shard=10,
-            n_obs_per_dataset=10,
+            shard_size=10,
+            dataset_size=10,
             shuffle_chunk_size=10,
         )
 
@@ -71,8 +71,8 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
     collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
         [path_1, path_2],
         n_obs_per_chunk=5,
-        n_obs_per_shard=10,
-        n_obs_per_dataset=10,
+        shard_size=10,
+        dataset_size=10,
         shuffle_chunk_size=5,
         load_adata=lambda x: ad.AnnData(X=ad.io.read_elem(h5py.File(x)["X"])),
     )
@@ -91,8 +91,8 @@ def test_store_creation_path_added_to_obs(tmp_path: Path):
     collection = DatasetCollection(output_dir).add_adatas(
         paths,
         n_obs_per_chunk=5,
-        n_obs_per_shard=10,
-        n_obs_per_dataset=10,
+        shard_size=10,
+        dataset_size=10,
         shuffle_chunk_size=5,
         shuffle=False,
     )
@@ -118,8 +118,8 @@ def test_store_addition_different_keys(
     collection.add_adatas(
         [orig_path],
         n_obs_per_chunk=10,
-        n_obs_per_shard=20,
-        n_obs_per_dataset=50,
+        shard_size=20,
+        dataset_size=50,
         shuffle_chunk_size=10,
     )
     extra_args = {
@@ -133,7 +133,7 @@ def test_store_addition_different_keys(
             [additional_path],
             load_adata=load_adata,
             n_obs_per_chunk=5,
-            n_obs_per_shard=10,
+            shard_size=10,
             shuffle_chunk_size=2,
         )
 
@@ -196,8 +196,8 @@ def test_store_creation(
     collection = DatasetCollection(output_path).add_adatas(
         [adata_with_h5_path_different_var_space[1] / f for f in h5_files if str(f).endswith(".h5ad")],
         n_obs_per_chunk=5,
-        n_obs_per_shard=10,
-        n_obs_per_dataset=50,
+        shard_size=10,
+        dataset_size=50,
         shuffle_chunk_size=10,
         shuffle=shuffle,
         **({"load_adata": load_adata} if load_adata is not None else {}),
@@ -286,8 +286,8 @@ def test_mismatched_raw_concat(
     collection = DatasetCollection(output_path).add_adatas(
         h5_paths,
         n_obs_per_chunk=10,
-        n_obs_per_shard=20,
-        n_obs_per_dataset=30,
+        shard_size=20,
+        dataset_size=30,
         shuffle_chunk_size=10,
         shuffle=False,  # don't shuffle -> want to check if the right attributes get taken
         load_adata=_read_lazy_x_and_obs_only_from_raw,
@@ -329,8 +329,8 @@ def test_store_extension(
     collection.add_adatas(
         original,
         n_obs_per_chunk=10,
-        n_obs_per_shard=20,
-        n_obs_per_dataset=60,
+        shard_size=20,
+        dataset_size=60,
         shuffle_chunk_size=10,
         shuffle=True,
     )
@@ -339,8 +339,8 @@ def test_store_extension(
         additional,
         load_adata=load_adata,
         n_obs_per_chunk=5,
-        n_obs_per_shard=10,
-        n_obs_per_dataset=50,
+        shard_size=10,
+        dataset_size=50,
         shuffle_chunk_size=10,
     )
     adatas_on_disk = [ad.io.read_elem(g) for g in collection]
@@ -375,8 +375,8 @@ def test_collection_rng_reproducibility(adata_with_zarr_path_same_var_space: tup
     seed = 42
     kwargs = {
         "n_obs_per_chunk": 10,
-        "n_obs_per_shard": 20,
-        "n_obs_per_dataset": 200,
+        "shard_size": 20,
+        "dataset_size": 200,
         "shuffle_chunk_size": 10,
         "shuffle": True,
     }
@@ -392,14 +392,14 @@ def test_collection_rng_reproducibility(adata_with_zarr_path_same_var_space: tup
 
 
 @pytest.mark.parametrize(
-    ["n_obs_per_shard", "n_obs_per_dataset"],
+    ["shard_size", "dataset_size"],
     [
         pytest.param("1KB", 50, id="string_shard_size"),
-        pytest.param(50, "10KB", id="string_n_obs_per_dataset"),
+        pytest.param(50, "10KB", id="string_dataset_size"),
         pytest.param("1KB", "10KB", id="both_string"),
     ],
 )
-def test_string_size_params_end_to_end(tmp_path: Path, n_obs_per_shard: int | str, n_obs_per_dataset: int | str):
+def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, dataset_size: int | str):
     """String-based size parameters work end-to-end with sparse data."""
     n_obs, n_vars = 200, 20
     X = sp.random(n_obs, n_vars, density=0.3, format="csr", dtype=np.float32, random_state=42)
@@ -412,8 +412,8 @@ def test_string_size_params_end_to_end(tmp_path: Path, n_obs_per_shard: int | st
     collection = DatasetCollection(output).add_adatas(
         [path],
         n_obs_per_chunk=10,
-        n_obs_per_shard=target_shard_size,
-        n_obs_per_dataset=n_obs_per_dataset,
+        shard_size=target_shard_size,
+        dataset_size=dataset_size,
         shuffle_chunk_size=10,
         shuffle=False,
         zarr_compressor=(),
@@ -427,14 +427,14 @@ def test_string_size_params_end_to_end(tmp_path: Path, n_obs_per_shard: int | st
     for dataset_grp in collection:
         dataset_dir = output / dataset_grp.name.lstrip("/")
         data_files = [p for p in dataset_dir.rglob("c/*") if p.is_file()]  # don't include zarr meta data files
-        if isinstance(n_obs_per_shard, str):
+        if isinstance(shard_size, str):
             assert len(data_files) > 0
             for sf in data_files:
                 assert sf.stat().st_size <= 1024, (
                     f"{sf.relative_to(dataset_dir)} is {sf.stat().st_size}B, expected <= 1KB"
                 )
-        if isinstance(n_obs_per_dataset, str):
-            budget = parse_size(n_obs_per_dataset, binary=True)
+        if isinstance(dataset_size, str):
+            budget = parse_size(dataset_size, binary=True)
             total_data_bytes = sum(f.stat().st_size for f in data_files)
             assert total_data_bytes <= budget, (
                 f"dataset {dataset_grp.name} data is {total_data_bytes}B, expected <= {budget}B"

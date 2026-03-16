@@ -202,9 +202,8 @@ def _estimate_bytes_per_obs_row(
     total_bytes_per_row = 0.0
     for elem_path in elem_paths:
         if elem_path not in backing:
-            continue
-        if elem_path not in backing:
             raise KeyError(f"Could not find {elem_path} on AnnData object in backing store")
+        node = backing[elem_path]
         encoding = dict(node.attrs).get("encoding-type", "")
         if encoding in {"csr_matrix", "csc_matrix"}:
             data, indices, indptr = node["data"], node["indices"], node["indptr"]
@@ -223,6 +222,11 @@ def _estimate_bytes_per_obs_row(
                     col_node = col_node["codes"]
                 if hasattr(col_node, "shape") and hasattr(col_node, "dtype"):
                     total_bytes_per_row += col_node.shape[0] * col_node.dtype.itemsize / n_obs
+        elif encoding == "awkward-array":
+            for buf_key in node:
+                buf = node[buf_key]
+                if hasattr(buf, "shape") and hasattr(buf, "dtype"):
+                    total_bytes_per_row += buf.shape[0] * buf.dtype.itemsize / n_obs
         else:
             raise ValueError(
                 f"Unsupported encoding-type {encoding!r} for element {elem_path!r}. Cannot estimate per-row byte size."
@@ -274,7 +278,7 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
             if estimate_bytes_per_obs_row:
                 raise NotImplementedError(
                     "Cannot estimate bytes per observation row from an AnnData object. "
-                    "Provide file paths or groups instead, or pass an integer for n_obs_per_dataset."
+                    "Provide file paths or groups instead, or pass an integer for dataset_size."
                 )
             adata = path_or_anndata
         for elem_name, key_count in found_keys.items():
@@ -530,15 +534,15 @@ class DatasetCollection:
         load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
-        n_obs_per_shard: int | str = "1GB",
+        shard_size: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-        n_obs_per_dataset: int | str = "20GB",
+        dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
         rng: np.random.Generator | None = None,
     ) -> Self:
-        """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per dataset if running for the first time).
+        """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `dataset_size` rows per dataset if running for the first time).
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
         The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
@@ -546,7 +550,7 @@ class DatasetCollection:
         The var space is by default outer-joined initially, and then subsequently added datasets (i.e., on second calls to this function) are subsetted, but this behavior can be controlled by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
         We highly recommend making your indexes unique across files, and this function will call `AnnData.obs_names_make_unique`.
-        Memory usage should be controlled by `n_obs_per_dataset` + `shuffle_chunk_size` as so many rows will be read into memory before writing to disk.
+        Memory usage should be controlled by `dataset_size` + `shuffle_chunk_size` as so many rows will be read into memory before writing to disk.
         After the dataset completes, a marker is added to the group's `attrs` to note that this dataset has been shuffled by `annbatch`.
         This is not a stable API but only for internal purposes at the moment.
 
@@ -564,7 +568,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            n_obs_per_shard
+            shard_size
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 String sizes get parsed using the humanfriendly package.
@@ -573,7 +577,7 @@ class DatasetCollection:
                 Compressors to use to compress the data in the zarr store.
             h5ad_compressor
                 Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
-            n_obs_per_dataset
+            dataset_size
                 Number of observations to load into memory at once for shuffling / pre-processing, or a size string (e.g. ``'2GB'``, ``'512MB'``).
                 When a size string is provided, the observation count is derived from the estimated uncompressed bytes per row of the input data.
                 String sizes get parsed using the humanfriendly package.
@@ -585,7 +589,7 @@ class DatasetCollection:
                 Ignored once the store is non-empty.
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
-                `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
+                `(shuffle_chunk_size // dataset_size)` slices will be loaded of size `shuffle_chunk_size`.
             rng
                 Random number generator for shuffling.
 
@@ -617,7 +621,7 @@ class DatasetCollection:
             "adata_paths": adata_paths,
             "load_adata": load_adata,
             "n_obs_per_chunk": n_obs_per_chunk,
-            "n_obs_per_shard": n_obs_per_shard,
+            "shard_size": shard_size,
             "zarr_compressor": zarr_compressor,
             "h5ad_compressor": h5ad_compressor,
             "shuffle_chunk_size": shuffle_chunk_size,
@@ -625,7 +629,7 @@ class DatasetCollection:
             "rng": rng,
         }
         if self.is_empty:
-            self._create_collection(**shared_kwargs, n_obs_per_dataset=n_obs_per_dataset, var_subset=var_subset)
+            self._create_collection(**shared_kwargs, dataset_size=dataset_size, var_subset=var_subset)
         else:
             self._add_to_collection(**shared_kwargs)
         return self
@@ -637,15 +641,15 @@ class DatasetCollection:
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
-        n_obs_per_shard: int | str = "1GB",
+        shard_size: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
-        n_obs_per_dataset: int | str = "20GB",
+        dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
         rng: np.random.Generator,
     ) -> None:
-        """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
+        """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `dataset_size` rows per dataset.
 
         The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
         The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
@@ -653,7 +657,7 @@ class DatasetCollection:
         The var space is by default outer-joined, but can be subsetted by `var_subset`.
         A key `src_path` is added to `obs` to indicate where individual row came from.
         We highly recommend making your indexes unique across files, and this function will call `AnnData.obs_names_make_unique`.
-        Memory usage should be controlled by `n_obs_per_dataset` as so many rows will be read into memory before writing to disk.
+        Memory usage should be controlled by `dataset_size` as so many rows will be read into memory before writing to disk.
 
         Parameters
         ----------
@@ -670,7 +674,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            n_obs_per_shard
+            shard_size
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
@@ -678,7 +682,7 @@ class DatasetCollection:
                 Compressors to use to compress the data in the zarr store.
             h5ad_compressor
                 Compressors to use to compress the data in the h5ad store. See anndata.write_h5ad.
-            n_obs_per_dataset
+            dataset_size
                 Number of observations to load into memory at once for shuffling / pre-processing, or a size string (e.g. ``'2GB'``, ``'512MB'``).
                 When a size string is provided, the observation count is derived from the estimated uncompressed bytes per row of the input data.
                 The higher this number, the more memory is used, but the better the shuffling.
@@ -688,35 +692,35 @@ class DatasetCollection:
                 Whether to shuffle the data before writing it to the store.
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
-                `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
+                `(shuffle_chunk_size // dataset_size)` slices will be loaded of size `shuffle_chunk_size`.
             rng
                 Random number generator for shuffling.
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
-        needs_estimate = isinstance(n_obs_per_dataset, str)
+        needs_estimate = isinstance(dataset_size, str)
         estimated_bytes_per_row = _validate_anndatas_and_maybe_get_bytes_per_row(
             adata_paths, load_adata=load_adata, estimate_bytes_per_obs_row=needs_estimate
         )
 
         if needs_estimate:
-            target_bytes = parse_size(n_obs_per_dataset, binary=True)
-            n_obs_per_dataset = max(1, int(target_bytes / estimated_bytes_per_row))
+            target_bytes = parse_size(dataset_size, binary=True)
+            dataset_size = max(1, int(target_bytes / estimated_bytes_per_row))
 
-        if shuffle_chunk_size > n_obs_per_dataset:
+        if shuffle_chunk_size > dataset_size:
             raise ValueError(
-                "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `n_obs_per_dataset`."
+                "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `dataset_size`."
             )
 
         adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
-        n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
+        dataset_size = min(adata_concat.shape[0], dataset_size)
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0],
             rng=rng,
             shuffle_chunk_size=shuffle_chunk_size,
             shuffle=shuffle,
-            shuffle_n_obs_per_dataset=n_obs_per_dataset,
+            shuffle_n_obs_per_dataset=dataset_size,
         )
 
         if var_subset is None:
@@ -736,7 +740,7 @@ class DatasetCollection:
                     self._group,
                     adata_chunk,
                     n_obs_per_chunk=min(n_obs_per_chunk, adata_chunk.shape[0]),
-                    shard_size=n_obs_per_shard,
+                    shard_size=shard_size,
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
                 )
@@ -755,7 +759,7 @@ class DatasetCollection:
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         n_obs_per_chunk: int = 64,
-        n_obs_per_shard: int | str = "1GB",
+        shard_size: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
@@ -780,7 +784,7 @@ class DatasetCollection:
             n_obs_per_chunk
                 Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
                 For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
-            n_obs_per_shard
+            shard_size
                 Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
                 If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
                 For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
@@ -832,7 +836,7 @@ class DatasetCollection:
                     self._group,
                     adata,
                     n_obs_per_chunk=min(n_obs_per_chunk, adata.shape[0]),
-                    shard_size=n_obs_per_shard,
+                    shard_size=shard_size,
                     compressors=zarr_compressor,
                     key=dataset,
                 )
