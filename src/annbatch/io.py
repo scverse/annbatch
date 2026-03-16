@@ -203,7 +203,8 @@ def _estimate_bytes_per_obs_row(
     for elem_path in elem_paths:
         if elem_path not in backing:
             continue
-        node = backing[elem_path]
+        if elem_path not in backing:
+            raise KeyError(f"Could not find {elem_path} on AnnData object in backing store")
         encoding = dict(node.attrs).get("encoding-type", "")
         if encoding in {"csr_matrix", "csc_matrix"}:
             data, indices, indptr = node["data"], node["indices"], node["indptr"]
