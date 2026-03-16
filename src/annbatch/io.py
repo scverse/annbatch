@@ -272,7 +272,7 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
                 bytes_per_obs_samples.append(_estimate_bytes_per_obs_row(adata, backing=backing))
         else:
             if estimate_bytes_per_obs_row:
-                raise TypeError(
+                raise NotImplementedError(
                     "Cannot estimate bytes per observation row from an AnnData object. "
                     "Provide file paths or groups instead, or pass an integer for n_obs_per_dataset."
                 )
