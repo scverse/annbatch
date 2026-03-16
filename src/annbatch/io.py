@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
 import re
 import warnings
 from collections import defaultdict
@@ -16,8 +15,10 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import zarr
+from anndata._core.sparse_dataset import BaseCompressedSparseDataset
 from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
+from humanfriendly import parse_size
 from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec, BloscShuffle
 
@@ -60,14 +61,43 @@ def _round_down(num: int, divisor: int):
     return num - (num % divisor)
 
 
+def _shard_size_param_to_n_obs(shard_size: int | str, elem) -> int:
+    """Convert `shard_size` to a number of observations given the size of an element from the anndata object.
+
+    If *shard_size* is already an int, it is interpreted as `n_obs`.  When it is a
+    size string the target byte budget is divided by the element's
+    uncompressed bytes-per-observation-row.
+    """
+    if isinstance(shard_size, int):
+        return shard_size
+    target_bytes = parse_size(shard_size, binary=True)
+
+    def _cs_bytes(x) -> int:
+        return int(x.data.nbytes + x.indptr.nbytes + x.indices.nbytes)
+
+    n_obs = elem.shape[0] if hasattr(elem, "shape") else len(elem)
+    if n_obs == 0:
+        return 1
+
+    if isinstance(elem, h5py.Dataset):
+        total_bytes = int(np.array(elem.shape).prod() * elem.dtype.itemsize)
+    elif isinstance(elem, BaseCompressedSparseDataset):
+        total_bytes = _cs_bytes(elem._to_backed())
+    elif sp.issparse(elem):
+        total_bytes = _cs_bytes(elem)
+    else:
+        total_bytes = elem.__sizeof__()
+
+    bytes_per_row = total_bytes / n_obs
+    return max(1, int(target_bytes / bytes_per_row)) if bytes_per_row > 0 else 1
+
+
 def write_sharded(
     group: zarr.Group,
     adata: ad.AnnData,
     *,
-    sparse_chunk_size: int = 32768,
-    sparse_shard_size: int = 134_217_728,
-    dense_chunk_size: int = 1024,
-    dense_shard_size: int = 4194304,
+    n_obs_per_chunk: int = 64,
+    shard_size: int | str = 2_097_152,
     compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
     key: str | None = None,
 ):
@@ -79,14 +109,14 @@ def write_sharded(
             The destination group, must be zarr v3
         adata
             The source anndata object
-        sparse_chunk_size
-            Chunk size of `indices` and `data` inside a shard.
-        sparse_shard_size
-            Shard size i.e., number of elements in a single sparse `data` or `indices` file.
-        dense_chunk_size
-            Number of obs elements per dense chunk along the first axis
-        dense_shard_size
-            Number of obs elements per dense shard along the first axis
+        n_obs_per_chunk
+            Number of observations per chunk. For dense arrays this directly sets the first-axis chunk size.
+            For sparse arrays it is converted to element counts using the average non-zero elements per row of the matrix being written.
+        shard_size
+            Number of observations per shard, or a size string (e.g. ``'1GB'``, ``'512MB'``).
+            If a size string is provided, the observation count is derived independently for each array element from its uncompressed bytes-per-row so that every shard stays close to the target size.
+            For dense arrays the resolved count directly sets the first-axis shard size.
+            For sparse arrays it is converted to element counts using the average non-zero elements per row of the matrix being written.
         compressors
             The compressors to pass to `zarr`.
         key
@@ -104,29 +134,40 @@ def write_sharded(
             iospec: ad.experimental.IOSpec,
         ):
             # Ensure we're not overriding anything here
-            dataset_kwargs = dataset_kwargs.copy()
+            dataset_kwargs = dict(dataset_kwargs)
             if iospec.encoding_type in {"array"} and (
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
+                obs_per_shard = _shard_size_param_to_n_obs(shard_size, elem)
                 # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
-                shard_size = min(dense_shard_size, _round_down(elem.shape[0], dense_chunk_size))
-                chunk_size = min(dense_chunk_size, _round_down(elem.shape[0], dense_chunk_size))
-                # If the shape is less than the computed size (impossible given rounds?) or the rounding caused created a 0-size chunk, then error
-                if elem.shape[0] < chunk_size or chunk_size == 0:
+                dense_chunk = min(n_obs_per_chunk, _round_down(elem.shape[0], n_obs_per_chunk))
+                if elem.shape[0] < dense_chunk or dense_chunk == 0:
                     raise ValueError(
-                        f"Choose a dense shard obs {dense_shard_size} and chunk obs {dense_chunk_size} with non-zero size less than the number of observations {elem.shape[0]}"
+                        f"Choose a shard obs {shard_size} and chunk obs {n_obs_per_chunk} with non-zero size less than the number of observations {elem.shape[0]}"
                     )
+                dense_shard = min(obs_per_shard, _round_down(elem.shape[0], n_obs_per_chunk))
+                dense_shard = max(dense_chunk, _round_down(dense_shard, dense_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
-                    "shards": (shard_size,) + elem.shape[1:],  # only shard over 1st dim
-                    "chunks": (chunk_size,) + elem.shape[1:],  # only chunk over 1st dim
+                    "shards": (dense_shard,) + elem.shape[1:],  # only shard over 1st dim
+                    "chunks": (dense_chunk,) + elem.shape[1:],  # only chunk over 1st dim
                     "compressors": compressors,
                 }
             elif iospec.encoding_type in {"csr_matrix", "csc_matrix"}:
+                obs_per_shard = _shard_size_param_to_n_obs(shard_size, elem)
+                nnz = elem.nnz
+                if elem.shape[0] == 0:
+                    raise ValueError(f"Cannot write sharded sparse matrix {elem_name!r} with 0 observations.")
+                avg_nnz_per_obs = nnz / elem.shape[0]
+                sparse_chunk = max(1, int(n_obs_per_chunk * avg_nnz_per_obs))
+                sparse_chunk = min(sparse_chunk, nnz) if nnz > 0 else sparse_chunk
+                sparse_shard = max(1, int(obs_per_shard * avg_nnz_per_obs))
+                sparse_shard = min(sparse_shard, nnz) if nnz > 0 else sparse_shard
+                sparse_shard = max(sparse_chunk, _round_down(sparse_shard, sparse_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
-                    "shards": (sparse_shard_size,),
-                    "chunks": (sparse_chunk_size,),
+                    "shards": (sparse_shard,),
+                    "chunks": (sparse_chunk,),
                     "compressors": compressors,
                 }
             write_func(store, elem_name, elem, dataset_kwargs=dataset_kwargs)
@@ -136,7 +177,7 @@ def write_sharded(
 
 
 def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str](
-    paths_or_anndatas: Iterable[T | ad.AnnData],
+    paths_or_adata: Iterable[T | ad.AnnData],
     *,
     load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
 ):
@@ -146,7 +187,7 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
-    for path_or_anndata in tqdm(paths_or_anndatas, desc="checking for mismatched keys"):
+    for path_or_anndata in tqdm(paths_or_adata, desc="Checking for mismatched keys"):
         if not isinstance(path_or_anndata, ad.AnnData):
             adata = load_adata(path_or_anndata)
         else:
@@ -158,31 +199,31 @@ def _check_for_mismatched_keys[T: zarr.Group | h5py.Group | PathLike[str] | str]
                     key_count[key] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != (num_anndatas := len(list(paths_or_anndatas))) and num_raw_in_adata != 0:
+    if num_raw_in_adata != (num_anndatas := len(list(paths_or_adata))) and num_raw_in_adata != 0:
         warnings.warn(
-            f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
+            f"Found raw keys not present in all anndatas {paths_or_adata}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
         )
     for elem_name, key_count in found_keys.items():
         elem_keys_mismatched = [key for key, count in key_count.items() if (count != num_anndatas and count != 0)]
         if len(elem_keys_mismatched) > 0:
             warnings.warn(
-                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
+                f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_adata}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
 
 
-def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
+def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
     load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
-    for i, path in tqdm(enumerate(paths), desc="loading"):
+    for i, path in tqdm(enumerate(paths), total=len(paths), desc="Lazy loading adata"):
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
-            np.ones((adata.shape[0],), dtype="int") * i, categories=[str(p) for p in paths]
+            np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
         )
         # Concatenating Dataset2D drops categoricals so we need to track them
         if isinstance(adata.obs, Dataset2D):
@@ -216,6 +257,7 @@ def _lazy_load_anndatas[T: zarr.Group | h5py.Group | PathLike[str] | str](
 
 def _create_chunks_for_shuffling(
     n_obs: int,
+    rng: np.random.Generator,
     shuffle_chunk_size: int = 1000,
     shuffle: bool = True,
     *,
@@ -225,7 +267,7 @@ def _create_chunks_for_shuffling(
     # this splits the array up into `shuffle_chunk_size` contiguous runs
     idxs = split_given_size(np.arange(n_obs), shuffle_chunk_size)
     if shuffle:
-        random.shuffle(idxs)
+        rng.shuffle(idxs)
     match shuffle_n_obs_per_dataset is not None, n_chunkings is not None:
         case True, False:
             n_slices_per_dataset = int(shuffle_n_obs_per_dataset // shuffle_chunk_size)
@@ -239,11 +281,13 @@ def _create_chunks_for_shuffling(
     if use_single_chunking:
         return [np.concatenate(idxs)]
     # unfortunately, this is the only way to prevent numpy.split from trying to np.array the idxs list, which can have uneven elements.
-    idxs = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
+    idxs_as_slices = np.array([slice(int(idx[0]), int(idx[-1] + 1)) for idx in idxs])
     return [
         np.concatenate([np.arange(s.start, s.stop) for s in idx])
         for idx in (
-            split_given_size(idxs, n_slices_per_dataset) if n_chunkings is None else np.array_split(idxs, n_chunkings)
+            split_given_size(idxs_as_slices, n_slices_per_dataset)
+            if n_chunkings is None
+            else np.array_split(idxs_as_slices, n_chunkings)
         )
     ]
 
@@ -385,7 +429,7 @@ class DatasetCollection:
 
     @property
     def is_empty(self) -> bool:
-        """Wether or not there is an existing store at the group location."""
+        """Whether or not there is an existing store at the group location."""
         return (
             (not (V1_ENCODING.items() <= self._group.attrs.items()) or len(self._dataset_keys) == 0)
             if isinstance(self._group, zarr.Group)
@@ -399,15 +443,14 @@ class DatasetCollection:
         *,
         load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
-        zarr_sparse_chunk_size: int = 32768,
-        zarr_sparse_shard_size: int = 134_217_728,
-        zarr_dense_chunk_size: int = 1024,
-        zarr_dense_shard_size: int = 4_194_304,
+        n_obs_per_chunk: int = 64,
+        zarr_shard_size: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        rng: np.random.Generator | None = None,
     ) -> Self:
         """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `n_obs_per_dataset` rows per dataset if running for the first time).
 
@@ -432,14 +475,13 @@ class DatasetCollection:
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
-            zarr_sparse_chunk_size
-                Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_sparse_shard_size
-                Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_dense_chunk_size
-                Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
-            zarr_dense_shard_size
-                Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
+            n_obs_per_chunk
+                Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
+                For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
+            zarr_shard_size
+                Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
+                If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
+                For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
             zarr_compressor
                 Compressors to use to compress the data in the zarr store.
             h5ad_compressor
@@ -447,7 +489,8 @@ class DatasetCollection:
             n_obs_per_dataset
                 Number of observations to load into memory at once for shuffling / pre-processing.
                 The higher this number, the more memory is used, but the better the shuffling.
-                This corresponds to the size of the shards created.
+                This corresponds to the size of the dataset level shards created.
+                Only applicable when adding datasets for the first time, otherwise ignored.
                 Only applicable when adding datasets for the first time, otherwise ignored.
             shuffle
                 Whether to shuffle the data before writing it to the store.
@@ -455,6 +498,8 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
+            rng
+                Random number generator for shuffling.
 
         Examples
         --------
@@ -479,18 +524,21 @@ class DatasetCollection:
             ...)
         """
         if shuffle_chunk_size > n_obs_per_dataset:
-            raise ValueError("Cannot have a large slice size than observations per dataset")
+            raise ValueError(
+                "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `n_obs_per_dataset`."
+            )
+        if rng is None:
+            rng = np.random.default_rng()
         shared_kwargs = {
             "adata_paths": adata_paths,
             "load_adata": load_adata,
-            "zarr_sparse_chunk_size": zarr_sparse_chunk_size,
-            "zarr_sparse_shard_size": zarr_sparse_shard_size,
-            "zarr_dense_chunk_size": zarr_dense_chunk_size,
-            "zarr_dense_shard_size": zarr_dense_shard_size,
+            "n_obs_per_chunk": n_obs_per_chunk,
+            "zarr_shard_size": zarr_shard_size,
             "zarr_compressor": zarr_compressor,
             "h5ad_compressor": h5ad_compressor,
             "shuffle_chunk_size": shuffle_chunk_size,
             "shuffle": shuffle,
+            "rng": rng,
         }
         if self.is_empty:
             self._create_collection(**shared_kwargs, n_obs_per_dataset=n_obs_per_dataset, var_subset=var_subset)
@@ -504,15 +552,14 @@ class DatasetCollection:
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
-        zarr_sparse_chunk_size: int = 32768,
-        zarr_sparse_shard_size: int = 134_217_728,
-        zarr_dense_chunk_size: int = 1024,
-        zarr_dense_shard_size: int = 4_194_304,
+        n_obs_per_chunk: int = 64,
+        zarr_shard_size: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         n_obs_per_dataset: int = 2_097_152,
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        rng: np.random.Generator,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `n_obs_per_dataset` rows per dataset.
 
@@ -536,14 +583,13 @@ class DatasetCollection:
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
                 Only applicable when adding datasets for the first time, otherwise ignored and the incoming data's var space is subsetted to that of the existing collection.
-            zarr_sparse_chunk_size
-                Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_sparse_shard_size
-                Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_dense_chunk_size
-                Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
-            zarr_dense_shard_size
-                Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
+            n_obs_per_chunk
+                Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
+                For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
+            zarr_shard_size
+                Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
+                If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
+                For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
             zarr_compressor
                 Compressors to use to compress the data in the zarr store.
             h5ad_compressor
@@ -558,20 +604,31 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // n_obs_per_dataset)` slices will be loaded of size `shuffle_chunk_size`.
+            rng
+                Random number generator for shuffling.
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
+        if shuffle_chunk_size > n_obs_per_dataset:
+            raise ValueError(
+                "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `n_obs_per_dataset`."
+            )
+
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         adata_concat.obs_names_make_unique()
         n_obs_per_dataset = min(adata_concat.shape[0], n_obs_per_dataset)
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, shuffle_n_obs_per_dataset=n_obs_per_dataset
+            adata_concat.shape[0],
+            rng=rng,
+            shuffle_chunk_size=shuffle_chunk_size,
+            shuffle=shuffle,
+            shuffle_n_obs_per_dataset=n_obs_per_dataset,
         )
 
         if var_subset is None:
             var_subset = adata_concat.var_names
-        for i, chunk in enumerate(tqdm(chunks, desc="processing chunks")):
+        for i, chunk in enumerate(tqdm(chunks, desc="Creating collection")):
             var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
@@ -579,16 +636,14 @@ class DatasetCollection:
             adata_chunk = _persist_adata_in_memory(adata_chunk)
             if shuffle:
                 # shuffle adata in memory to break up individual chunks
-                idxs = np.random.default_rng().permutation(np.arange(len(adata_chunk)))
+                idxs = rng.permutation(np.arange(len(adata_chunk)))
                 adata_chunk = adata_chunk[idxs]
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,
                     adata_chunk,
-                    sparse_chunk_size=zarr_sparse_chunk_size,
-                    sparse_shard_size=zarr_sparse_shard_size,
-                    dense_chunk_size=min(adata_chunk.shape[0], zarr_dense_chunk_size),
-                    dense_shard_size=min(adata_chunk.shape[0], zarr_dense_shard_size),
+                    n_obs_per_chunk=n_obs_per_chunk,
+                    shard_size=zarr_shard_size,
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
                 )
@@ -606,14 +661,13 @@ class DatasetCollection:
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
-        zarr_sparse_chunk_size: int = 32768,
-        zarr_sparse_shard_size: int = 134_217_728,
-        zarr_dense_chunk_size: int = 1024,
-        zarr_dense_shard_size: int = 4_194_304,
+        n_obs_per_chunk: int = 64,
+        zarr_shard_size: int | str = "1GB",
         zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        rng: np.random.Generator,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
 
@@ -623,19 +677,20 @@ class DatasetCollection:
         ----------
             adata_paths
                 Paths to the anndata files to be appended to the collection of output chunks.
+            rng
+                Random number generator for shuffling.
             load_adata
                 Function to customize loading the invidiual input anndata files. By default, :func:`anndata.read_h5ad` is used.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and `obs`), you can provide a custom function here to speed up loading and harmonize your data.
                 The input to the function is a path to an anndata file, and the output is an anndata object.
                 If the input data is too large to fit into memory, you should use :func:`annndata.experimental.read_lazy` instead.
-            zarr_sparse_chunk_size
-                Size of the chunks to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_sparse_shard_size
-                Size of the shards to use for the `indices` and `data` of a sparse matrix in the zarr store.
-            zarr_dense_chunk_size
-                Number of observations per dense zarr chunk i.e., sharding is only done along the first axis of the array.
-            zarr_dense_shard_size
-                Number of observations per dense zarr shard i.e., chunking is only done along the first axis of the array.
+            n_obs_per_chunk
+                Number of observations per zarr chunk. For dense arrays this is used directly as the first-axis chunk size.
+                For sparse arrays it is converted to element counts using the average number of non-zero elements per row of the matrix being written.
+            zarr_shard_size
+                Number of observations per zarr shard, or a size string (e.g. ``'1GB'``).
+                If a size string is provided, the number of obersevations per zarr shard is estimated automatically.
+                For sparse arrays the number of observations is converted to element counts using the average number of non-zero elements per row of the matrix being written
             zarr_compressor
                 Compressors to use to compress the data in the zarr store.
             should_sparsify_output_in_memory
@@ -647,11 +702,10 @@ class DatasetCollection:
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
         """
         if self.is_empty:
-            raise ValueError("Store is empty. Please run `DatasetCollection.add` first.")
+            raise ValueError("Store is empty. Please run `DatasetCollection.add_adatas` first.")
         # Check for mismatched keys among the inputs.
         _check_for_mismatched_keys(adata_paths, load_adata=load_adata)
-
-        adata_concat = _lazy_load_anndatas(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
@@ -660,12 +714,16 @@ class DatasetCollection:
         # Check for mismatched keys between datasets and the inputs.
         _check_for_mismatched_keys([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
-            adata_concat.shape[0], shuffle_chunk_size, shuffle=shuffle, n_chunkings=len(self._dataset_keys)
+            adata_concat.shape[0],
+            rng=rng,
+            shuffle_chunk_size=shuffle_chunk_size,
+            shuffle=shuffle,
+            n_chunkings=len(self._dataset_keys),
         )
 
         adata_concat.obs_names_make_unique()
         for dataset, chunk in tqdm(
-            zip(self._dataset_keys, chunks, strict=True), total=len(self._dataset_keys), desc="processing chunks"
+            zip(self._dataset_keys, chunks, strict=True), total=len(self._dataset_keys), desc="Extending collection"
         ):
             adata_dataset = ad.io.read_elem(self._group[dataset])
             subset_adata = _to_categorical_obs(
@@ -673,7 +731,7 @@ class DatasetCollection:
             )
             adata = ad.concat([adata_dataset, subset_adata], join="outer")
             if shuffle:
-                idxs = np.random.default_rng().permutation(adata.shape[0])
+                idxs = rng.permutation(adata.shape[0])
             else:
                 idxs = np.arange(adata.shape[0])
             adata = _persist_adata_in_memory(adata[idxs, :].copy())
@@ -681,10 +739,8 @@ class DatasetCollection:
                 write_sharded(
                     self._group,
                     adata,
-                    sparse_chunk_size=zarr_sparse_chunk_size,
-                    sparse_shard_size=zarr_sparse_shard_size,
-                    dense_chunk_size=min(adata.shape[0], zarr_dense_chunk_size),
-                    dense_shard_size=min(adata.shape[0], zarr_dense_shard_size),
+                    n_obs_per_chunk=n_obs_per_chunk,
+                    shard_size=zarr_shard_size,
                     compressors=zarr_compressor,
                     key=dataset,
                 )
