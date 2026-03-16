@@ -199,7 +199,7 @@ def _estimate_bytes_per_obs_row(
         elem_paths.append(f"obsm/{k}")
     elem_paths.append("obs")
 
-    total_bytes_per_row = 0.0
+    mean_bytes_per_row = 0.0
     for elem_path in elem_paths:
         if elem_path not in backing:
             raise KeyError(f"Could not find {elem_path} on AnnData object in backing store")
@@ -207,11 +207,11 @@ def _estimate_bytes_per_obs_row(
         encoding = dict(node.attrs).get("encoding-type", "")
         if encoding in {"csr_matrix", "csc_matrix"}:
             data, indices, indptr = node["data"], node["indices"], node["indptr"]
-            total_bytes_per_row += (
+            mean_bytes_per_row += (
                 data.shape[0] * (data.dtype.itemsize + indices.dtype.itemsize) + indptr.shape[0] * indptr.dtype.itemsize
             ) / n_obs
         elif encoding in {"array", ""}:
-            total_bytes_per_row += int(np.prod(node.shape[1:])) * node.dtype.itemsize
+            mean_bytes_per_row += int(np.prod(node.shape[1:])) * node.dtype.itemsize
         elif encoding == "dataframe":
             for col_key in node:
                 if col_key == "_index":
@@ -221,18 +221,18 @@ def _estimate_bytes_per_obs_row(
                 if col_encoding == "categorical":
                     col_node = col_node["codes"]
                 if hasattr(col_node, "shape") and hasattr(col_node, "dtype"):
-                    total_bytes_per_row += col_node.shape[0] * col_node.dtype.itemsize / n_obs
+                    mean_bytes_per_row += col_node.shape[0] * col_node.dtype.itemsize / n_obs
         elif encoding == "awkward-array":
             for buf_key in node:
                 buf = node[buf_key]
                 if hasattr(buf, "shape") and hasattr(buf, "dtype"):
-                    total_bytes_per_row += buf.shape[0] * buf.dtype.itemsize / n_obs
+                    mean_bytes_per_row += buf.shape[0] * buf.dtype.itemsize / n_obs
         else:
             raise ValueError(
                 f"Unsupported encoding-type {encoding!r} for element {elem_path!r}. Cannot estimate per-row byte size."
             )
 
-    return total_bytes_per_row
+    return mean_bytes_per_row
 
 
 def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | PathLike[str] | str](
