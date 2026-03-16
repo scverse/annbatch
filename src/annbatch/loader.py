@@ -669,7 +669,8 @@ class Loader[
         )
 
         def get_kwargs(z: zarr.Array) -> dict:
-            kwargs = {"prototype": zarr.core.buffer.default_buffer_prototype()}
+            buffer_prototype = zarr.core.buffer.default_buffer_prototype()
+            kwargs = {"prototype": buffer_prototype}
             if self._preload_to_gpu:
                 import cupyx as cpx
 
