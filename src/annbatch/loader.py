@@ -585,9 +585,10 @@ class Loader[
             ]
         )
         buffer_prototype = zarr.core.buffer.default_buffer_prototype()
-        kwargs = dict(prototype=buffer_prototype)
+        kwargs = {"prototype": buffer_prototype}
         if self._preload_to_gpu:
             import cupyx as cpx
+
             kwargs["out"] = buffer_prototype.nd_buffer(cpx.empty_pinned(indexer.shape, dataset.dtype))
         res = cast(
             "np.ndarray",
@@ -666,17 +667,17 @@ class Loader[
                 for l in indptr_limits
             ]
         )
+
         def get_kwargs(z: zarr.Array) -> dict:
-            kwargs = dict(prototype=zarr.core.buffer.default_buffer_prototype())
+            kwargs = {"prototype": zarr.core.buffer.default_buffer_prototype()}
             if self._preload_to_gpu:
                 import cupyx as cpx
+
                 kwargs["out"] = buffer_prototype.nd_buffer(cpx.empty_pinned(indexer.shape, z.dtype))
             return kwargs
+
         data_np, indices_np = await asyncio.gather(
-            **(
-                z._get_selection(indexer, **get_kwargs())
-                for z in [data, indices]
-            )
+            **(z._get_selection(indexer, **get_kwargs()) for z in [data, indices])
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
