@@ -401,8 +401,13 @@ def test_collection_rng_reproducibility(adata_with_zarr_path_same_var_space: tup
 )
 def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, dataset_size: int | str):
     """String-based size parameters work end-to-end with sparse data."""
-    n_obs, n_vars = 200, 20
-    X = sp.random(n_obs, n_vars, density=0.3, format="csr", dtype=np.float32, random_state=42)
+    n_obs, n_vars = 500, 20
+    rng = np.random.default_rng(42)
+    nnz_per_row = 5
+    rows = np.repeat(np.arange(n_obs), nnz_per_row)
+    cols = np.column_stack([rng.choice(n_vars, size=nnz_per_row, replace=False) for _ in range(n_obs)]).T.ravel()
+    data = rng.standard_normal(n_obs * nnz_per_row, dtype=np.float32)
+    X = sp.csr_matrix((data, (rows, cols)), shape=(n_obs, n_vars))
     obsm = {"embedding": np.random.default_rng(42).standard_normal((n_obs, 10), dtype=np.float32)}
     path = tmp_path / "sparse.h5ad"
     ad.AnnData(X=X, obsm=obsm).write_h5ad(path, compression=None)
@@ -424,9 +429,11 @@ def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, da
     adata_result = ad.concat(datasets, join="outer")
     assert adata_result.shape == (n_obs, n_vars)
 
-    for dataset_grp in collection:
+    n_datasets = len(list(collection))
+    print(n_datasets)
+    for i, dataset_grp in enumerate(collection):
         dataset_dir = output / dataset_grp.name.lstrip("/")
-        data_files = [p for p in dataset_dir.rglob("c/*") if p.is_file()]  # don't include zarr meta data files
+        data_files = [p for p in dataset_dir.rglob("*") if p.is_file() and "c" in p.relative_to(dataset_dir).parts]
         if isinstance(shard_size, str):
             assert len(data_files) > 0
             for sf in data_files:
@@ -439,3 +446,8 @@ def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, da
             assert total_data_bytes <= budget, (
                 f"dataset {dataset_grp.name} data is {total_data_bytes}B, expected <= {budget}B"
             )
+            if i < n_datasets - 1:
+                assert total_data_bytes >= budget * 0.9, (
+                    f"dataset {dataset_grp.name} data is {total_data_bytes}B, "
+                    f"expected >= {budget * 0.9:.0f}B (90% of budget)"
+                )
