@@ -677,7 +677,7 @@ class Loader[
             return kwargs
 
         data_np, indices_np = await asyncio.gather(
-            **(z._get_selection(indexer, **get_kwargs()) for z in [data, indices])
+            *(z._get_selection(indexer, **get_kwargs(z)) for z in [data, indices])
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
