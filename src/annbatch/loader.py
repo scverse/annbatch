@@ -60,7 +60,6 @@ def _cupy_dtype(dtype: np.dtype) -> np.dtype:
         return np.dtype("float32")
     return np.dtype("float64")
 
-
 class Loader[
     BackingArray: BackingArray_T,
     InputInMemoryArray: InputInMemoryArray_T,
@@ -554,6 +553,16 @@ class Loader[
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
 
+    
+    def _get_kwargs_for_zarr_fetching(z: zarr.Array) -> dict:
+        buffer_prototype = zarr.core.buffer.default_buffer_prototype()
+        kwargs = {"prototype": buffer_prototype}
+        if self._preload_to_gpu:
+            import cupyx as cpx
+
+            kwargs["out"] = buffer_prototype.nd_buffer(cpx.empty_pinned(indexer.shape, z.dtype))
+        return kwargs
+
     @singledispatchmethod
     async def _fetch_data(self, dataset: ZarrArray | CSRDatasetElems, slices: list[slice]) -> InputInMemoryArray:
         """Fetch data from an on-disk store.
@@ -588,15 +597,9 @@ class Loader[
                 for s in slices
             ]
         )
-        buffer_prototype = zarr.core.buffer.default_buffer_prototype()
-        kwargs = {"prototype": buffer_prototype}
-        if self._preload_to_gpu:
-            import cupyx as cpx
-
-            kwargs["out"] = buffer_prototype.nd_buffer(cpx.empty_pinned(indexer.shape, dataset.dtype))
         res = cast(
             "np.ndarray",
-            await dataset._async_array._get_selection(indexer, **kwargs),
+            await dataset._async_array._get_selection(indexer, **self._get_kwargs_for_zarr_fetching(dataset)),
         )
         return res
 
@@ -672,17 +675,8 @@ class Loader[
             ]
         )
 
-        def get_kwargs(z: zarr.Array) -> dict:
-            buffer_prototype = zarr.core.buffer.default_buffer_prototype()
-            kwargs = {"prototype": buffer_prototype}
-            if self._preload_to_gpu:
-                import cupyx as cpx
-
-                kwargs["out"] = buffer_prototype.nd_buffer(cpx.empty_pinned(indexer.shape, z.dtype))
-            return kwargs
-
         data_np, indices_np = await asyncio.gather(
-            *(z._get_selection(indexer, **get_kwargs(z)) for z in [data, indices])
+            *(z._get_selection(indexer, **self._get_kwargs_for_zarr_fetching(z)) for z in [data, indices])
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
