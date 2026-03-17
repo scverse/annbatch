@@ -554,7 +554,7 @@ class Loader[
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
 
-    def _get_kwargs_for_zarr_fetching(z: zarr.Array) -> dict:
+    def _get_kwargs_for_zarr_fetching(self, z: zarr.Array) -> dict:
         buffer_prototype = zarr.core.buffer.default_buffer_prototype()
         kwargs = {"prototype": buffer_prototype}
         if self._preload_to_gpu:
