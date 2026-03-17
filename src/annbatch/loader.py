@@ -599,7 +599,9 @@ class Loader[
         )
         res = cast(
             "np.ndarray",
-            await dataset._async_array._get_selection(indexer, **self._get_kwargs_for_zarr_fetching(dataset, indexer.shape)),
+            await dataset._async_array._get_selection(
+                indexer, **self._get_kwargs_for_zarr_fetching(dataset, indexer.shape)
+            ),
         )
         return res
 
@@ -676,7 +678,10 @@ class Loader[
         )
 
         data_np, indices_np = await asyncio.gather(
-            *(z._get_selection(indexer, **self._get_kwargs_for_zarr_fetching(z, indexer.shape)) for z in [data, indices])
+            *(
+                z._get_selection(indexer, **self._get_kwargs_for_zarr_fetching(z, indexer.shape))
+                for z in [data, indices]
+            )
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
