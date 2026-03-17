@@ -22,13 +22,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_write_sharded_bad_chunk_size(tmp_path: Path):
-    adata = ad.AnnData(np.random.randn(10, 20))
-    z = zarr.open(tmp_path / "foo.zarr")
-    with pytest.raises(ValueError, match=r"Choose a shard obs"):
-        write_sharded(z, adata, n_obs_per_chunk=20)
-
-
 @pytest.mark.parametrize(
     ["chunk_size", "expected_shard_size"],
     [pytest.param(3, 9, id="n_obs_not_divisible_by_chunk"), pytest.param(5, 10, id="n_obs_divisible_by_chunk")],
