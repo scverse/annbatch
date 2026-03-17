@@ -139,13 +139,11 @@ def write_sharded(
                 any(n in store.name for n in {"obsm", "layers", "obsp"}) or "X" == elem_name
             ):
                 obs_per_shard = _shard_size_param_to_n_obs(shard_size, elem)
-                # Get either the desired size or the next multiple down to ensure divisibility of chunks and shards
-                dense_chunk = min(n_obs_per_chunk, _round_down(elem.shape[0], n_obs_per_chunk))
-                if elem.shape[0] < dense_chunk or dense_chunk == 0:
-                    raise ValueError(
-                        f"Choose a shard obs {shard_size} and chunk obs {n_obs_per_chunk} with non-zero size less than the number of observations {elem.shape[0]}"
-                    )
-                dense_shard = min(obs_per_shard, _round_down(elem.shape[0], n_obs_per_chunk))
+                # Clamp chunk/shard to the element size for small datasets
+                dense_chunk = min(n_obs_per_chunk, elem.shape[0])
+                if dense_chunk == 0:
+                    raise ValueError(f"Cannot write sharded array {elem_name!r} with 0 observations.")
+                dense_shard = min(obs_per_shard, elem.shape[0])
                 dense_shard = max(dense_chunk, _round_down(dense_shard, dense_chunk))
                 dataset_kwargs = {
                     **dataset_kwargs,
