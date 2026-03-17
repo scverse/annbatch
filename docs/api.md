@@ -14,9 +14,20 @@
 
     Loader
     Loader.__iter__
+```
+
+(samplers)=
+
+## Samplers
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
     ChunkSampler
     ChunkSamplerDistributed
     ChunkSamplerWithReplacement
+    samplers.MaskableSampler
 ```
 
 (io-helpers)=

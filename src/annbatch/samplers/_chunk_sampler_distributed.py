@@ -49,7 +49,7 @@ class MaskableSampler(Sampler):
     """A sampler whose observation range can be restricted via a mask.
 
     Subclass this to create chunk-based samplers that can be wrapped
-    by :class:`ChunkSamplerDistributed`.
+    by :class:`~annbatch.ChunkSamplerDistributed`.
     """
 
     _mask: slice
