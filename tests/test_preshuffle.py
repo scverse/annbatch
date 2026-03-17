@@ -430,7 +430,6 @@ def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, da
     assert adata_result.shape == (n_obs, n_vars)
 
     n_datasets = len(list(collection))
-    print(n_datasets)
     for i, dataset_grp in enumerate(collection):
         dataset_dir = output / dataset_grp.name.lstrip("/")
         data_files = [p for p in dataset_dir.rglob("*") if p.is_file() and "c" in p.relative_to(dataset_dir).parts]
