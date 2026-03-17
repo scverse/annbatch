@@ -15,6 +15,7 @@
     Loader
     Loader.__iter__
     ChunkSampler
+    ChunkSamplerDistributed
     ChunkSamplerWithReplacement
 ```
 
