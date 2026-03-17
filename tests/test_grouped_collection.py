@@ -27,7 +27,6 @@ def test_grouped_collection_basic(adata_with_h5_path_different_var_space: tuple[
         zarr_shard_size=10,
         n_obs_per_dataset=200,
         shuffle=False,
-        random_seed=0,
     )
     assert not collection.is_empty
     store = zarr.open(output)
@@ -89,7 +88,6 @@ def test_grouped_data_is_contiguous_by_group(
         zarr_shard_size=10,
         n_obs_per_dataset=200,
         shuffle=False,
-        random_seed=0,
     )
     adata_grouped = ad.concat([ad.io.read_elem(g) for g in collection], join="outer")
     grouped_obs = adata_grouped.obs[["label", "store_id"]].astype("string").fillna("<NA>")
@@ -178,7 +176,6 @@ def test_categorical_sampler_from_collection(
         zarr_shard_size=10,
         n_obs_per_dataset=200,
         shuffle=False,
-        random_seed=0,
     )
     group_index = grouped.group_index
     min_cat_size = int(group_index["count"].min())
