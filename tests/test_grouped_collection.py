@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import anndata as ad
 import numpy as np
-import pandas as pd
 import pytest
 import zarr
 
@@ -108,9 +107,7 @@ def test_grouped_collection_non_empty_raises(
         paths, groupby="label", n_obs_per_chunk=2, zarr_shard_size=10, n_obs_per_dataset=200
     )
     with pytest.raises(RuntimeError, match="non-empty"):
-        collection.add_adatas(
-            paths, groupby="label", n_obs_per_chunk=2, zarr_shard_size=10, n_obs_per_dataset=200
-        )
+        collection.add_adatas(paths, groupby="label", n_obs_per_chunk=2, zarr_shard_size=10, n_obs_per_dataset=200)
 
 
 def test_grouped_collection_missing_groupby_raises(

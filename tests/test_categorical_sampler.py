@@ -230,7 +230,9 @@ def test_uniform_weights_roughly_equal():
     cats = collect_batch_categories(sampler, 300, boundaries)
     counts = Counter(cats)
     for cat in range(3):
-        assert abs(counts[cat] - n_iters / 3) < n_iters * 0.15, f"Category {cat} count {counts[cat]} too far from expected"
+        assert abs(counts[cat] - n_iters / 3) < n_iters * 0.15, (
+            f"Category {cat} count {counts[cat]} too far from expected"
+        )
 
 
 # =============================================================================

@@ -96,9 +96,7 @@ class CategoricalSampler(Sampler):
         else:
             w = np.asarray(weights, dtype=np.float64)
             if len(w) != n_categories:
-                raise ValueError(
-                    f"weights length ({len(w)}) must match number of categories ({n_categories})"
-                )
+                raise ValueError(f"weights length ({len(w)}) must match number of categories ({n_categories})")
             if np.any(w < 0):
                 raise ValueError("weights must be non-negative")
             total = w.sum()
@@ -182,10 +180,7 @@ class CategoricalSampler(Sampler):
         CategoricalSampler
         """
         group_index = collection.group_index
-        boundaries = [
-            slice(int(row.start), int(row.stop))
-            for row in group_index.itertuples()
-        ]
+        boundaries = [slice(int(row.start), int(row.stop)) for row in group_index.itertuples()]
         return cls(
             category_boundaries=boundaries,
             chunk_size=chunk_size,
@@ -229,9 +224,7 @@ class CategoricalSampler(Sampler):
         batches_per_load = int((self._preload_nchunks * self._chunk_size) // self._batch_size)
         chunks_per_batch = int(self._batch_size / self._chunk_size)
 
-        category_order = self._rng.choice(
-            len(self._category_samplers), size=self._n_iters, p=self._weights
-        )
+        category_order = self._rng.choice(len(self._category_samplers), size=self._n_iters, p=self._weights)
 
         counts = Counter(category_order.tolist())
         batch_generators = {}
