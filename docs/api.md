@@ -24,6 +24,7 @@
 .. autosummary::
    :toctree: generated/
 
+    CategoricalSampler
     ChunkSampler
     ChunkSamplerDistributed
     ChunkSamplerWithReplacement
@@ -40,6 +41,7 @@
 
     write_sharded
     DatasetCollection
+    GroupedCollection
 ```
 
 (abc)=
