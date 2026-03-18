@@ -26,11 +26,8 @@
 
 # annbatch
 
-> [!CAUTION]
-> This package does not have a stable API.
-> However, we do not anticipate the on-disk format to change in a fully incompatible manner because all of the underlying data is stored as on-disk anndata.
-> Small changes to how we structure the anndata datasets may occur but you should always be able to load your data.
-> We will always provide lower-level APIs that should make this guarantee possible.
+> [!IMPORTANT]
+> This package will now only make breaking changes on the minor version release until its major release.
 
 [![Tests][badge-tests]][tests]
 [![Documentation][badge-docs]][documentation]
