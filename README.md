@@ -42,7 +42,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader and io utilities for minibatching on-disk AnnData, co-developed by [Lamin Labs][] and [scverse][]
+A data loader and io utilities for mini-batched data loading of on-disk AnnData files, co-developed by [Lamin Labs][] and [scverse][]
 
 ## Getting started
 
@@ -56,13 +56,19 @@ If you don't have Python installed, we recommend installing [uv][].
 To install the latest release of `annbatch` from [PyPI][]:
 
 ```bash
-pip install annbatch
+pip install "annbatch[zarrs]"
 ```
 
 We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
 > [!IMPORTANT]
 > [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
+
+To install all optional dependencies::
+```bash
+pip install "annbatch[zarrs,torch,cupy-cuda13]"
+```
+(Note: Replace `cupy-cuda13` with the extra matching your local CUDA version)
 
 ## Detailed tutorial
 
@@ -79,7 +85,7 @@ import zarr
 from pathlib import Path
 
 # Using zarrs is necessary for local filesystem performance.
-# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install "annbatch[zarrs]"` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
@@ -108,14 +114,17 @@ import anndata as ad
 import zarr
 
 # Using zarrs is necessary for local filesystem performance.
-# Ensure you installed it using our `[zarrs]` extra i.e., `pip install annbatch[zarrs]` to get the right version.
+# Ensure you installed it using our `[zarrs]` extra i.e., `pip install "annbatch[zarrs]"` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
 # WARNING: Without custom loading *all* obs columns will be loaded and yielded potentially degrading performance.
 def custom_load_func(g: zarr.Group) -> ad.AnnData:
-    return ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["counts"]), obs=ad.io.read_elem(g["obs"])[some_subset_of_columns_useful_for_training])
+    return ad.AnnData(
+        X=ad.io.sparse_dataset(g["layers"]["counts"]),
+        obs=ad.io.read_elem(g["obs"])[some_subset_of_columns_useful_for_training]
+    )
 
 # A non empty collection
 collection = DatasetCollection("path/to/output/collection.zarr")
@@ -125,15 +134,19 @@ with ad.settings.override(remove_unused_categories=False):
         batch_size=4096,
         chunk_size=32,
         preload_nchunks=256,
+        to_torch=True
     )
     # `use_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
     # but the `load_adata` arg can override this behavior
     # (see `custom_load_func` above for an example of customization).
-    ds = ds.use_collection(collection, load_adata = custom_load_func)
+    ds = ds.use_collection(collection, load_adata=custom_load_func)
 
 # Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
 for batch in ds:
-    data, obs = batch["X"], batch["obs"]
+    x, obs = batch["X"], batch["obs"]
+    # Important: For performance reasons convert to dense on GPU
+    x = x.cuda().to_dense()
+
 ```
 
 > [!IMPORTANT]
