@@ -134,6 +134,7 @@ with ad.settings.override(remove_unused_categories=False):
         batch_size=4096,
         chunk_size=32,
         preload_nchunks=256,
+        to_torch=True
     )
     # `use_collection` automatically uses the on-disk `X` and full `obs` in the `Loader`
     # but the `load_adata` arg can override this behavior
