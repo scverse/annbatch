@@ -115,8 +115,8 @@ def simple_collection(
     collection = DatasetCollection(output_path).add_adatas(
         zarr_stores,
         n_obs_per_chunk=10,
-        zarr_shard_size=20,
-        n_obs_per_dataset=60,
+        shard_size=20,
+        dataset_size=60,
         shuffle_chunk_size=10,
     )
     return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection
