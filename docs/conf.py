@@ -100,7 +100,7 @@ intersphinx_mapping = {
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "cupy": ("https://docs.cupy.dev/en/stable/", None),
     "zarrs": ("https://zarrs-python.readthedocs.io/en/latest/", None),
-    "pandas": ("https://pandas.pydata.org/pandas-docs/stable", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/version/2.3", None),
     "h5py": ("https://docs.h5py.org/en/latest", None),
 }
 
