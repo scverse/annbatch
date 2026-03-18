@@ -27,7 +27,7 @@ This parameter is global and controls both the rust parallelism and the Python p
 If you notice thrashing or similar oversubscription behavior of threads, please open an issue.
 
 Some **linux** file systems' [performance may suffer][] from the high level of parallelism combined with many cache misses (i.e., when the dataset size on disk far exceeds available RAM).
-Our experience matches that of a [paper looking at `mmap` for databases][], that a dataset size about 20X larger than available memory will trigger this performance degradation.
+Our experience matches that of a [paper looking at `mmap` for databases][], that a dataset size about 20X larger than available RAM memory (for the page cache) will trigger this performance degradation.
 Thus, to bypass the page cache and any potential cache misses, use `direct_io`.
 If this setting is set on a system that does not support `direct_io`, file reading will fall back to normal buffered io.
 
