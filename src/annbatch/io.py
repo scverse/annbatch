@@ -204,9 +204,19 @@ def _estimate_bytes_per_obs_row(
         node = backing[elem_path]
         encoding = dict(node.attrs).get("encoding-type", "")
         if encoding in {"csr_matrix", "csc_matrix"}:
-            data, indices, indptr = node["data"], node["indices"], node["indptr"]
+            data, _indices, indptr = node["data"], node["indices"], node["indptr"]
+            shape = tuple(node.attrs["shape"])
+            minor_axis_size = shape[1] if encoding == "csr_matrix" else shape[0]
+            if minor_axis_size <= np.iinfo(np.uint8).max:
+                indices_itemsize = 1
+            elif minor_axis_size <= np.iinfo(np.uint16).max:
+                indices_itemsize = 2
+            elif minor_axis_size <= np.iinfo(np.uint32).max:
+                indices_itemsize = 4
+            else:
+                indices_itemsize = 8
             mean_bytes_per_row += (
-                data.shape[0] * (data.dtype.itemsize + indices.dtype.itemsize) + indptr.shape[0] * indptr.dtype.itemsize
+                data.shape[0] * (data.dtype.itemsize + indices_itemsize) + indptr.shape[0] * indptr.dtype.itemsize
             ) / n_obs
         elif encoding in {"array", ""}:
             mean_bytes_per_row += int(np.prod(node.shape[1:])) * node.dtype.itemsize
