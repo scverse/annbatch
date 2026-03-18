@@ -53,7 +53,7 @@ If you don't have Python installed, we recommend installing [uv][].
 To install the latest release of `annbatch` from [PyPI][]:
 
 ```bash
-pip install annbatch
+pip install "annbatch[zarrs]"
 ```
 
 We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
