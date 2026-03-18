@@ -26,8 +26,11 @@ The `threading.max_workers` will control how many threads are used by `zarrs`, a
 This parameter is global and controls both the rust parallelism and the Python parallelism.
 If you notice thrashing or similar oversubscription behavior of threads, please open an issue.
 
-Some **linux** file systems' [performance may suffer][] from the high level of parallelism combined with a full page cache in RAM.
-To bypass the page cache, use `direct_io` - there should not be a performance difference.
+Some **linux** file systems' [performance may suffer][] from the high level of parallelism combined with many page cache misses/evictions (i.e., when the dataset size on disk far exceeds available RAM).
+Concretely, once the page cache is full, if there are a high number of cache misses/evictions relative to cache hits (i.e., the on-disk dataset exceeds that of available RAM by a lot), the data loading freezes.
+Our experience matches that of a [paper looking at `mmap` for databases][], that a dataset size about 20X larger than available RAM memory (for the page cache) will trigger this performance degradation.
+For example, if you only have 32GB of RAM, a ~600GB dataset on disk will trigger this degradation.
+Thus, to bypass the page cache and any potential cache misses, use `direct_io`.
 If this setting is set on a system that does not support `direct_io`, file reading will fall back to normal buffered io.
 
 ## `zarr-python` performance
@@ -45,3 +48,4 @@ See the [zarr page on concurrency][] for more information.
 [performance may suffer]: https://gist.github.com/ilan-gold/705bd36329b0e19542286385b09b421b
 [zarr page on concurrency]: https://zarr.readthedocs.io/en/latest/user-guide/consolidated_metadata/#synchronization-and-concurrency
 [zarr python's config docs]: https://zarr.readthedocs.io/en/latest/user-guide/config/
+[paper looking at `mmap` for databases]: https://db.cs.cmu.edu/papers/2022/cidr2022-p13-crotty.pdf
