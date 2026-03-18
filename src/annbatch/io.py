@@ -542,7 +542,7 @@ class DatasetCollection:
     ) -> Self:
         """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `dataset_size` rows per dataset if running for the first time).
 
-        The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i.{zarr,h5ad}`.
+        The set of AnnData datasets is collectively referred to as a "collection" where each dataset is called `dataset_i{.h5ad}`.
         The main purpose of this function is to create shuffled sharded zarr datasets, which is the default behavior of this function.
         However, this function can also output h5 datasets and also unshuffled datasets as well.
         The var space is by default outer-joined initially, and then subsequently added datasets (i.e., on second calls to this function) are subsetted, but this behavior can be controlled by `var_subset`.
@@ -550,7 +550,7 @@ class DatasetCollection:
         We highly recommend making your indexes unique across files, and this function will call `AnnData.obs_names_make_unique`.
         Memory usage should be controlled by `dataset_size` + `shuffle_chunk_size` as so many rows will be read into memory before writing to disk.
         After the dataset completes, a marker is added to the group's `attrs` to note that this dataset has been shuffled by `annbatch`.
-        This is not a stable API but only for internal purposes at the moment.
+        This is only for internal purposes at the moment so that we can recognize datasets that have been shuffled by an instance of this class.
 
         Parameters
         ----------
