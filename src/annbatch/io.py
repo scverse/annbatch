@@ -307,7 +307,7 @@ def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
-    for i, path in tqdm(enumerate(paths), total=len(paths), desc="Lazy loading adata"):
+    for i, path in tqdm(enumerate(paths), total=len(paths), desc="Lazy loading anndatas"):
         adata = load_adata(path)
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
@@ -723,7 +723,7 @@ class DatasetCollection:
 
         if var_subset is None:
             var_subset = adata_concat.var_names
-        for i, chunk in enumerate(tqdm(chunks, desc="Creating collection")):
+        for i, chunk in enumerate(tqdm(chunks, desc="Creating dataset collection")):
             var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
@@ -817,7 +817,9 @@ class DatasetCollection:
 
         adata_concat.obs_names_make_unique()
         for dataset, chunk in tqdm(
-            zip(self._dataset_keys, chunks, strict=True), total=len(self._dataset_keys), desc="Extending collection"
+            zip(self._dataset_keys, chunks, strict=True),
+            total=len(self._dataset_keys),
+            desc="Extending dataset collection",
         ):
             adata_dataset = ad.io.read_elem(self._group[dataset])
             subset_adata = _to_categorical_obs(
