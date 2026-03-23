@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 
 import numpy as np
@@ -43,7 +44,7 @@ def test_basic_construction():
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=20,
+        num_samples=200,
     )
     assert sampler.batch_size == 10
     assert sampler.n_categories == 3
@@ -58,7 +59,7 @@ def test_custom_weights():
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=50,
+        num_samples=500,
         weights=[3, 1],
     )
     assert sampler.n_categories == 2
@@ -89,7 +90,7 @@ def test_invalid_boundary_raises(boundaries, error_match):
             batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
-            n_iters=5,
+            num_samples=50,
         )
 
 
@@ -100,7 +101,7 @@ def test_empty_boundaries_raises():
             batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
-            n_iters=5,
+            num_samples=50,
         )
 
 
@@ -111,7 +112,7 @@ def test_wrong_weights_length():
             batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
-            n_iters=5,
+            num_samples=50,
             weights=[1, 2, 3],
         )
 
@@ -123,7 +124,7 @@ def test_negative_weights():
             batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
-            n_iters=5,
+            num_samples=50,
             weights=[-1, 2],
         )
 
@@ -135,30 +136,32 @@ def test_zero_weights():
             batch_size=10,
             chunk_size=10,
             preload_nchunks=1,
-            n_iters=5,
+            num_samples=50,
             weights=[0],
         )
 
 
 # =============================================================================
-# n_iters correctness
+# num_samples / n_iters correctness
 # =============================================================================
 
 
 def test_yields_correct_number_of_batches():
     boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
-    n_iters = 15
+    num_samples = 150
+    batch_size = 10
+    expected_batches = math.ceil(num_samples / batch_size)
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
-        batch_size=10,
+        batch_size=batch_size,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=n_iters,
+        num_samples=num_samples,
     )
     total_batches = 0
     for lr in sampler.sample(300):
         total_batches += len(lr["splits"])
-    assert total_batches == n_iters
+    assert total_batches == expected_batches
 
 
 # =============================================================================
@@ -180,7 +183,7 @@ def test_each_batch_from_single_category(boundaries):
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=20,
+        num_samples=200,
         rng=np.random.default_rng(42),
     )
     for lr in sampler.sample(n_obs):
@@ -200,13 +203,13 @@ def test_each_batch_from_single_category(boundaries):
 
 def test_weights_bias_distribution():
     boundaries = [slice(0, 100), slice(100, 200)]
-    n_iters = 1000
+    num_samples = 10000
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=n_iters,
+        num_samples=num_samples,
         weights=[9, 1],
         rng=np.random.default_rng(0),
     )
@@ -218,19 +221,20 @@ def test_weights_bias_distribution():
 
 def test_uniform_weights_roughly_equal():
     boundaries = [slice(0, 100), slice(100, 200), slice(200, 300)]
-    n_iters = 900
+    num_samples = 9000
+    n_batches = math.ceil(num_samples / 10)
     sampler = CategoricalSampler(
         category_boundaries=boundaries,
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=n_iters,
+        num_samples=num_samples,
         rng=np.random.default_rng(42),
     )
     cats = collect_batch_categories(sampler, 300, boundaries)
     counts = Counter(cats)
     for cat in range(3):
-        assert abs(counts[cat] - n_iters / 3) < n_iters * 0.15, (
+        assert abs(counts[cat] - n_batches / 3) < n_batches * 0.15, (
             f"Category {cat} count {counts[cat]} too far from expected"
         )
 
@@ -249,7 +253,7 @@ def test_rng_reproducibility():
             batch_size=10,
             chunk_size=10,
             preload_nchunks=2,
-            n_iters=30,
+            num_samples=300,
             rng=np.random.default_rng(seed),
         )
         return collect_batch_categories(sampler, 200, boundaries)
@@ -270,7 +274,7 @@ def test_splits_have_correct_batch_size():
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        n_iters=20,
+        num_samples=200,
     )
     for lr in sampler.sample(200):
         for split in lr["splits"]:
@@ -289,5 +293,5 @@ def test_batch_size_less_than_chunk_size_raises():
             batch_size=5,
             chunk_size=10,
             preload_nchunks=2,
-            n_iters=5,
+            num_samples=50,
         )

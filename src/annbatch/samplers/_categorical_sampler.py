@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from itertools import batched
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._chunk_sampler import ChunkSamplerWithReplacement
+from annbatch.samplers._random_sampler import RandomSampler
 from annbatch.utils import check_lt_1
 
 if TYPE_CHECKING:
@@ -23,16 +24,11 @@ class CategoricalSampler(Sampler):
     """Categorical sampler for group-stratified batched data access.
 
     Each batch contains observations from a single category/group,
-    drawn with replacement via :class:`~annbatch.ChunkSamplerWithReplacement`.
+    drawn with replacement.
 
-    At each iteration the sampler draws ``n_iters`` category assignments
-    from the categorical distribution defined by ``weights``, then yields
-    batches in that order.  Within each category, chunks are sampled with
-    replacement so categories are never exhausted.
-
-    The sampler assumes data is already sorted by category with boundaries
-    provided as slices.  Use :meth:`from_collection` to construct directly
-    from a :class:`~annbatch.GroupedCollection`.
+    The sampler assumes data is already sorted by category with
+    boundaries provided as slices.  Use :meth:`from_collection` to
+    construct directly from a :class:`~annbatch.GroupedCollection`.
 
     Parameters
     ----------
@@ -45,8 +41,8 @@ class CategoricalSampler(Sampler):
         Size of each on-disk chunk range yielded.
     preload_nchunks
         Number of chunks to load per iteration.
-    n_iters
-        Total number of batches to yield per epoch.
+    num_samples
+        Total number of observations to draw across all categories.
     weights
         Per-category sampling weights.  If ``None`` (default), uniform
         weights are used.  Weights are normalized to sum to 1.
@@ -61,13 +57,13 @@ class CategoricalSampler(Sampler):
     ...     batch_size=32,
     ...     chunk_size=32,
     ...     preload_nchunks=4,
-    ...     n_iters=100,
+    ...     num_samples=3200,
     ... )
     """
 
-    _category_samplers: list[ChunkSamplerWithReplacement]
+    _category_samplers: list[RandomSampler]
     _rng: np.random.Generator
-    _n_iters: int
+    _num_samples: int
 
     def __init__(
         self,
@@ -76,12 +72,12 @@ class CategoricalSampler(Sampler):
         preload_nchunks: int,
         batch_size: int,
         *,
-        n_iters: int,
+        num_samples: int,
         weights: Sequence[float] | np.ndarray | None = None,
         rng: np.random.Generator | None = None,
     ):
         n_categories = len(category_boundaries)
-        check_lt_1([n_categories, n_iters], ["Number of categories", "n_iters"])
+        check_lt_1([n_categories, num_samples], ["Number of categories", "num_samples"])
         if batch_size < chunk_size:
             raise ValueError(
                 f"batch_size ({batch_size}) cannot be less than chunk_size ({chunk_size}) "
@@ -89,7 +85,7 @@ class CategoricalSampler(Sampler):
             )
         self._validate_boundaries(category_boundaries)
         self._rng = rng or np.random.default_rng()
-        self._n_iters = n_iters
+        self._num_samples = num_samples
 
         if weights is None:
             self._weights = np.ones(n_categories, dtype=np.float64) / n_categories
@@ -105,14 +101,17 @@ class CategoricalSampler(Sampler):
             self._weights = w / total
 
         child_rngs = self._rng.spawn(n_categories)
+        n_batches = math.ceil(num_samples / batch_size)
 
         self._category_samplers = [
-            ChunkSamplerWithReplacement(
+            RandomSampler(
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
                 batch_size=batch_size,
-                n_iters=n_iters,
+                replacement=True,
+                num_samples=n_batches * batch_size,
                 mask=boundary,
+                drop_last=True,
                 rng=child_rng,
             )
             for boundary, child_rng in zip(category_boundaries, child_rngs, strict=True)
@@ -148,7 +147,7 @@ class CategoricalSampler(Sampler):
         preload_nchunks: int,
         batch_size: int,
         *,
-        n_iters: int,
+        num_samples: int,
         weights: Sequence[float] | np.ndarray | None = None,
         rng: np.random.Generator | None = None,
     ) -> CategoricalSampler:
@@ -168,8 +167,8 @@ class CategoricalSampler(Sampler):
             Number of chunks to load per iteration.
         batch_size
             Number of observations per batch.
-        n_iters
-            Total number of batches to yield per epoch.
+        num_samples
+            Total number of observations to draw.
         weights
             Per-category sampling weights.  See class docstring.
         rng
@@ -186,7 +185,7 @@ class CategoricalSampler(Sampler):
             chunk_size=chunk_size,
             preload_nchunks=preload_nchunks,
             batch_size=batch_size,
-            n_iters=n_iters,
+            num_samples=num_samples,
             weights=weights,
             rng=rng,
         )
@@ -205,16 +204,14 @@ class CategoricalSampler(Sampler):
         return len(self._category_samplers)
 
     def n_iters(self, n_obs: int) -> int:
-        return self._n_iters
+        return math.ceil(self._num_samples / self._batch_size)
 
     def validate(self, n_obs: int) -> None:
         for sampler in self._category_samplers:
             sampler.validate(n_obs)
 
     @staticmethod
-    def _iter_batches(
-        sampler: ChunkSamplerWithReplacement, n_obs: int, chunks_per_batch: int
-    ) -> Iterator[tuple[slice, ...]]:
+    def _iter_batches(sampler: RandomSampler, n_obs: int, chunks_per_batch: int) -> Iterator[tuple[slice, ...]]:
         """Yield per-batch chunk tuples from a single category sampler."""
         for load_request in sampler._sample(n_obs):
             chunks = load_request["chunks"]
@@ -224,13 +221,14 @@ class CategoricalSampler(Sampler):
         batches_per_load = int((self._preload_nchunks * self._chunk_size) // self._batch_size)
         chunks_per_batch = int(self._batch_size / self._chunk_size)
 
-        category_order = self._rng.choice(len(self._category_samplers), size=self._n_iters, p=self._weights)
+        n_batches = self.n_iters(n_obs)
+        category_order = self._rng.choice(len(self._category_samplers), size=n_batches, p=self._weights)
 
-        counts = Counter(category_order.tolist())
+        counts = Counter[Any](category_order.tolist())
         batch_generators = {}
-        for cat_idx, cat_n_iters in counts.items():
+        for cat_idx, cat_n_batches in counts.items():
             sampler = self._category_samplers[cat_idx]
-            sampler._n_iters = cat_n_iters
+            sampler._num_samples = cat_n_batches * self._batch_size
             batch_generators[cat_idx] = self._iter_batches(sampler, n_obs, chunks_per_batch)
 
         batch_indices = np.arange(batches_per_load * self._batch_size).reshape(batches_per_load, self._batch_size)

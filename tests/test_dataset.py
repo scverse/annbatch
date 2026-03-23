@@ -13,7 +13,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import ChunkSampler, Loader, write_sharded
+from annbatch import Loader, SequentialSampler, write_sharded
 from annbatch.abc import Sampler
 
 try:
@@ -233,6 +233,7 @@ def test_store_load_dataset(
                 shuffle=True,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
+                rng=np.random.default_rng(),
             )
         )
         for chunk_size, preload_nchunks in [[0, 10], [10, 0]]
@@ -246,7 +247,7 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
     data["dataset"] = data["dataset"][...]
-    ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+    ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False, rng=np.random.default_rng())
     with pytest.raises(TypeError, match="Cannot add"):
         ds.add_dataset(**data)
 
@@ -357,7 +358,7 @@ def test_len(
 def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
-        ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+        ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False, rng=np.random.default_rng())
         with pytest.raises(TypeError, match="Cannot add"):
             ds.add_dataset(data)
 
@@ -389,7 +390,7 @@ def test_torch_multiprocess_dataloading_zarr(
     """
     from torch.utils.data import DataLoader
 
-    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False, rng=np.random.default_rng())
     ds.add_datasets(
         **concat([open_func(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
     )
@@ -427,6 +428,7 @@ def test_3d(
         return_index=True,
         preload_to_gpu=preload_to_gpu,
         to_torch=to_torch,
+        rng=np.random.default_rng(),
     )
     ds.add_datasets(
         **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
@@ -502,7 +504,7 @@ def test_default_data_structures(
 ):
     # format is a smoke test for sparse
     ds = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, **kwargs
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, rng=np.random.default_rng(), **kwargs
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
@@ -599,6 +601,8 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
 
         def __init__(self):
             self._validate_count = 0
+            self._mask = slice(0, None)
+            self._rng = np.random.default_rng()
 
         def n_iters(self, n_obs: int) -> int:
             return math.ceil(n_obs / self.batch_size)
@@ -660,7 +664,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     expected_n_obs = sum(d["dataset"].shape[0] for d in datas)
     start_idx, end_idx = expected_n_obs // 4, expected_n_obs // 2
 
-    sampler = ChunkSampler(
+    sampler = SequentialSampler(
         mask=slice(start_idx, end_idx),
         batch_size=10,
         chunk_size=10,
@@ -685,7 +689,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
 @pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
 def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
-    chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
+    chunk_sampler = SequentialSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
     with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
 

@@ -183,7 +183,7 @@ def test_categorical_sampler_from_collection(
         chunk_size=chunk_size,
         preload_nchunks=2,
         batch_size=batch_size,
-        n_iters=20,
+        num_samples=20 * batch_size,
         rng=np.random.default_rng(0),
     )
     assert sampler.n_categories == len(group_index)

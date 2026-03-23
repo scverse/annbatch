@@ -15,7 +15,7 @@ import zarr.core.sync as zsync
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from annbatch.samplers import ChunkSampler
+from annbatch.samplers import RandomSampler, SequentialSampler
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
@@ -81,12 +81,12 @@ class Loader[
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
     `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
-    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`annbatch.ChunkSampler`.
+    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.SequentialSampler`.
 
     Parameters
     ----------
         batch_sampler
-            If not provided, a default :class:`annbatch.ChunkSampler` will be used with the same defaults below.
+            If not provided, a default :class:`annbatch.SequentialSampler` or :class:`annbatch.RandomSampler` will be used with the same defaults below.
         chunk_size
             The obs size (i.e., axis 0) of contiguous array data to fetch. Mutually exclusive with `batch_sampler`. Defaults to 512.
         preload_nchunks
@@ -142,9 +142,7 @@ class Loader[
         "chunk_size": 512,
         "preload_nchunks": 32,
         "batch_size": 1,
-        "shuffle": False,
         "drop_last": False,
-        "rng": np.random.default_rng(),
     }
     # TODO(selmanozleyen): these should be also presented in the documentation
     # but this is not ideal since they are hardcoded into the docstrings
@@ -178,14 +176,14 @@ class Loader[
         concat_strategy: None | concat_strategies = None,
         rng: np.random.Generator | None = None,
     ):
-        sampler_args = {
+        # args that are passed after resolving defaults
+        core_sampler_args = {
             "chunk_size": chunk_size,
             "preload_nchunks": preload_nchunks,
             "batch_size": batch_size,
-            "shuffle": shuffle,
             "drop_last": drop_last,
-            "rng": rng,
         }
+        sampler_args = {**core_sampler_args, "rng": rng, "shuffle": shuffle}
         if batch_sampler is not None:
             if any(v is not None for v in sampler_args.values()):
                 provided_args = [name for name, val in sampler_args.items() if val is not None]
@@ -195,11 +193,22 @@ class Loader[
                 )
             self._batch_sampler = batch_sampler
         else:
-            sampler_args_processed = {
-                k: (v if v is not None else Loader._COMMON_SAMPLER_ARGS[k]) for k, v in sampler_args.items()
+            resolved_core_args = {
+                k: Loader._COMMON_SAMPLER_ARGS[k] if v is None else v for k, v in core_sampler_args.items()
             }
-            self._batch_sampler = ChunkSampler(**sampler_args_processed)
-
+            if shuffle is not None:
+                if shuffle and rng is None:
+                    raise ValueError("If shuffle is provided and True, then rng must also be provided")
+                if not shuffle and rng is not None:
+                    raise ValueError("If rng and shuffle are provided but shuffle is False, then rng must be None")
+            resolved_shuffle = False if shuffle is None else shuffle
+            if resolved_shuffle:
+                self._batch_sampler = RandomSampler(
+                    **resolved_core_args,
+                    rng=rng if rng is not None else np.random.default_rng(),
+                )
+            else:
+                self._batch_sampler = SequentialSampler(**resolved_core_args)
         if to_torch and not find_spec("torch"):
             raise ImportError("Could not find torch dependency. Try `pip install torch`.")
         if preload_to_gpu and not find_spec("cupy"):
