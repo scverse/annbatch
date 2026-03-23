@@ -24,10 +24,9 @@
 .. autosummary::
    :toctree: generated/
 
-    ChunkSampler
-    ChunkSamplerDistributed
-    ChunkSamplerWithReplacement
-    samplers.MaskableSampler
+    DistributedSampler
+    RandomSampler
+    SequentialSampler
 ```
 
 (io-helpers)=

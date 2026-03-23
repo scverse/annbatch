@@ -444,6 +444,7 @@ def test_3d(
         chunk_size=10,
         preload_nchunks=4,
         shuffle=True,
+        rng=np.random.default_rng(0),
         return_index=True,
         preload_to_gpu=preload_to_gpu,
         to_torch=to_torch,
@@ -522,7 +523,7 @@ def test_default_data_structures(
 ):
     # format is a smoke test for sparse
     ds = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, **kwargs
+        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), return_index=False, **kwargs
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]

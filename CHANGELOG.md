@@ -8,16 +8,11 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-<<<<<<< feat/chunksampler-with-replacement
-## [0.0.10]
+## [0.1.1]
+Breaking:
+- Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler`.
 
-- Added {class}`annbatch.ChunkSamplerWithReplacement`, a sampler that draws random contiguous chunks with replacement and yields a fixed number of batches (`n_iters`).
-- Added {class}`annbatch.ChunkSamplerDistributed`, a sampler that distributes chunks across multiple processes.
-
-## [0.0.9]
-=======
 ## [0.1.0]
->>>>>>> main
 
 ### Breaking
 - Renamed `annbatch.Loader.add_anndatas` to {meth}`annbatch.Loader.add_adatas`.
@@ -55,7 +50,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 - Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
-- Exposed the older default sampling scheme as {class}`annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
+- Exposed the older default sampling scheme as {class}`annbatch.samplers._chunk_sampler.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
 
 ## [0.0.4]
 
