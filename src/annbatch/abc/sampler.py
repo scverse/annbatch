@@ -21,6 +21,27 @@ class Sampler(ABC):
     Samplers control how data is batched and loaded from the underlying datasets.
     """
 
+    _mask: slice
+    _rng: np.random.Generator
+
+    @property
+    def mask(self) -> slice:
+        """The observation range this sampler operates on."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        self._mask = value
+
+    @property
+    def rng(self) -> np.random.Generator:
+        """The random number generator used by this sampler."""
+        return self._rng
+
+    @rng.setter
+    def rng(self, value: np.random.Generator) -> None:
+        self._rng = value
+
     @property
     @abstractmethod
     def batch_size(self) -> int | None:

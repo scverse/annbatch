@@ -1,9 +1,11 @@
-from ._chunk_sampler import ChunkSampler, ChunkSamplerWithReplacement, MaskableSampler
-from ._chunk_sampler_distributed import ChunkSamplerDistributed
+from ._chunk_sampler import ChunkSampler
+from ._chunk_sampler_distributed import DistributedSampler
+from ._random_sampler import RandomSampler
+from ._sequential_sampler import SequentialSampler
 
 __all__ = [
     "ChunkSampler",
-    "ChunkSamplerDistributed",
-    "ChunkSamplerWithReplacement",
-    "MaskableSampler",
+    "DistributedSampler",
+    "RandomSampler",
+    "SequentialSampler",
 ]
