@@ -1,5 +1,5 @@
 from ._chunk_sampler import ChunkSampler
-from ._chunk_sampler_distributed import DistributedSampler
+from ._distributed_sampler import DistributedSampler
 from ._random_sampler import RandomSampler
 from ._sequential_sampler import SequentialSampler
 

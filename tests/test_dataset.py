@@ -230,7 +230,6 @@ def test_store_load_dataset(
     [
         (
             lambda path, chunk_size=chunk_size, preload_nchunks=preload_nchunks: Loader(
-                shuffle=True,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
             )
@@ -246,7 +245,7 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
     data["dataset"] = data["dataset"][...]
-    ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+    ds = Loader(shuffle=True, rng=np.random.default_rng(0), chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
     with pytest.raises(TypeError, match="Cannot add"):
         ds.add_dataset(**data)
 
@@ -357,7 +356,7 @@ def test_len(
 def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
-        ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+        ds = Loader(shuffle=True, rng=np.random.default_rng(0), chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
         with pytest.raises(TypeError, match="Cannot add"):
             ds.add_dataset(data)
 
@@ -389,7 +388,7 @@ def test_torch_multiprocess_dataloading_zarr(
     """
     from torch.utils.data import DataLoader
 
-    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, rng=np.random.default_rng(0), return_index=True, preload_to_gpu=False)
     ds.add_datasets(
         **concat([open_func(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
     )
