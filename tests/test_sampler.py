@@ -120,6 +120,7 @@ def test_mask_coverage(
 def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler]):
     """Test that batch sizes match expected pattern."""
     n_obs, chunk_size, preload_nchunks, batch_size = 103, 10, 2, 5
+    # last chunk is incomplete and is also the last batch in the load request
     expected_last_chunk_size = 3
     expected_last_batch_size = 3
     expected_last_num_splits = 1
@@ -217,7 +218,7 @@ def test_workers_cover_full_dataset_without_overlap(
     ids=["without_replacement", "with_replacement"],
 )
 def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_factory):
-    """Test that sampling is fully reproducible with the same seed and differs with another."""
+    """Test that batch shuffling is reproducible when passing in rngs with identical seeds to RandomSampler directly."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
 
     def make_sampler(seed: int) -> Sampler:
