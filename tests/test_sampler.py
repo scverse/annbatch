@@ -466,7 +466,7 @@ def test_without_replacement_num_samples(
 
     # No observation should be duplicated within a single epoch's chunks.
     # Split the flat chunk list at epoch boundaries and verify each group.
-    incomplete = epoch_size % chunk_size
+    epoch_size % chunk_size
     middle_epoch_nchunks = epoch_size // chunk_size
     full_epoch_nchunks = math.ceil(epoch_size / chunk_size)
     remaining = list(all_chunks)

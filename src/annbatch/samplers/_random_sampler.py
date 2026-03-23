@@ -60,4 +60,3 @@ class RandomSampler(ChunkSampler):
             mask=mask,
             rng=rng,
         )
-

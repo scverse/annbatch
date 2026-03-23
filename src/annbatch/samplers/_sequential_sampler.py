@@ -45,4 +45,3 @@ class SequentialSampler(ChunkSampler):
             drop_last=drop_last,
             mask=mask,
         )
-
