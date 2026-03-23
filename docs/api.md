@@ -27,6 +27,7 @@
     DistributedSampler
     RandomSampler
     SequentialSampler
+    ChunkSampler
 ```
 
 (io-helpers)=
