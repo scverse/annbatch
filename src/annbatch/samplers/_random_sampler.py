@@ -13,8 +13,7 @@ if TYPE_CHECKING:
 class RandomSampler(ChunkSampler):
     """Shuffled chunk-based sampler for batched data access.
 
-    Equivalent to :class:`ChunkSampler` with ``shuffle=True``.
-    This is the recommended sampler for training workloads.
+    TODO: docstring desc
 
     Parameters
     ----------

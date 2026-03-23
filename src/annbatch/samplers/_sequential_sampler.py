@@ -8,9 +8,7 @@ from annbatch.samplers._chunk_sampler import ChunkSampler
 class SequentialSampler(ChunkSampler):
     """Ordered chunk-based sampler for batched data access.
 
-    Equivalent to :class:`ChunkSampler` with ``shuffle=False`` and
-    ``replacement=False``.  This is the recommended sampler for
-    evaluation and inference workloads.
+    TODO: docstring desc
 
     Parameters
     ----------
