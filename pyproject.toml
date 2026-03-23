@@ -139,6 +139,10 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
+[tool.mypy]
+[[tool.mypy.overrides]]
+overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ], ignore_missing_imports = true } ]
+
 [tool.pytest]
 ini_options.markers = [ "gpu: mark test to run on GPU" ]
 ini_options.testpaths = [ "tests" ]
@@ -167,10 +171,6 @@ run.omit = [
 ]
 run.patch = [ "subprocess" ]
 run.source = [ "annbatch" ]
-
-[tool.mypy]
-[[tool.mypy.overrides]]
-overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ], ignore_missing_imports = true } ]
 
 [tool.cruft]
 skip = [
