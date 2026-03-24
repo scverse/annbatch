@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from annbatch.abc import Sampler
 from annbatch.samplers._utils import get_torch_worker_info
+from annbatch.samplers.abc import Sampler
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:

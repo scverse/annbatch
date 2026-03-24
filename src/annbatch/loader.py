@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import ModuleType
 
-    from annbatch.abc import Sampler
     from annbatch.io import DatasetCollection
+    from annbatch.samplers.abc import Sampler
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T

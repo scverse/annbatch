@@ -65,7 +65,7 @@ If you are interested in contributing this feature to the project or learning mo
 If you want to use {class}`torch.utils.data.DataLoader` to accelerate perfect random sampling (i.e., wrapping {class}`~annbatch.Loader` with `chunk_size=1`) or begin to experiment with implementing weighted sampling schemes, you will need to pass in `multiprocessing_context="spawn"` to the {class}`torch.utils.data.DataLoader` (see {issue}`google/tensorstore#61`, for example).
 
 :::{warning}
-Provided implementations of {class}`~annbatch.abc.Sampler`s use NumPy's random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
+Provided implementations of {class}`~annbatch.samplers.abc.Sampler`s use NumPy's random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
 
 
 To control reproducibility, pass a seeded {class}`numpy.random.Generator` via the `rng` parameter:

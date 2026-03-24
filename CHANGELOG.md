@@ -38,7 +38,7 @@ Breaking:
 
 ## [0.0.6]
 
-- Don't concatenate all i/o-ed chunks in-memory, instead yielding from individual chunks as though they were concatenated (i.e., not abreaking hcange with the {class}`annbatch.abc.Sampler` API).  Should improve memory performance especially for dense data
+- Don't concatenate all i/o-ed chunks in-memory, instead yielding from individual chunks as though they were concatenated (i.e., not a breaking change with the {class}`annbatch.samplers.abc.Sampler` API).  Should improve memory performance especially for dense data
 
 ## [0.0.5]
 
@@ -49,7 +49,7 @@ Breaking:
 - Now {class}`annbatch.Loader` expects ``preload_nchunks * chunk_size % batch_size == 0`` for simplification and efficiency.
 
 ### Added
-- Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
+- Introduced an `annbatch.samplers.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
 - Exposed the older default sampling scheme as {class}`annbatch.samplers._chunk_sampler.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
 
 ## [0.0.4]

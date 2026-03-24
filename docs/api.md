@@ -24,6 +24,7 @@
 .. autosummary::
    :toctree: generated/
 
+    samplers.abc.Sampler
     samplers.RandomSampler
     samplers.SequentialSampler
     samplers.DistributedRandomSampler
@@ -40,15 +41,6 @@
 
     write_sharded
     DatasetCollection
-```
-
-(abc)=
-## abc
-```{eval-rst}
-.. autosummary::
-   :toctree: generated/
-
-    abc.Sampler
 ```
 
 (types)=
