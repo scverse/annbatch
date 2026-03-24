@@ -473,6 +473,12 @@ def test_num_samples_invariants(
     for chunk in all_chunks[:-1]:
         assert chunk.stop - chunk.start == chunk_size, f"Non-final chunk not full: {chunk}"
 
+    remainder = (stop - start) % chunk_size
+    if remainder > 0:
+        assert all_chunks[-1].stop - all_chunks[-1].start == remainder, (
+            f"Last chunk is not of size {remainder}: {all_chunks[-1]}"
+        )
+
     if not replacement and num_samples > (stop - start):
         expected = set(range(start, stop))
         covered = set(indices)
