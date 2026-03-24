@@ -292,13 +292,13 @@ def test_invalid_mask_raises(sampler_class, mask: slice, error_match: str):
         pytest.param(
             {"num_samples": 15},
             5,
-            "cannot exceed the observation range",
+            "smaller than chunk_size",
             id="n_obs_smaller_than_chunk",
         ),
         pytest.param(
             {"num_samples": 15, "mask": slice(50, 55)},
             100,
-            "cannot exceed the observation range",
+            "smaller than chunk_size",
             id="mask_range_smaller_than_chunk",
         ),
     ],
@@ -465,7 +465,7 @@ def test_num_samples_invariants(
         mask=mask,
         rng=np.random.default_rng(42),
     )
-    if replacement and num_samples > (stop - start):
+    if not replacement and num_samples > (stop - start):
         with pytest.raises(ValueError, match="cannot exceed the observation range"):
             collect_indices(sampler, n_obs)
         return
@@ -479,10 +479,6 @@ def test_num_samples_invariants(
         assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
         assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
 
-    if not replacement and num_samples > (stop - start):
-        expected = set(range(start, stop))
-        covered = set(indices)
-        assert expected <= covered, f"Missing observations: {sorted(expected - covered)}"
 
 
 # =============================================================================

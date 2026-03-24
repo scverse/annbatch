@@ -177,9 +177,13 @@ class ChunkSampler(Sampler):
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
         num_samples = self._resolve_num_samples(n_obs)
         mask_size = self._resolve_mask_size(n_obs)
-        if self._replacement and num_samples > mask_size:
+        if not self._replacement and num_samples > mask_size:
+            raise ValueError(f"num_samples ({num_samples}) cannot exceed the observation range ({mask_size}).")
+        if self._replacement and mask_size < self._chunk_size and num_samples > mask_size:
             raise ValueError(
-                f"num_samples ({num_samples}) cannot exceed the observation range ({mask_size}) when replacement=True."
+                f"Observation range ({mask_size}) is smaller than chunk_size ({self._chunk_size}) "
+                f"with num_samples ({num_samples}) exceeding that range. "
+                "Reduce chunk_size, expand the mask range, or set num_samples <= observation range."
             )
 
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
@@ -260,9 +264,8 @@ class ChunkSampler(Sampler):
         Chunks are computed such that the last chunk may be incomplete.
         """
         start, stop = self._resolve_start_stop(n_obs)
-        num_samples = self._resolve_num_samples(stop)
-        epoch_size = self._resolve_mask_size(n_obs)
         if self._replacement:
+            num_samples = self._resolve_num_samples(n_obs)
             n_chunks, remainder = divmod(num_samples, self._chunk_size)
             start_indices = rng.integers(start, stop - self._chunk_size + 1, size=n_chunks)
             res = [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
@@ -271,40 +274,14 @@ class ChunkSampler(Sampler):
                 res.append(slice(start_index, start_index + remainder))
             return res
 
-        incomplete = epoch_size % self._chunk_size
+        return self._compute_epoch_chunks(start, stop, rng)
 
-        if num_samples <= epoch_size:
-            return self._compute_epoch_chunks(start, stop, rng)
-
-        # Multi-epoch: all chunks except the very last must be exactly chunk_size,
-        # because _iter_from_chunks_base indexes into in_memory_size for non-last
-        # preload groups.  Middle epochs drop their incomplete tail; only the final
-        # epoch keeps it.  We tile enough epochs to cover num_samples (the truncation
-        # to exact n_batches happens in _iter_from_chunks).
-        aligned_epoch_obs = epoch_size - incomplete
-        # obs per full-chunks-only epoch vs full epoch (with incomplete tail)
-        n_epochs = math.ceil(num_samples / aligned_epoch_obs) if incomplete else math.ceil(num_samples / epoch_size)
-        all_chunks: list[slice] = []
-        for i in range(n_epochs):
-            is_last = i == n_epochs - 1
-            all_chunks.extend(self._compute_epoch_chunks(start, stop, rng, keep_incomplete=is_last))
-        return all_chunks
-
-    def _compute_epoch_chunks(
-        self, start: int, stop: int, rng: np.random.Generator, *, keep_incomplete: bool = True
-    ) -> list[slice]:
+    def _compute_epoch_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
         """Compute one epoch's worth of chunks.
 
         The incomplete chunk (when ``epoch_size`` is not divisible by
         ``chunk_size``) is always placed last in iteration order regardless
         of shuffling -- ensuring no observation is duplicated within an epoch.
-
-        Parameters
-        ----------
-        keep_incomplete
-            When ``False`` the trailing incomplete chunk is dropped.  Used
-            for middle epochs in multi-epoch tiling so that every emitted
-            chunk is exactly ``chunk_size``.
         """
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self.shuffle:
@@ -316,10 +293,7 @@ class ChunkSampler(Sampler):
         offsets[pivot_index + 1] = incomplete if incomplete else self._chunk_size
         offsets = np.cumsum(offsets)
         starts, stops = offsets[:-1][chunk_indices], offsets[1:][chunk_indices]
-        chunks = [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
-        if not keep_incomplete and incomplete:
-            chunks.pop()
-        return chunks
+        return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
 
 
 def _get_dist_info_torch() -> tuple[int, int]:
