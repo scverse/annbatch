@@ -175,15 +175,13 @@ class ChunkSampler(Sampler):
             )
         if start >= stop:
             raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
-        num_samples = self._resolve_num_samples(stop)
+        num_samples = self._resolve_num_samples(n_obs)
         mask_size = self._resolve_mask_size(n_obs)
-        if self._replacement and mask_size < self._chunk_size and num_samples > mask_size:
+        if self._replacement and num_samples > mask_size:
             raise ValueError(
-                f"Observation range ({mask_size}) is smaller than chunk_size ({self._chunk_size}) "
-                f"with num_samples ({num_samples}) exceeding that range. "
-                "Reduce chunk_size, expand the mask range, or set num_samples <= observation range."
+                f"num_samples ({num_samples}) cannot exceed the observation range ({mask_size}) "
+                "when replacement=True."
             )
-
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
         if worker_info is None or worker_info.num_workers <= 1:
             return

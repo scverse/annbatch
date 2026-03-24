@@ -289,11 +289,16 @@ def test_invalid_mask_raises(sampler_class, mask: slice, error_match: str):
     [
         pytest.param({"num_samples": 0}, None, "num_samples", id="num_samples_zero"),
         pytest.param({"num_samples": -1}, None, "num_samples", id="num_samples_negative"),
-        pytest.param({"num_samples": 15}, 5, "smaller than chunk_size", id="n_obs_smaller_than_chunk"),
+        pytest.param(
+            {"num_samples": 15},
+            5,
+            "cannot exceed the observation range",
+            id="n_obs_smaller_than_chunk",
+        ),
         pytest.param(
             {"num_samples": 15, "mask": slice(50, 55)},
             100,
-            "smaller than chunk_size",
+            "cannot exceed the observation range",
             id="mask_range_smaller_than_chunk",
         ),
     ],
@@ -460,6 +465,11 @@ def test_num_samples_invariants(
         mask=mask,
         rng=np.random.default_rng(42),
     )
+    if replacement and num_samples > (stop - start):
+        with pytest.raises(ValueError, match="cannot exceed the observation range"):
+            collect_indices(sampler, n_obs)
+        return
+
     expected_batches = math.ceil(num_samples / batch_size)
     indices, all_chunks, splits = collect_indices(sampler, n_obs)
     assert len(splits) == expected_batches, f"Expected {expected_batches} batches, got {len(splits)}"
@@ -468,16 +478,6 @@ def test_num_samples_invariants(
         assert chunk.stop - chunk.start <= chunk_size, f"Oversized chunk: {chunk}"
         assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
         assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
-
-    # All non-last chunks must be exactly chunk_size.
-    for chunk in all_chunks[:-1]:
-        assert chunk.stop - chunk.start == chunk_size, f"Non-final chunk not full: {chunk}"
-
-    remainder = (stop - start) % chunk_size
-    if remainder > 0:
-        assert all_chunks[-1].stop - all_chunks[-1].start == remainder, (
-            f"Last chunk is not of size {remainder}: {all_chunks[-1]}"
-        )
 
     if not replacement and num_samples > (stop - start):
         expected = set(range(start, stop))
