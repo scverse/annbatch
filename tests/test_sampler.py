@@ -664,12 +664,9 @@ def _make_distributed_sampler_torch(
     mock_dist.get_world_size.return_value = world_size
     mock_torch = MagicMock()
     mock_torch.distributed = mock_dist
-    shuffle = sampler_kwargs.pop("shuffle", False)
-    if shuffle:
-        sampler = RandomSampler(**sampler_kwargs)
-    else:
-        sampler_kwargs.pop("rng", None)
-        sampler = SequentialSampler(**sampler_kwargs)
+    sampler_kwargs.pop("shuffle", None)
+    sampler_kwargs.setdefault("rng", np.random.default_rng(0))
+    sampler = RandomSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
         return DistributedRandomSampler(sampler, dist_info="torch", enforce_equal_batches=enforce_equal_batches)
 
@@ -682,12 +679,9 @@ def _make_distributed_sampler_jax(
     mock_jax.process_index.return_value = rank
     mock_jax.process_count.return_value = world_size
     mock_jax.distributed.is_initialized.return_value = True
-    shuffle = sampler_kwargs.pop("shuffle", False)
-    if shuffle:
-        sampler = RandomSampler(**sampler_kwargs)
-    else:
-        sampler_kwargs.pop("rng", None)
-        sampler = SequentialSampler(**sampler_kwargs)
+    sampler_kwargs.pop("shuffle", None)
+    sampler_kwargs.setdefault("rng", np.random.default_rng(0))
+    sampler = RandomSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"jax": mock_jax}):
         return DistributedRandomSampler(sampler, dist_info="jax", enforce_equal_batches=enforce_equal_batches)
 
@@ -713,7 +707,7 @@ class TestDistributedRandomSampler:
         mock_dist.is_initialized.return_value = False
         mock_torch = MagicMock()
         mock_torch.distributed = mock_dist
-        sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
+        sampler = RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
             with pytest.raises(RuntimeError, match="torch.distributed is not initialized"):
                 DistributedRandomSampler(sampler, dist_info="torch")
@@ -722,14 +716,14 @@ class TestDistributedRandomSampler:
         """RuntimeError when jax.distributed is not initialized."""
         mock_jax = MagicMock()
         mock_jax.distributed.is_initialized.return_value = False
-        sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
+        sampler = RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"jax": mock_jax}):
             with pytest.raises(RuntimeError, match="JAX distributed is not initialized"):
                 DistributedRandomSampler(sampler, dist_info="jax")
 
     def test_unknown_dist_info_raises(self):
         """ValueError for an unsupported dist_info string."""
-        sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
+        sampler = RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with pytest.raises(ValueError, match="Unknown dist_info"):
             DistributedRandomSampler(sampler, dist_info="mpi")
 

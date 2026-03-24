@@ -16,6 +16,7 @@ from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from annbatch.samplers._random_sampler import RandomSampler
     from annbatch.samplers._utils import WorkerInfo
     from annbatch.types import LoadRequest
 
@@ -326,9 +327,9 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
 class DistributedRandomSampler(Sampler):
     """Distributed sampler that shards data across distributed processes.
 
-    Wraps any sampler and partitions the observation range across
-    ``world_size`` processes.  Each rank receives a non-overlapping
-    slice of the data.
+    Wraps a :class:`~annbatch.samplers.RandomSampler` and partitions the
+    observation range across ``world_size`` processes.  Each rank receives
+    a non-overlapping slice of the data.
 
     When ``enforce_equal_batches`` is *True* (the default), the per-rank observation
     count is rounded down to the nearest multiple of ``batch_size``,
@@ -341,7 +342,7 @@ class DistributedRandomSampler(Sampler):
     Parameters
     ----------
     sampler
-        The base sampler to distribute.
+        The :class:`~annbatch.samplers.RandomSampler` to distribute.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or
@@ -354,11 +355,11 @@ class DistributedRandomSampler(Sampler):
     _rank: int
     _world_size: int
     _enforce_equal_batches: bool
-    _sampler: Sampler
+    _sampler: RandomSampler
 
     def __init__(
         self,
-        sampler: Sampler,
+        sampler: RandomSampler,
         *,
         dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]],
         enforce_equal_batches: bool = True,
