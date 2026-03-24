@@ -163,12 +163,23 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
         with torch.sparse.check_sparse_tensor_invariants(enable=True):
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-                tensor = torch.sparse_csr_tensor(
-                    torch.from_numpy(input.indptr),
-                    torch.from_numpy(input.indices),
-                    torch.from_numpy(input.data),
-                    size=input.shape,
-                )
+                # https://github.com/pytorch/pytorch/issues/178309
+                if input.nnz == 0:
+                    indptr = torch.from_numpy(input.indptr)
+                    tensor = torch.sparse_csr_tensor(
+                        indptr,
+                        torch.tensor([], dtype=indptr.dtype),
+                        torch.tensor([]),
+                        size=input.shape,
+                        dtype=torch.from_numpy(input.data).dtype,  # TODO: better way to do this?
+                    )
+                else:
+                    tensor = torch.sparse_csr_tensor(
+                        torch.from_numpy(input.indptr),
+                        torch.from_numpy(input.indices),
+                        torch.from_numpy(input.data),
+                        size=input.shape,
+                    )
             if preload_to_gpu:
                 return tensor.cuda(non_blocking=True)
             return tensor
