@@ -26,7 +26,7 @@
 
     samplers.RandomSampler
     samplers.SequentialSampler
-    samplers.DistributedSampler
+    samplers.DistributedRandomSampler
     samplers.ChunkSampler
 ```
 

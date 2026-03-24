@@ -1,4 +1,4 @@
-"""Tests for RandomSampler, SequentialSampler, ChunkSampler, and DistributedSampler."""
+"""Tests for RandomSampler, SequentialSampler, ChunkSampler, and DistributedRandomSampler."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from annbatch.abc import Sampler
-from annbatch.samplers import ChunkSampler, DistributedSampler, RandomSampler, SequentialSampler
+from annbatch.samplers import ChunkSampler, DistributedRandomSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
 
 
@@ -650,14 +650,14 @@ def test_sequential_sampler_no_deprecation_warning():
 
 
 # =============================================================================
-# DistributedSampler tests
+# DistributedRandomSampler tests
 # =============================================================================
 
 
 def _make_distributed_sampler_torch(
     rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
-) -> DistributedSampler:
-    """Create a DistributedSampler with mocked torch.distributed backend."""
+) -> DistributedRandomSampler:
+    """Create a DistributedRandomSampler with mocked torch.distributed backend."""
     mock_dist = MagicMock()
     mock_dist.is_initialized.return_value = True
     mock_dist.get_rank.return_value = rank
@@ -671,13 +671,13 @@ def _make_distributed_sampler_torch(
         sampler_kwargs.pop("rng", None)
         sampler = SequentialSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
-        return DistributedSampler(sampler, dist_info="torch", enforce_equal_batches=enforce_equal_batches)
+        return DistributedRandomSampler(sampler, dist_info="torch", enforce_equal_batches=enforce_equal_batches)
 
 
 def _make_distributed_sampler_jax(
     rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
-) -> DistributedSampler:
-    """Create a DistributedSampler with mocked jax backend."""
+) -> DistributedRandomSampler:
+    """Create a DistributedRandomSampler with mocked jax backend."""
     mock_jax = MagicMock()
     mock_jax.process_index.return_value = rank
     mock_jax.process_count.return_value = world_size
@@ -689,7 +689,7 @@ def _make_distributed_sampler_jax(
         sampler_kwargs.pop("rng", None)
         sampler = SequentialSampler(**sampler_kwargs)
     with patch.dict(sys.modules, {"jax": mock_jax}):
-        return DistributedSampler(sampler, dist_info="jax", enforce_equal_batches=enforce_equal_batches)
+        return DistributedRandomSampler(sampler, dist_info="jax", enforce_equal_batches=enforce_equal_batches)
 
 
 _SAMPLER_FACTORIES = {
@@ -704,8 +704,8 @@ def make_distributed_sampler(request):
     return _SAMPLER_FACTORIES[request.param]
 
 
-class TestDistributedSampler:
-    """Tests for DistributedSampler, parameterized over all backends."""
+class TestDistributedRandomSampler:
+    """Tests for DistributedRandomSampler, parameterized over all backends."""
 
     def test_not_initialized_raises_torch(self):
         """RuntimeError when torch.distributed is not initialized."""
@@ -716,7 +716,7 @@ class TestDistributedSampler:
         sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
             with pytest.raises(RuntimeError, match="torch.distributed is not initialized"):
-                DistributedSampler(sampler, dist_info="torch")
+                DistributedRandomSampler(sampler, dist_info="torch")
 
     def test_not_initialized_raises_jax(self):
         """RuntimeError when jax.distributed is not initialized."""
@@ -725,13 +725,13 @@ class TestDistributedSampler:
         sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with patch.dict(sys.modules, {"jax": mock_jax}):
             with pytest.raises(RuntimeError, match="JAX distributed is not initialized"):
-                DistributedSampler(sampler, dist_info="jax")
+                DistributedRandomSampler(sampler, dist_info="jax")
 
     def test_unknown_dist_info_raises(self):
         """ValueError for an unsupported dist_info string."""
         sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10)
         with pytest.raises(ValueError, match="Unknown dist_info"):
-            DistributedSampler(sampler, dist_info="mpi")
+            DistributedRandomSampler(sampler, dist_info="mpi")
 
     def test_shards_are_disjoint_and_cover_full_dataset(self, make_distributed_sampler):
         """All ranks receive non-overlapping shards that together cover the full dataset."""
@@ -812,7 +812,7 @@ class TestDistributedSampler:
         world_size = 4
         seed = 42
 
-        def collect_splits(sampler: DistributedSampler) -> list[list[int]]:
+        def collect_splits(sampler: DistributedRandomSampler) -> list[list[int]]:
             all_splits: list[list[int]] = []
             for load_request in sampler.sample(n_obs):
                 for split in load_request["splits"]:

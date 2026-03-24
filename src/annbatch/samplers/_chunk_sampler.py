@@ -300,7 +300,7 @@ def _get_dist_info_torch() -> tuple[int, int]:
     if not dist.is_initialized():
         raise RuntimeError(
             "torch.distributed is not initialized. "
-            "Initialize it before creating a DistributedSampler with dist_info='torch'."
+            "Initialize it before creating a DistributedRandomSampler with dist_info='torch'."
         )
     return dist.get_rank(), dist.get_world_size()
 
@@ -312,7 +312,7 @@ def _get_dist_info_jax() -> tuple[int, int]:
     if not jax.distributed.is_initialized():
         raise RuntimeError(
             "JAX distributed is not initialized. "
-            "Call jax.distributed.initialize() before creating a DistributedSampler with dist_info='jax'."
+            "Call jax.distributed.initialize() before creating a DistributedRandomSampler with dist_info='jax'."
         )
     return jax.process_index(), jax.process_count()
 
@@ -323,7 +323,7 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
 }
 
 
-class DistributedSampler(Sampler):
+class DistributedRandomSampler(Sampler):
     """Distributed sampler that shards data across distributed processes.
 
     Wraps any sampler and partitions the observation range across
