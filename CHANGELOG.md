@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning][].
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
 ## [0.1.1]
+Features:
+- Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.samplers.ChunkSampler`.
+
 Breaking:
+- Renamed `annbatch.DistributedChunkSampler` to {class}`annbatch.samplers.DistributedRandomSampler`.
 - Deprecated {class}`annbatch.samplers.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
+- Moved `annbatch.abc` to `annbatch.samplers.abc`.
 
 ## [0.1.0]
 
