@@ -21,15 +21,13 @@
 ## Samplers
 
 ```{eval-rst}
-.. module:: annbatch.samplers
-
 .. autosummary::
    :toctree: generated/
 
-    RandomSampler
-    SequentialSampler
-    DistributedSampler
-    ChunkSampler
+    samplers.RandomSampler
+    samplers.SequentialSampler
+    samplers.DistributedSampler
+    samplers.ChunkSampler
 ```
 
 (io-helpers)=
