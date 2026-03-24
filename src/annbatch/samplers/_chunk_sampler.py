@@ -110,10 +110,14 @@ class ChunkSampler(Sampler):
 
     def _resolve_num_samples(self, n_obs: int) -> int:
         """Return the effective number of samples to draw."""
-        if self._num_samples is not None:
-            return self._num_samples
-        start, stop = self._resolve_start_stop(n_obs)
-        return stop - start
+        return self._num_samples or self._resolve_mask_size(n_obs)
+
+    def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
+        return self._mask.start or 0, self._mask.stop or n_obs
+
+    def _resolve_mask_size(self, n_obs: int) -> int:
+        s, e = self._resolve_start_stop(n_obs)
+        return e - s
 
     def n_iters(self, n_obs: int) -> int:
         total = self._resolve_num_samples(n_obs)
@@ -159,14 +163,13 @@ class ChunkSampler(Sampler):
         worker_info = get_torch_worker_info()
         self._validate_worker_mode(worker_info)
 
-        start, stop = self._resolve_start_stop(n_obs)
         worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
-
-        chunks = self._compute_chunks(start, stop, rng=self._rng)
-        yield from self._iter_from_chunks(chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+        chunks = self._compute_chunks(n_obs, rng=self._rng)
+        yield from self._iter_from_chunks(n_obs, chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
 
     def _iter_from_chunks(
         self,
+        n_obs: int,
         chunks: list[slice],
         batch_rng: np.random.Generator,
         worker_info: WorkerInfo | None,
@@ -175,7 +178,7 @@ class ChunkSampler(Sampler):
         if not self._replacement and self._num_samples is None:
             yield from base
             return
-        num_samples = self._resolve_num_samples(sum(c.stop - c.start for c in chunks))
+        num_samples = self._resolve_num_samples(n_obs)
         n_batches = num_samples // self.batch_size if self._drop_last else math.ceil(num_samples / self.batch_size)
         batches_per_request = self._in_memory_size // self.batch_size
         n_full, tail = divmod(n_batches, batches_per_request)
@@ -219,13 +222,12 @@ class ChunkSampler(Sampler):
         batch_indices = split_given_size(indices, self.batch_size)
         yield {"chunks": final_chunks, "splits": batch_indices}
 
-    def _compute_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
+    def _compute_chunks(self, n_obs: int, rng: np.random.Generator) -> list[slice]:
         """Compute chunks from start and stop indices.
 
-        Chunks are computed such that the last chunk is the incomplete chunk if the total number of
-        observations is not divisible by the chunk size.  Also works with shuffled chunk indices so
-        that the last chunk computed isn't always the incomplete chunk.
+        Chunks are computed such that the last chunk may be incomplete.
         """
+        start, stop = self._resolve_start_stop(n_obs)
         if self._replacement:
             # stop - start >= chunk_size is guaranteed by validate()
             num_samples = self._resolve_num_samples(stop)
@@ -288,9 +290,6 @@ class ChunkSampler(Sampler):
         if not keep_incomplete and incomplete:
             chunks.pop()
         return chunks
-
-    def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
-        return self._mask.start or 0, self._mask.stop or n_obs
 
 
 def _get_dist_info_torch() -> tuple[int, int]:
