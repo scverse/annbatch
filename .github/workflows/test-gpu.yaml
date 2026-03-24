@@ -41,7 +41,7 @@ jobs:
     runs-on: "cirun-aws-gpu--${{ github.run_id }}"
     strategy:
       matrix:
-        extras: ["torch,cupy-cuda12", "torch", "cupy-cuda12"]
+        extras: ["torch,cupy-cuda13", "torch,cupy-cuda12", "torch", "cupy-cuda12", "cupy-cuda13"]
     # Setting a timeout of 30 minutes, as the AWS costs money
     # At time of writing, a typical run takes about 5 minutes
     timeout-minutes: 30
