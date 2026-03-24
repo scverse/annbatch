@@ -43,6 +43,15 @@
     DatasetCollection
 ```
 
+(abc)=
+## abc
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+
+    abc.Sampler
+```
+
 (types)=
 ## types
 
