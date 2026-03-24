@@ -160,10 +160,12 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):
-        with torch.sparse.check_sparse_tensor_invariants(enable=True):
+        # TODO: better way to toggle this off for "production" but on for tests?
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
                 # https://github.com/pytorch/pytorch/issues/178309
+                # Without this, under `enable=True` above, there would be the above error.
                 if input.nnz == 0:
                     indptr = torch.from_numpy(input.indptr)
                     tensor = torch.sparse_csr_tensor(
