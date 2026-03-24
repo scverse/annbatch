@@ -86,7 +86,7 @@ class Loader[
     Parameters
     ----------
         batch_sampler
-            If not provided, a default :class:`annbatch.SequentialSampler` or :class:`annbatch.RandomSampler` will be used with the same defaults below.
+            If not provided, a default :class:`annbatch.samplers.SequentialSampler` or :class:`annbatch.samplers.RandomSampler` will be used with the same defaults below.
         chunk_size
             The obs size (i.e., axis 0) of contiguous array data to fetch. Mutually exclusive with `batch_sampler`. Defaults to 512.
         preload_nchunks

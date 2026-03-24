@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.1]
 Breaking:
-- Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler`.
+- Deprecated {class}`annbatch.samplers.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
 ## [0.1.0]
 
