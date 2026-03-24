@@ -160,7 +160,7 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):
-        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+        with torch.sparse.check_sparse_tensor_invariants(enable=True):
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
                 tensor = torch.sparse_csr_tensor(
