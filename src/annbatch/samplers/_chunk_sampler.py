@@ -339,14 +339,12 @@ class DistributedRandomSampler(Sampler):
     -------
     .. code-block:: python
 
-        import numpy as np
         from annbatch.samplers import DistributedRandomSampler, RandomSampler
 
         sampler = RandomSampler(
             chunk_size=256,
             preload_nchunks=4,
             batch_size=32,
-            rng=np.random.default_rng(0),
         )
 
         # Using PyTorch distributed (torch.distributed must be initialized)
