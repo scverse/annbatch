@@ -358,7 +358,7 @@ class DistributedRandomSampler(Sampler):
     """Distributed chunk-based sampler that shards data across distributed processes.
 
     Partitions the full observation range into ``world_size`` contiguous shards
-    using the ``mask`` mechanism of :class:`Sampler`.  Each rank receives a
+    using the ``mask`` mechanism of :class:`~annbatch.abc.Sampler`.  Each rank receives a
     non-overlapping slice of the data.  The shard boundaries are computed lazily
     when ``n_obs`` becomes known.
 
