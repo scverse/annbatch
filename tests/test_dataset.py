@@ -718,6 +718,31 @@ def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
 
 
+@pytest.mark.parametrize(
+    ("shuffle", "rng", "error_match"),
+    [
+        pytest.param(True, None, "rng must also be provided", id="shuffle_without_rng"),
+        pytest.param(False, np.random.default_rng(0), "rng must be None", id="no_shuffle_with_rng"),
+        pytest.param(True, np.random.default_rng(0), None, id="shuffle_with_rng_ok"),
+        pytest.param(False, None, None, id="no_shuffle_no_rng_ok"),
+        pytest.param(None, None, None, id="default_shuffle_no_rng_ok"),
+        pytest.param(None, np.random.default_rng(0), None, id="default_shuffle_with_rng_ok"),
+    ],
+)
+def test_loader_shuffle_rng_validation(shuffle, rng, error_match):
+    """Test that Loader validates shuffle/rng argument combinations."""
+    kwargs = {"preload_to_gpu": False, "to_torch": False}
+    if shuffle is not None:
+        kwargs["shuffle"] = shuffle
+    if rng is not None:
+        kwargs["rng"] = rng
+    if error_match:
+        with pytest.raises(ValueError, match=error_match):
+            Loader(**kwargs)
+    else:
+        Loader(**kwargs)
+
+
 def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     ds1 = Loader(
         chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
