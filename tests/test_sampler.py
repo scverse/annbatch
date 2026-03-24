@@ -307,6 +307,9 @@ def test_invalid_replacement_sampler(kwargs: dict, n_obs: int | None, error_matc
         pytest.param(100, 10, 2, 5, 50, slice(20, 80), id="with_mask"),
         pytest.param(103, 10, 2, 5, 100, slice(0, None), id="non_divisible_obs"),
         pytest.param(100, 10, 2, 5, 35, slice(0, None), id="tail_with_batch_lt_chunk"),
+        # when replacement and range < chunk_size, num_samples <= range
+        pytest.param(100, 10, 1, 1, 5, slice(50, 55), id="range_lt_chunk_ns_lte_range"),
+        pytest.param(100, 10, 1, 1, 3, slice(50, 55), id="range_lt_chunk_ns_lt_range"),
     ],
 )
 def test_replacement_invariants(
