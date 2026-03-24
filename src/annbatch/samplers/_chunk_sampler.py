@@ -344,24 +344,27 @@ class DistributedRandomSampler(Sampler):
 
     Example
     -------
-    .. code-block:: python
+    >>> from annbatch import DistributedRandomSampler, RandomSampler
+    >>> sampler = RandomSampler(
+    ...     chunk_size=256,
+    ...     preload_nchunks=4,
+    ...     batch_size=32,
+    ... )
 
-        from annbatch import DistributedRandomSampler, RandomSampler
+    Using PyTorch distributed
 
-        sampler = RandomSampler(
-            chunk_size=256,
-            preload_nchunks=4,
-            batch_size=32,
-        )
+    >>> dist_sampler = DistributedRandomSampler(sampler, dist_info="torch")
 
-        # Using PyTorch distributed (torch.distributed must be initialized)
-        dist_sampler = DistributedRandomSampler(sampler, dist_info="torch")
+    Using JAX
 
-        # Or with JAX
-        dist_sampler = DistributedRandomSampler(sampler, dist_info="jax")
+    >>> dist_sampler = DistributedRandomSampler(sampler, dist_info="jax")
 
-        # Or with a custom callable
-        dist_sampler = DistributedRandomSampler(sampler, dist_info=lambda: (rank, world_size))
+    Using a custom callable
+
+    >>> dist_sampler = DistributedRandomSampler(
+    ...     sampler,
+    ...     dist_info=lambda: (rank, world_size),
+    ... )
 
     Parameters
     ----------
@@ -372,8 +375,11 @@ class DistributedRandomSampler(Sampler):
         Either a string naming a distributed backend (``"torch"`` or
         ``"jax"``), or a callable that returns ``(rank, world_size)``.
     enforce_equal_batches
-        If *True*, round each rank's observation count down to a multiple of ``batch_size`` so that all workers (ranks) yield the same number of batches.
-        Set to *False* to use the raw ``n_obs // world_size`` split, which may result in an uneven number of batches per worker.
+        If *True*, round each rank's observation count down to a
+        multiple of ``batch_size`` so that all workers (ranks) yield
+        the same number of batches.
+        Set to *False* to use the raw ``n_obs // world_size`` split,
+        which may result in an uneven number of batches per worker.
     """
 
     _rank: int
