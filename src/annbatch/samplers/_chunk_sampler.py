@@ -180,10 +180,7 @@ class ChunkSampler(Sampler):
         if not self._replacement and self._num_samples is None:
             yield from base
             return
-        num_samples = self._resolve_num_samples(n_obs)
-        n_batches = num_samples // self.batch_size if self._drop_last else math.ceil(num_samples / self.batch_size)
-        batches_per_request = self._in_memory_size // self.batch_size
-        n_full, tail = divmod(n_batches, batches_per_request)
+        n_full, tail = divmod(self.n_iters(n_obs), self._in_memory_size // self.batch_size)
         yield from itertools.islice(base, n_full)
         if tail > 0:
             load_request = next(base)
