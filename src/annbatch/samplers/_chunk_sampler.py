@@ -227,9 +227,10 @@ class ChunkSampler(Sampler):
         Chunks are computed such that the last chunk may be incomplete.
         """
         start, stop = self._resolve_start_stop(n_obs)
+        num_samples = self._resolve_num_samples(stop)
+        epoch_size = self._resolve_mask_size(n_obs)
         if self._replacement:
             # stop - start >= chunk_size is guaranteed by validate()
-            num_samples = self._resolve_num_samples(stop)
             n_chunks, remainder = divmod(num_samples, self._chunk_size)
             start_indices = rng.integers(start, stop - self._chunk_size + 1, size=n_chunks)
             res = [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
@@ -238,8 +239,6 @@ class ChunkSampler(Sampler):
                 res.append(slice(start_index, start_index + remainder))
             return res
 
-        num_samples = self._resolve_num_samples(stop)
-        epoch_size = stop - start
         incomplete = epoch_size % self._chunk_size
 
         if num_samples <= epoch_size:

@@ -441,6 +441,7 @@ def test_n_iters_property(sampler: Sampler, n_obs: int, expected: int):
         pytest.param(100, 10, 2, 5, 300, slice(0, None), id="exact_3_epochs"),
         pytest.param(103, 10, 2, 5, 309, slice(0, None), id="exact_3_epochs_unaligned"),
         pytest.param(100, 10, 2, 5, 150, slice(20, 80), id="multi_epoch_with_mask"),
+        pytest.param(20, 3, 6, 1, 57, slice(0, None), id="multi_epoch_remainder_gt_1"),
     ],
 )
 def test_without_replacement_num_samples(
