@@ -160,18 +160,18 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-            with torch.sparse.check_sparse_tensor_invariants(enable=False):
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
                 tensor = torch.sparse_csr_tensor(
                     torch.from_numpy(input.indptr),
                     torch.from_numpy(input.indices),
                     torch.from_numpy(input.data),
                     size=input.shape,
                 )
-        if preload_to_gpu:
-            return tensor.cuda(non_blocking=True)
-        return tensor
+            if preload_to_gpu:
+                return tensor.cuda(non_blocking=True)
+            return tensor
     if isinstance(input, np.ndarray):
         tensor = torch.from_numpy(input)
         if preload_to_gpu:
@@ -182,13 +182,12 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, CupyCSRMatrix):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-            with torch.sparse.check_sparse_tensor_invariants(enable=False):
-                return torch.sparse_csr_tensor(
-                    torch.from_dlpack(input.indptr),
-                    torch.from_dlpack(input.indices),
-                    torch.from_dlpack(input.data),
-                    size=input.shape,
-                )
+            return torch.sparse_csr_tensor(
+                torch.from_dlpack(input.indptr),
+                torch.from_dlpack(input.indices),
+                torch.from_dlpack(input.data),
+                size=input.shape,
+            )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
