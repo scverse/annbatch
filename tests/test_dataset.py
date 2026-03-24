@@ -269,6 +269,7 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ),
         False,
     ],
+    ids=["preload_to_gpu", "dont_preload_to_gpu"],
 )
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_to_torch(
