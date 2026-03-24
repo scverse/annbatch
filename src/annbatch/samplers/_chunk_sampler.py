@@ -356,9 +356,7 @@ class DistributedRandomSampler(Sampler):
         dist_sampler = DistributedRandomSampler(sampler, dist_info="jax")
 
         # Or with a custom callable
-        dist_sampler = DistributedRandomSampler(
-            sampler, dist_info=lambda: (rank, world_size)
-        )
+        dist_sampler = DistributedRandomSampler(sampler, dist_info=lambda: (rank, world_size))
 
     Parameters
     ----------
