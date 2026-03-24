@@ -159,6 +159,7 @@ class ChunkSampler(Sampler):
         if not self._shuffle:
             raise ValueError("Multiple workers are not supported with non-shuffled sampling.")
         if self._replacement:
+            # TODO(selmanozleyen): support multiple workers with replacement sampling
             raise ValueError("Multiple workers are not supported with replacement sampling.")
         if not self._drop_last and self.batch_size != 1:
             # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
