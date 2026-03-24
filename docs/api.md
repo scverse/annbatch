@@ -24,11 +24,11 @@
 .. autosummary::
    :toctree: generated/
 
-    samplers.abc.Sampler
-    samplers.RandomSampler
-    samplers.SequentialSampler
-    samplers.DistributedRandomSampler
-    samplers.ChunkSampler
+    abc.Sampler
+    RandomSampler
+    SequentialSampler
+    DistributedRandomSampler
+    ChunkSampler
 ```
 
 (io-helpers)=

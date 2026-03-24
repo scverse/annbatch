@@ -24,7 +24,7 @@ class RandomSampler(ChunkSampler):
     yielded).  With replacement, this is only allowed when
     ``num_samples`` does not exceed the observation range.
 
-    See :class:`~annbatch.samplers.SequentialSampler` for an ordered
+    See :class:`~annbatch.SequentialSampler` for an ordered
     (non-shuffled) alternative.
 
     Parameters

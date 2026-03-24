@@ -14,7 +14,7 @@ class SequentialSampler(ChunkSampler):
     range is visited exactly once.  Does not support multiple
     data-loading workers. Usually used for evaluation or inference.
 
-    See :class:`~annbatch.samplers.RandomSampler` for a shuffled
+    See :class:`~annbatch.RandomSampler` for a shuffled
     alternative.
 
     """

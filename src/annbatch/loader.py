@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import ModuleType
 
+    from annbatch.abc import Sampler
     from annbatch.io import DatasetCollection
-    from annbatch.samplers.abc import Sampler
 
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
@@ -81,12 +81,12 @@ class Loader[
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
     `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
-    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.samplers.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.samplers.SequentialSampler`.
+    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.SequentialSampler`.
 
     Parameters
     ----------
         batch_sampler
-            If not provided, a default :class:`annbatch.samplers.SequentialSampler` or :class:`annbatch.samplers.RandomSampler` will be used with the same defaults below.
+            If not provided, a default :class:`annbatch.SequentialSampler` or :class:`annbatch.RandomSampler` will be used with the same defaults below.
         chunk_size
             The obs size (i.e., axis 0) of contiguous array data to fetch. Mutually exclusive with `batch_sampler`. Defaults to 512.
         preload_nchunks

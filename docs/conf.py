@@ -135,7 +135,6 @@ nitpick_ignore = [
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
     ("py:class", "annbatch.types.TypeAliasType"),
-    ("py:data", "typing.Union"),
 ]
 
 qualname_overrides = {

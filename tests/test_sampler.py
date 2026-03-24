@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from annbatch.samplers import ChunkSampler, DistributedRandomSampler, RandomSampler, SequentialSampler
+from annbatch import ChunkSampler, DistributedRandomSampler, RandomSampler, SequentialSampler
+from annbatch.abc import Sampler
 from annbatch.samplers._utils import WorkerInfo
-from annbatch.samplers.abc import Sampler
 
 
 def collect_indices(sampler: Sampler, n_obs: int) -> tuple[list[int], list[slice], list[np.ndarray]]:

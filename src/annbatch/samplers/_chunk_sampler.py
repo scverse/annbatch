@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
+from annbatch.abc import Sampler
 from annbatch.samplers._utils import get_torch_worker_info
-from annbatch.samplers.abc import Sampler
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -25,10 +25,10 @@ class ChunkSampler(Sampler):
     """Chunk-based sampler for batched data access.
 
     .. deprecated:: 0.1.0
-        Use :class:`~annbatch.samplers.RandomSampler` (for shuffled access) or
-        :class:`~annbatch.samplers.SequentialSampler` (for ordered access) instead.
+        Use :class:`~annbatch.RandomSampler` (for shuffled access) or
+        :class:`~annbatch.SequentialSampler` (for ordered access) instead.
 
-    This is the monolithic sampler that powers both :class:`~annbatch.samplers.RandomSampler` and :class:`~annbatch.samplers.SequentialSampler`.
+    This is the monolithic sampler that powers both :class:`~annbatch.RandomSampler` and :class:`~annbatch.SequentialSampler`.
     It supports epoch-based and with-replacement sampling, optional
     shuffling, and all combinations of ``replacement``, ``num_samples``,
     and ``drop_last``.
@@ -355,11 +355,12 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
 
 
 class DistributedRandomSampler(Sampler):
-    """Distributed sampler that shards data across distributed processes.
+    """Distributed chunk-based sampler that shards data across distributed processes.
 
-    Wraps a :class:`~annbatch.samplers.RandomSampler` and partitions the
-    observation range across ``world_size`` processes.  Each rank receives
-    a non-overlapping slice of the data.
+    Partitions the full observation range into ``world_size`` contiguous shards
+    using the ``mask`` mechanism of :class:`Sampler`.  Each rank receives a
+    non-overlapping slice of the data.  The shard boundaries are computed lazily
+    when ``n_obs`` becomes known.
 
     When ``enforce_equal_batches`` is *True* (the default), the per-rank observation
     count is rounded down to the nearest multiple of ``batch_size``,
@@ -373,7 +374,7 @@ class DistributedRandomSampler(Sampler):
     -------
     .. code-block:: python
 
-        from annbatch.samplers import DistributedRandomSampler, RandomSampler
+        from annbatch import DistributedRandomSampler, RandomSampler
 
         sampler = RandomSampler(
             chunk_size=256,
@@ -393,7 +394,7 @@ class DistributedRandomSampler(Sampler):
     Parameters
     ----------
     sampler
-        The :class:`~annbatch.samplers.RandomSampler` to distribute.
+        The :class:`~annbatch.RandomSampler` to distribute.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or
