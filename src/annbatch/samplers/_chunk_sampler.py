@@ -1,4 +1,4 @@
-"""Chunk-based sampler for efficient data access."""
+"""Sampler classes for efficient chunk-based data access."""
 
 from __future__ import annotations
 
