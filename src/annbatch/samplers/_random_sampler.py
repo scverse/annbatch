@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import warnings
+
 from annbatch.samplers._chunk_sampler import ChunkSampler
 
 if TYPE_CHECKING:
@@ -48,14 +50,16 @@ class RandomSampler(ChunkSampler):
         mask: slice | None = None,
         rng: np.random.Generator | None = None,
     ):
-        super().__init__(
-            chunk_size=chunk_size,
-            preload_nchunks=preload_nchunks,
-            batch_size=batch_size,
-            replacement=replacement,
-            num_samples=num_samples,
-            shuffle=True,
-            drop_last=drop_last,
-            mask=mask,
-            rng=rng,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="ChunkSampler is deprecated", category=DeprecationWarning)
+            super().__init__(
+                chunk_size=chunk_size,
+                preload_nchunks=preload_nchunks,
+                batch_size=batch_size,
+                replacement=replacement,
+                num_samples=num_samples,
+                shuffle=True,
+                drop_last=drop_last,
+                mask=mask,
+                rng=rng,
+            )

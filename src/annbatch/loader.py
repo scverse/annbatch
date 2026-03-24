@@ -81,7 +81,7 @@ class Loader[
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
     `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
-    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.SequentialSampler`.
+    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.samplers.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.samplers.SequentialSampler`.
 
     Parameters
     ----------

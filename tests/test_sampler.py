@@ -11,9 +11,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from annbatch import DistributedSampler, RandomSampler, SequentialSampler
 from annbatch.abc import Sampler
-from annbatch.samplers import ChunkSampler
+from annbatch.samplers import ChunkSampler, DistributedSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
 
 

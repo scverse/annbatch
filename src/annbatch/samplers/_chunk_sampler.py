@@ -23,11 +23,11 @@ if TYPE_CHECKING:
 class ChunkSampler(Sampler):
     """Chunk-based sampler for batched data access.
 
-    .. deprecated::
-        Use :class:`~annbatch.RandomSampler` (for shuffled access) or
-        :class:`~annbatch.SequentialSampler` (for ordered access) instead.
+    .. deprecated:: 0.1.0
+        Use :class:`~annbatch.samplers.RandomSampler` (for shuffled access) or
+        :class:`~annbatch.samplers.SequentialSampler` (for ordered access) instead.
 
-    This is the monolithic sampler that powers both convenience classes.
+    This is the monolithic sampler that powers both :class:`~annbatch.samplers.RandomSampler` and :class:`~annbatch.samplers.SequentialSampler`.
     It supports epoch-based and with-replacement sampling, optional
     shuffling, and all combinations of ``replacement``, ``num_samples``,
     and ``drop_last``.
@@ -56,12 +56,11 @@ class ChunkSampler(Sampler):
         mask: slice | None = None,
         rng: np.random.Generator | None = None,
     ):
-        if type(self) is ChunkSampler:
-            warnings.warn(
-                "ChunkSampler is deprecated, use RandomSampler or SequentialSampler instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        warnings.warn(
+            "ChunkSampler is deprecated, use RandomSampler or SequentialSampler instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         if num_samples is not None:
             check_lt_1([num_samples], ["num_samples"])
