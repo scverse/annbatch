@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import warnings
+from typing import TYPE_CHECKING
 
 from annbatch.samplers._chunk_sampler import ChunkSampler
 
