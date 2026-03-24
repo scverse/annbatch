@@ -480,7 +480,6 @@ def test_num_samples_invariants(
         assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
 
 
-
 # =============================================================================
 # n_obs change tests (To verify nothing is cached between calls.)
 # =============================================================================
