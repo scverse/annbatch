@@ -167,6 +167,7 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
                 torch.from_numpy(input.indices),
                 torch.from_numpy(input.data),
                 input.shape,
+                check_invariants=True,
             )
         if preload_to_gpu:
             return tensor.cuda(non_blocking=True)
@@ -186,6 +187,7 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
                 torch.from_dlpack(input.indices),
                 torch.from_dlpack(input.data),
                 input.shape,
+                check_invariants=True,
             )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
