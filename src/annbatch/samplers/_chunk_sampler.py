@@ -33,6 +33,37 @@ class ChunkSampler(Sampler):
     shuffling, and all combinations of ``replacement``, ``num_samples``,
     and ``drop_last``.
 
+    Parameters
+    ----------
+    chunk_size
+        Number of contiguous observations per on-disk chunk.
+    preload_nchunks
+        Number of chunks to group into each I/O request.
+        ``chunk_size * preload_nchunks`` must be divisible by
+        ``batch_size``.
+    batch_size
+        Number of observations per batch.  Must not exceed
+        ``chunk_size * preload_nchunks``.
+    replacement
+        If ``True``, draw random chunks with replacement, allowing the
+        same observations to appear more than once.
+    num_samples
+        Total number of observations to draw.  When ``None`` (the
+        default), equals the effective observation range.  Must be
+        positive when set.
+    shuffle
+        If ``True``, shuffle chunk order within each epoch.
+    drop_last
+        If ``True``, drop the final batch when it contains fewer than
+        ``batch_size`` observations.
+    mask
+        A ``slice`` restricting sampling to a sub-range of observations.
+        For example, ``slice(100, 500)`` limits sampling to observations
+        100 through 499.
+    rng
+        A :class:`numpy.random.Generator` used for shuffling and
+        replacement draws.  When ``None``, a new default generator is
+        created.
     """
 
     _batch_size: int

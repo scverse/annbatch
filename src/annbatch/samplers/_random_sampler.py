@@ -14,27 +14,24 @@ if TYPE_CHECKING:
 class RandomSampler(ChunkSampler):
     """Shuffled chunk-based sampler for batched data access.
 
-    TODO: docstring desc
+    Chunks are drawn in random order.  Without replacement (the default),
+    every observation in the range is visited exactly once per epoch.
+    With ``replacement=True``, chunks are drawn independently at random
+    and ``num_samples`` controls the total number of observations drawn.
+
+    When the observation range is smaller than ``chunk_size``, sampling
+    without replacement works normally (a single smaller chunk is
+    yielded).  With replacement, this is only allowed when
+    ``num_samples`` does not exceed the observation range.
+
+    See :class:`~annbatch.samplers.SequentialSampler` for an ordered
+    (non-shuffled) alternative.
 
     Parameters
     ----------
-    chunk_size
-        Size of each on-disk chunk range yielded.
-    preload_nchunks
-        Number of chunks to load per I/O request.
-    batch_size
-        Number of observations per batch.
-    replacement
-        If ``True``, draw random chunks with replacement.
-    num_samples
-        Total number of observations to draw.  Defaults to the
-        effective observation count when ``None``.
-    drop_last
-        Whether to drop the last incomplete batch.
-    mask
-        A slice defining the observation range to sample from.
     rng
-        Random number generator for shuffling.
+        A :class:`numpy.random.Generator` used for shuffling.  When
+        ``None``, a new default generator is created.
     """
 
     def __init__(

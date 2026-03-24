@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 class Sampler(ABC):
     """Base sampler class.
 
-    Samplers control how data is batched and loaded from the underlying datasets.
+    Yields :class:`~annbatch.types.LoadRequest` dicts whose ``chunks``
+    are contiguous slices of size ``chunk_size``.
+    Multiple chunks are grouped into a single I/O request
+    controlled by ``preload_nchunks``, and each request is split into
+    batches of ``batch_size`` observations.
     """
 
     _mask: slice = slice(0, None)
