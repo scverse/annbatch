@@ -16,17 +16,23 @@ from annbatch.samplers._utils import WorkerInfo
 from annbatch.samplers.abc import Sampler
 
 
-def collect_indices(sampler: Sampler, n_obs: int) -> list[int]:
-    """Helper to collect all indices from sampler."""
+def collect_indices(sampler: Sampler, n_obs: int) -> tuple[list[int], list[slice], list[np.ndarray]]:
+    """Helper to collect loaded indices, chunks, and splits from sampler."""
     indices: list[int] = []
+    chunks: list[slice] = []
+    splits: list[np.ndarray] = []
     for load_request in sampler.sample(n_obs):
         assert len(load_request["splits"]) > 0, "splits must be non-empty"
         assert all(len(s) > 0 for s in load_request["splits"]), "splits must be non-empty"
         assert len(load_request["chunks"]) > 0, "chunks must be non-empty"
         assert all(c.stop - c.start > 0 for c in load_request["chunks"]), "chunks must be non-empty"
+        splits.extend(load_request["splits"])
+
         for c in load_request["chunks"]:
+            chunks.append(c)
             indices.extend(range(c.start, c.stop))
-    return indices
+
+    return indices, chunks, splits
 
 
 @pytest.fixture(params=[RandomSampler, SequentialSampler])
@@ -106,7 +112,7 @@ def test_mask_coverage(
         expected_stop = expected_start + (total_obs // batch_size) * batch_size
     expected_indices = list(range(expected_start, expected_stop))
 
-    all_indices = collect_indices(sampler, n_obs)
+    all_indices, _, _ = collect_indices(sampler, n_obs)
 
     # Always check coverage
     if shuffle:
@@ -194,7 +200,8 @@ def test_workers_cover_full_dataset_without_overlap(
             "annbatch.samplers._chunk_sampler.get_torch_worker_info",
             return_value=WorkerInfo(id=worker_id, num_workers=num_workers),
         ):
-            all_worker_indices.append(collect_indices(sampler, n_obs))
+            worker_indices, _, _ = collect_indices(sampler, n_obs)
+            all_worker_indices.append(worker_indices)
 
     # All workers should have disjoint chunks
     for i in range(num_workers):
@@ -225,9 +232,9 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_factory):
             rng=np.random.default_rng(seed),
         )
 
-    indices1 = collect_indices(make_sampler(42), n_obs)
-    indices2 = collect_indices(make_sampler(42), n_obs)
-    indices3 = collect_indices(make_sampler(99), n_obs)
+    indices1, _, _ = collect_indices(make_sampler(42), n_obs)
+    indices2, _, _ = collect_indices(make_sampler(42), n_obs)
+    indices3, _, _ = collect_indices(make_sampler(99), n_obs)
 
     assert indices1 == indices2, "Sampling should be reproducible with same seed"
     assert indices1 != indices3, "Different seeds should produce different results"
@@ -454,23 +461,22 @@ def test_num_samples_invariants(
         rng=np.random.default_rng(42),
     )
     expected_batches = math.ceil(num_samples / batch_size)
+    indices, all_chunks, splits = collect_indices(sampler, n_obs)
+    assert len(splits) == expected_batches, f"Expected {expected_batches} batches, got {len(splits)}"
 
-    all_chunks: list[slice] = []
-    batch_count = 0
-    for load_request in sampler.sample(n_obs):
-        assert len(load_request["chunks"]) > 0, "Load request must have at least one chunk"
-        for chunk in load_request["chunks"]:
-            assert chunk.stop - chunk.start <= chunk_size, f"Oversized chunk: {chunk}"
-            assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
-            assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
-            all_chunks.append(chunk)
-        batch_count += len(load_request["splits"])
+    for chunk in all_chunks:
+        assert chunk.stop - chunk.start <= chunk_size, f"Oversized chunk: {chunk}"
+        assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
+        assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
 
-    assert batch_count == expected_batches, f"Expected {expected_batches} batches, got {batch_count}"
-
-    # All non-last chunks must be exactly chunk_size
+    # All non-last chunks must be exactly chunk_size.
     for chunk in all_chunks[:-1]:
         assert chunk.stop - chunk.start == chunk_size, f"Non-final chunk not full: {chunk}"
+
+    if not replacement and num_samples > (stop - start):
+        expected = set(range(start, stop))
+        covered = set(indices)
+        assert expected <= covered, f"Missing observations: {sorted(expected - covered)}"
 
 
 # =============================================================================
@@ -489,7 +495,7 @@ def test_n_obs_coverage(n_obs_values: list[int], expected_ranges: list[range]):
     """Test that n_obs changes affect sampling results appropriately."""
     sampler = SequentialSampler(mask=slice(0, None), batch_size=5, chunk_size=10, preload_nchunks=2)
 
-    results = [collect_indices(sampler, n) for n in n_obs_values]
+    results = [collect_indices(sampler, n)[0] for n in n_obs_values]
 
     for result, expected in zip(results, expected_ranges, strict=True):
         assert result == list(expected), f"result: {result} != expected: {expected}"
@@ -587,6 +593,7 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
     # Verify coverage
     assert set(all_indices) == set(range(n_obs))
 
+    # Verify shuffle behavior
     if shuffle:
         assert all_indices != list(range(n_obs)), "Indices should be shuffled"
     else:
@@ -718,7 +725,8 @@ class TestDistributedRandomSampler:
                 preload_nchunks=preload_nchunks,
                 batch_size=batch_size,
             )
-            all_indices.append(collect_indices(sampler, n_obs))
+            indices, _, _ = collect_indices(sampler, n_obs)
+            all_indices.append(indices)
 
         # Shards must be disjoint
         for i in range(world_size):
@@ -751,7 +759,8 @@ class TestDistributedRandomSampler:
                 batch_size=batch_size,
                 enforce_equal_batches=True,
             )
-            n_batches = sum(len(lr["splits"]) for lr in sampler.sample(n_obs))
+            _, _, splits = collect_indices(sampler, n_obs)
+            n_batches = len(splits)
             batch_counts.append(n_batches)
 
         assert len(set(batch_counts)) == 1, f"Batch counts differ across ranks: {batch_counts}"
@@ -774,7 +783,7 @@ class TestDistributedRandomSampler:
             batch_size=batch_size,
             enforce_equal_batches=enforce_equal_batches,
         )
-        indices = collect_indices(sampler, n_obs)
+        indices, _, _ = collect_indices(sampler, n_obs)
         assert len(set(indices)) == expected
 
     def test_batch_shuffle_is_reproducible_with_same_seed_rng(self, make_distributed_sampler):
@@ -827,5 +836,6 @@ class TestDistributedRandomSampler:
                 drop_last=True,
             )
             expected = sampler.n_iters(n_obs)
-            actual = sum(len(lr["splits"]) for lr in sampler.sample(n_obs))
+            _, _, splits = collect_indices(sampler, n_obs)
+            actual = len(splits)
             assert actual == expected, f"rank {rank}: n_iters={expected}, actual={actual}"
