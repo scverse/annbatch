@@ -243,6 +243,8 @@ def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_factory):
     [
         pytest.param(slice(0, 100), 100, None, id="valid_config"),
         pytest.param(slice(0, 200), 100, "mask.stop.*exceeds loader n_obs", id="stop_exceeds_n_obs"),
+        pytest.param(slice(50, None), 50, "mask.start.*must be < mask.stop", id="start_equals_resolved_stop"),
+        pytest.param(slice(50, None), 30, "mask.start.*must be < mask.stop", id="start_exceeds_resolved_stop"),
     ],
 )
 def test_validate(mask: slice, n_obs: int, error_match: str | None):
@@ -377,6 +379,25 @@ def test_replacement_with_multiple_workers_raises():
             return_value=WorkerInfo(id=0, num_workers=2),
         ),
         pytest.raises(ValueError, match="Multiple workers are not supported with replacement sampling"),
+    ):
+        list(sampler.sample(100))
+
+
+def test_drop_last_false_with_multiple_workers_raises():
+    """Test that drop_last=False with batch_size>1 and multiple workers raises."""
+    sampler = RandomSampler(
+        chunk_size=10,
+        preload_nchunks=2,
+        batch_size=5,
+        drop_last=False,
+        rng=np.random.default_rng(42),
+    )
+    with (
+        patch(
+            "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+            return_value=WorkerInfo(id=0, num_workers=2),
+        ),
+        pytest.raises(ValueError, match="drop_last=False is not supported"),
     ):
         list(sampler.sample(100))
 
