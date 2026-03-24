@@ -156,6 +156,7 @@ def check_var_shapes(objs: list[SupportsShape]) -> None:
 def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     """Send the input data to a torch.Tensor"""
     import torch
+
     with torch.sparse.check_sparse_tensor_invariants(enable=False):
         if isinstance(input, torch.Tensor):
             return input
