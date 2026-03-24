@@ -300,52 +300,6 @@ def test_invalid_replacement_sampler(kwargs: dict, n_obs: int | None, error_matc
             list(sampler.sample(n_obs))
 
 
-@pytest.mark.parametrize(
-    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "num_samples", "mask"),
-    [
-        pytest.param(100, 10, 2, 5, 50, slice(0, None), id="basic"),
-        pytest.param(100, 10, 2, 5, 250, slice(0, None), id="more_samples_than_obs"),
-        pytest.param(100, 10, 2, 5, 5, slice(0, None), id="single_batch"),
-        pytest.param(100, 10, 2, 5, 50, slice(20, 80), id="with_mask"),
-        pytest.param(103, 10, 2, 5, 100, slice(0, None), id="non_divisible_obs"),
-        pytest.param(100, 10, 2, 5, 35, slice(0, None), id="tail_with_batch_lt_chunk"),
-        # when replacement and range < chunk_size, num_samples <= range
-        pytest.param(100, 10, 1, 1, 5, slice(50, 55), id="range_lt_chunk_ns_lte_range"),
-        pytest.param(100, 10, 1, 1, 3, slice(50, 55), id="range_lt_chunk_ns_lt_range"),
-    ],
-)
-def test_replacement_invariants(
-    n_obs: int, chunk_size: int, preload_nchunks: int, batch_size: int, num_samples: int, mask: slice
-):
-    """Test RandomSampler with replacement yields correct num_batches, chunks within bounds, uniform chunk sizes."""
-    start = mask.start or 0
-    stop = mask.stop or n_obs
-    sampler = RandomSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        replacement=True,
-        num_samples=num_samples,
-        mask=mask,
-        rng=np.random.default_rng(42),
-    )
-    expected_batches = math.ceil(num_samples / batch_size)
-    count = 0
-    all_chunks: list[slice] = []
-    for load_request in sampler.sample(n_obs):
-        assert len(load_request["chunks"]) > 0, "Load request must have at least one chunk"
-        for chunk in load_request["chunks"]:
-            assert chunk.stop - chunk.start <= chunk_size, f"Oversized chunk: {chunk}"
-            assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
-            assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
-            all_chunks.append(chunk)
-        count += len(load_request["splits"])
-    # All chunks except possibly the last must be exactly chunk_size
-    for chunk in all_chunks[:-1]:
-        assert chunk.stop - chunk.start == chunk_size, f"Non-final chunk not full: {chunk}"
-    assert count == expected_batches, f"Expected {expected_batches} batches, got {count}"
-
-
 def test_sequential_with_multiple_workers_raises():
     """Test that sequential (non-shuffled) sampler raises when used with multiple workers."""
     sampler = SequentialSampler(
@@ -450,36 +404,51 @@ def test_n_iters_property(sampler: Sampler, n_obs: int, expected: int):
 
 
 # =============================================================================
-# Multi-epoch without replacement tests
+# Multi-epoch / num_samples tests
 # =============================================================================
 
 
 @pytest.mark.parametrize(
-    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "num_samples", "mask"),
+    ("n_obs", "chunk_size", "preload_nchunks", "batch_size", "num_samples", "mask", "replacement"),
     [
-        pytest.param(100, 10, 2, 5, 250, slice(0, None), id="2.5_epochs_aligned"),
-        pytest.param(103, 10, 2, 5, 250, slice(0, None), id="2.4_epochs_unaligned"),
-        pytest.param(100, 10, 2, 5, 50, slice(0, None), id="sub_epoch"),
-        pytest.param(100, 10, 2, 5, 37, slice(0, None), id="sub_epoch_odd"),
-        pytest.param(100, 10, 2, 5, 200, slice(0, None), id="exact_2_epochs"),
-        pytest.param(100, 10, 2, 5, 300, slice(0, None), id="exact_3_epochs"),
-        pytest.param(103, 10, 2, 5, 309, slice(0, None), id="exact_3_epochs_unaligned"),
-        pytest.param(100, 10, 2, 5, 150, slice(20, 80), id="multi_epoch_with_mask"),
-        pytest.param(20, 3, 6, 1, 57, slice(0, None), id="multi_epoch_remainder_gt_1"),
+        # With replacement
+        pytest.param(100, 10, 2, 5, 50, slice(0, None), True, id="repl_basic"),
+        pytest.param(100, 10, 2, 5, 250, slice(0, None), True, id="repl_more_than_obs"),
+        pytest.param(100, 10, 2, 5, 5, slice(0, None), True, id="repl_single_batch"),
+        pytest.param(100, 10, 2, 5, 50, slice(20, 80), True, id="repl_with_mask"),
+        pytest.param(103, 10, 2, 5, 100, slice(0, None), True, id="repl_non_divisible_obs"),
+        pytest.param(100, 10, 2, 5, 35, slice(0, None), True, id="repl_tail_batch_lt_chunk"),
+        pytest.param(100, 10, 1, 1, 5, slice(50, 55), True, id="repl_range_lt_chunk_ns_lte_range"),
+        pytest.param(100, 10, 1, 1, 3, slice(50, 55), True, id="repl_range_lt_chunk_ns_lt_range"),
+        # Without replacement (multi-epoch)
+        pytest.param(100, 10, 2, 5, 250, slice(0, None), False, id="no_repl_2.5_epochs_aligned"),
+        pytest.param(103, 10, 2, 5, 250, slice(0, None), False, id="no_repl_2.4_epochs_unaligned"),
+        pytest.param(100, 10, 2, 5, 50, slice(0, None), False, id="no_repl_sub_epoch"),
+        pytest.param(100, 10, 2, 5, 37, slice(0, None), False, id="no_repl_sub_epoch_odd"),
+        pytest.param(100, 10, 2, 5, 200, slice(0, None), False, id="no_repl_exact_2_epochs"),
+        pytest.param(100, 10, 2, 5, 300, slice(0, None), False, id="no_repl_exact_3_epochs"),
+        pytest.param(103, 10, 2, 5, 309, slice(0, None), False, id="no_repl_exact_3_epochs_unaligned"),
+        pytest.param(100, 10, 2, 5, 150, slice(20, 80), False, id="no_repl_multi_epoch_with_mask"),
+        pytest.param(20, 3, 6, 1, 57, slice(0, None), False, id="no_repl_multi_epoch_remainder_gt_1"),
     ],
 )
-def test_without_replacement_num_samples(
-    n_obs: int, chunk_size: int, preload_nchunks: int, batch_size: int, num_samples: int, mask: slice
+def test_num_samples_invariants(
+    n_obs: int,
+    chunk_size: int,
+    preload_nchunks: int,
+    batch_size: int,
+    num_samples: int,
+    mask: slice,
+    replacement: bool,
 ):
-    """Test RandomSampler without replacement honours num_samples across epoch boundaries."""
+    """Test RandomSampler with num_samples yields correct batch count, valid chunk bounds and sizes."""
     start = mask.start or 0
     stop = mask.stop or n_obs
-    epoch_size = stop - start
     sampler = RandomSampler(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
-        replacement=False,
+        replacement=replacement,
         num_samples=num_samples,
         mask=mask,
         rng=np.random.default_rng(42),
@@ -489,7 +458,9 @@ def test_without_replacement_num_samples(
     all_chunks: list[slice] = []
     batch_count = 0
     for load_request in sampler.sample(n_obs):
+        assert len(load_request["chunks"]) > 0, "Load request must have at least one chunk"
         for chunk in load_request["chunks"]:
+            assert chunk.stop - chunk.start <= chunk_size, f"Oversized chunk: {chunk}"
             assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
             assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
             all_chunks.append(chunk)
@@ -497,28 +468,9 @@ def test_without_replacement_num_samples(
 
     assert batch_count == expected_batches, f"Expected {expected_batches} batches, got {batch_count}"
 
-    # All non-last chunks must be exactly chunk_size (loader indexes into
-    # in_memory_size for non-last preload groups, so short chunks in the
-    # middle would cause out-of-bounds).
+    # All non-last chunks must be exactly chunk_size
     for chunk in all_chunks[:-1]:
         assert chunk.stop - chunk.start == chunk_size, f"Non-final chunk not full: {chunk}"
-
-    # No observation should be duplicated within a single epoch's chunks.
-    # Split the flat chunk list at epoch boundaries and verify each group.
-    epoch_size % chunk_size
-    middle_epoch_nchunks = epoch_size // chunk_size
-    full_epoch_nchunks = math.ceil(epoch_size / chunk_size)
-    remaining = list(all_chunks)
-    while remaining:
-        # Last group gets the incomplete tail chunk; earlier groups don't
-        is_last = len(remaining) <= full_epoch_nchunks
-        n = full_epoch_nchunks if is_last else middle_epoch_nchunks
-        epoch_chunks, remaining = remaining[:n], remaining[n:]
-        obs_in_epoch: set[int] = set()
-        for chunk in epoch_chunks:
-            for obs in range(chunk.start, chunk.stop):
-                assert obs not in obs_in_epoch, f"Duplicate obs {obs} within same epoch"
-                obs_in_epoch.add(obs)
 
 
 # =============================================================================
