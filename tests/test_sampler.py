@@ -60,7 +60,8 @@ def chunk_sampler_cls(request):
         pytest.param(100, 10, 15, 85, 5, 2, False, False, id="both_non_aligned"),
         pytest.param(100, 10, 20, 80, 5, 2, False, False, id="both_aligned"),
         # Edge cases
-        pytest.param(100, 10, 95, 100, 10, 1, False, False, id="very_small_mask"),
+        pytest.param(100, 10, 95, 100, 10, 1, False, False, id="very_small_mask_sequential_sampler"),
+        pytest.param(100, 10, 95, 100, 10, 1, True, False, id="very_small_mask_random_sampler"),
         # With shuffle
         pytest.param(100, 10, 30, None, 5, 2, True, False, id="shuffle_with_start"),
         pytest.param(75, 10, 25, 75, 5, 2, True, False, id="shuffle_with_both_bounds"),
