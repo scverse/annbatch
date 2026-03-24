@@ -173,7 +173,6 @@ def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler
     ],
 )
 def test_workers_cover_full_dataset_without_overlap(
-    chunk_sampler_cls: type[ChunkSampler],
     n_obs: int,
     chunk_size: int,
     preload_nchunks: int,
@@ -184,17 +183,14 @@ def test_workers_cover_full_dataset_without_overlap(
     """Test workers cover full dataset without overlap. Also checks if there are empty splits in any of the load requests."""
     all_worker_indices = []
     for worker_id in range(num_workers):
-        kwargs = {
-            "mask": slice(0, None),
-            "batch_size": batch_size,
-            "chunk_size": chunk_size,
-            "preload_nchunks": preload_nchunks,
-            "drop_last": drop_last,
-        }
-        if chunk_sampler_cls is RandomSampler:
-            kwargs["rng"] = np.random.default_rng(0)
-        sampler = chunk_sampler_cls(**kwargs)
-        # we patch the function where it is called
+        sampler = RandomSampler(
+            mask=slice(0, None),
+            batch_size=batch_size,
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            drop_last=drop_last,
+            rng=np.random.default_rng(0),
+        )
         with patch(
             "annbatch.samplers._chunk_sampler.get_torch_worker_info",
             return_value=WorkerInfo(id=worker_id, num_workers=num_workers),
@@ -344,6 +340,23 @@ def test_replacement_invariants(
     for chunk in all_chunks[:-1]:
         assert chunk.stop - chunk.start == chunk_size, f"Non-final chunk not full: {chunk}"
     assert count == expected_batches, f"Expected {expected_batches} batches, got {count}"
+
+
+def test_sequential_with_multiple_workers_raises():
+    """Test that sequential (non-shuffled) sampler raises when used with multiple workers."""
+    sampler = SequentialSampler(
+        chunk_size=10,
+        preload_nchunks=2,
+        batch_size=5,
+    )
+    with (
+        patch(
+            "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+            return_value=WorkerInfo(id=0, num_workers=2),
+        ),
+        pytest.raises(ValueError, match="Multiple workers are not supported"),
+    ):
+        list(sampler.sample(100))
 
 
 def test_replacement_with_multiple_workers_raises():

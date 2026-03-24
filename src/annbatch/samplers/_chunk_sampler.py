@@ -153,6 +153,8 @@ class ChunkSampler(Sampler):
     def _validate_worker_mode(self, worker_info: WorkerInfo | None) -> None:
         if worker_info is None or worker_info.num_workers <= 1:
             return
+        if not self._shuffle:
+            raise ValueError("Multiple workers are not supported with non-shuffled sampling.")
         if self._replacement:
             raise ValueError("Multiple workers are not supported with replacement sampling.")
         if not self._drop_last and self.batch_size != 1:
