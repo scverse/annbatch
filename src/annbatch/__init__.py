@@ -5,19 +5,14 @@ from importlib.metadata import version
 from . import abc, types
 from .io import DatasetCollection, write_sharded
 from .loader import Loader
-from .samplers import (
-    ChunkSampler,
-    DistributedRandomSampler,
-    RandomSampler,
-    SequentialSampler,
-)
+from .samplers import ChunkSampler, DistributedChunkSampler, RandomSampler, SequentialSampler
 
 __version__ = version("annbatch")
 
 __all__ = [
     "Loader",
     "ChunkSampler",
-    "DistributedRandomSampler",
+    "DistributedChunkSampler",
     "RandomSampler",
     "SequentialSampler",
     "DatasetCollection",

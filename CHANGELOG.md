@@ -13,7 +13,6 @@ Features:
 - Added {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
 
 Breaking:
-- Renamed `annbatch.DistributedChunkSampler` to {class}`annbatch.DistributedRandomSampler`.
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler`.
 
 ## [0.1.0]

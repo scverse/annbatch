@@ -26,7 +26,7 @@
 
     RandomSampler
     SequentialSampler
-    DistributedRandomSampler
+    DistributedChunkSampler
     ChunkSampler
 ```
 
