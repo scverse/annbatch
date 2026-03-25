@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class RandomSampler(ChunkSampler):
     """Shuffled chunk-based sampler for batched data access.
 
-    Chunks are drawn in random order.  Without replacement (the default),
+    Chunks are drawn in random order.  With ``replacement=False`` (the default),
     every observation in the range is visited exactly once per epoch.
     With ``replacement=True``, chunks are drawn independently at random
     and ``num_samples`` controls the total number of observations drawn.
