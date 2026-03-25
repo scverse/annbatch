@@ -67,7 +67,7 @@ optional-dependencies.test = [
   "pytest",
 ]
 optional-dependencies.torch = [
-  "torch>=2,!=2.11.0",
+  "torch>=2,!=2.11",
 ]
 optional-dependencies.zarrs = [
   "zarrs>=0.2.1",
