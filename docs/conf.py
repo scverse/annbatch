@@ -153,8 +153,8 @@ nitpick_ignore = [
     # - https://github.com/tox-dev/sphinx-autodoc-typehints/pull/647,
     # - https://github.com/tox-dev/sphinx-autodoc-typehints/pull/650
     # This may become unnecessary once docs build on Python 3.14.
+    # TODO: remove after python 3.14 is supported
     ("py:class", "annbatch.types.TypeAliasType"),
-    ("py:data", "typing.Union"),
 ]
 
 qualname_overrides = {
