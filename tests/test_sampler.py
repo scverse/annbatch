@@ -471,7 +471,7 @@ def test_num_samples_invariants(
         return
 
     expected_batches = math.ceil(num_samples / batch_size)
-    indices, all_chunks, splits = collect_indices(sampler, n_obs)
+    _, all_chunks, splits = collect_indices(sampler, n_obs)
     assert len(splits) == expected_batches, f"Expected {expected_batches} batches, got {len(splits)}"
 
     for chunk in all_chunks:
@@ -726,8 +726,7 @@ class TestDistributedRandomSampler:
                 preload_nchunks=preload_nchunks,
                 batch_size=batch_size,
             )
-            indices, _, _ = collect_indices(sampler, n_obs)
-            all_indices.append(indices)
+            all_indices.append(collect_indices(sampler, n_obs)[0])
 
         # Shards must be disjoint
         for i in range(world_size):
