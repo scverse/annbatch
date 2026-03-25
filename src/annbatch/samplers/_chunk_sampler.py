@@ -188,9 +188,12 @@ class ChunkSampler(Sampler):
             raise NotImplementedError(
                 "Multiple workers are not supported with replacement sampling. See https://github.com/scverse/annbatch/issues/173"
             )
-        if not self._drop_last and self.batch_size != 1:
-            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist.
-            raise ValueError("When using DataLoader with multiple workers drop_last=False is not supported.")
+        if not self._drop_last and self.batch_size > 1:
+            # With batch_size=1, every batch is exactly 1 item, so no partial batches exist,
+            # that's why we don't raise for that case.
+            raise ValueError(
+                "When using DataLoader with multiple workers when drop_last=False and batch_size>1 is not supported."
+            )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
