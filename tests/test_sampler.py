@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import sys
-import warnings
 from functools import partial
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -14,6 +14,9 @@ import pytest
 from annbatch.abc import Sampler
 from annbatch.samplers import ChunkSampler, DistributedRandomSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
+
+if TYPE_CHECKING:
+    from annbatch.types import LoadRequest
 
 
 def collect_indices(sampler: Sampler, n_obs: int) -> tuple[list[int], list[slice], list[np.ndarray]]:
@@ -138,7 +141,7 @@ def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler
         preload_nchunks=preload_nchunks,
     )
 
-    all_requests = list(sampler.sample(n_obs))
+    all_requests: list[LoadRequest] = list(sampler.sample(n_obs))
     assert len(all_requests) == expected_num_load_requests
     for req_idx, load_request in enumerate(all_requests[:-1]):
         assert all(chunk.stop - chunk.start == chunk_size for chunk in load_request["chunks"]), (
@@ -186,7 +189,7 @@ def test_workers_cover_full_dataset_without_overlap(
     drop_last: bool,
 ):
     """Test workers cover full dataset without overlap. Also checks if there are empty splits in any of the load requests."""
-    all_worker_indices = []
+    all_worker_indices: list[list[int]] = []
     for worker_id in range(num_workers):
         sampler = RandomSampler(
             mask=slice(0, None),
@@ -303,7 +306,7 @@ def test_invalid_mask_raises(sampler_class, mask: slice, error_match: str):
         ),
     ],
 )
-def test_invalid_replacement_sampler(kwargs: dict, n_obs: int | None, error_match: str):
+def test_invalid_replacement_sampler(kwargs: dict[str, int | slice], n_obs: int | None, error_match: str):
     """Test that invalid configurations raise ValueError for replacement sampling."""
     defaults = {"chunk_size": 10, "preload_nchunks": 2, "batch_size": 5}
     with pytest.raises(ValueError, match=error_match):
@@ -608,30 +611,20 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
 
 def test_chunk_sampler_deprecation_warning():
     """Test that ChunkSampler emits a DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
+    with pytest.deprecated_call(match="ChunkSampler is deprecated"):
         ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "ChunkSampler is deprecated" in str(w[0].message)
 
 
-def test_random_sampler_no_deprecation_warning():
-    """Test that RandomSampler does NOT emit a DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
-        dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-        assert len(dep_warnings) == 0
-
-
-def test_sequential_sampler_no_deprecation_warning():
-    """Test that SequentialSampler does NOT emit a DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
-        dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-        assert len(dep_warnings) == 0
+@pytest.mark.parametrize(
+    "sampler_cls",
+    [RandomSampler, SequentialSampler],
+    ids=["random", "sequential"],
+)
+def test_sampler_no_deprecation_warning(sampler_cls: type[RandomSampler] | type[SequentialSampler]):
+    """Test that RandomSampler and SequentialSampler do not emit warnings."""
+    with pytest.warns(None) as record:
+        sampler_cls(chunk_size=10, preload_nchunks=2, batch_size=5)
+    assert len(record) == 0
 
 
 # =============================================================================
@@ -640,7 +633,7 @@ def test_sequential_sampler_no_deprecation_warning():
 
 
 def _make_distributed_sampler_torch(
-    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
+    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs: object
 ) -> DistributedRandomSampler:
     """Create a DistributedRandomSampler with mocked torch.distributed backend."""
     mock_dist = MagicMock()
@@ -657,7 +650,7 @@ def _make_distributed_sampler_torch(
 
 
 def _make_distributed_sampler_jax(
-    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs
+    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs: object
 ) -> DistributedRandomSampler:
     """Create a DistributedRandomSampler with mocked jax backend."""
     mock_jax = MagicMock()
@@ -678,7 +671,7 @@ _SAMPLER_FACTORIES = {
 
 
 @pytest.fixture(params=["torch", "jax"])
-def make_distributed_sampler(request):
+def make_distributed_sampler(request: pytest.FixtureRequest):
     """Fixture that yields a sampler factory for each backend."""
     return _SAMPLER_FACTORIES[request.param]
 
@@ -746,7 +739,13 @@ class TestDistributedRandomSampler:
         ],
     )
     def test_enforce_equal_batches_all_ranks_same_count(
-        self, make_distributed_sampler, n_obs, world_size, batch_size, chunk_size, preload_nchunks
+        self,
+        make_distributed_sampler,
+        n_obs: int,
+        world_size: int,
+        batch_size: int,
+        chunk_size: int,
+        preload_nchunks: int,
     ):
         """enforce_equal_batches=True guarantees identical batch counts across ranks."""
         batch_counts = []
@@ -770,7 +769,12 @@ class TestDistributedRandomSampler:
         [(True, 30), (False, 35)],
         ids=["rounded", "raw"],
     )
-    def test_enforce_equal_batches_per_rank_count(self, make_distributed_sampler, enforce_equal_batches, expected):
+    def test_enforce_equal_batches_per_rank_count(
+        self,
+        make_distributed_sampler,
+        enforce_equal_batches: bool,
+        expected: int,
+    ):
         """enforce_equal_batches controls whether per_rank is rounded down to a multiple of batch_size."""
         n_obs, world_size = 107, 3
         chunk_size, preload_nchunks, batch_size = 10, 1, 10
