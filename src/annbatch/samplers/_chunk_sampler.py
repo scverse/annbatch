@@ -192,7 +192,7 @@ class ChunkSampler(Sampler):
             # With batch_size=1, every batch is exactly 1 item, so no partial batches exist,
             # that's why we don't raise for that case.
             raise ValueError(
-                "When using DataLoader with multiple workers when drop_last=False and batch_size>1 is not supported."
+                "drop_last=False is not supported when using DataLoader with multiple workers and batch_size>1."
             )
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:

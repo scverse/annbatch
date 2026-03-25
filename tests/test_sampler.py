@@ -620,11 +620,12 @@ def test_chunk_sampler_deprecation_warning():
     [RandomSampler, SequentialSampler],
     ids=["random", "sequential"],
 )
-def test_sampler_no_deprecation_warning(sampler_cls: type[RandomSampler] | type[SequentialSampler]):
+def test_sampler_no_deprecation_warning(
+    sampler_cls: type[RandomSampler] | type[SequentialSampler], recwarn: pytest.WarningsRecorder
+):
     """Test that RandomSampler and SequentialSampler do not emit warnings."""
-    with pytest.warns(None) as record:
-        sampler_cls(chunk_size=10, preload_nchunks=2, batch_size=5)
-    assert len(record) == 0
+    sampler_cls(chunk_size=10, preload_nchunks=2, batch_size=5)
+    assert len(recwarn) == 0
 
 
 # =============================================================================
