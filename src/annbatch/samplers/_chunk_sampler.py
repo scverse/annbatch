@@ -29,9 +29,7 @@ class ChunkSampler(Sampler):
         :class:`~annbatch.SequentialSampler` (for ordered access) instead.
 
     This is the monolithic sampler that powers both :class:`~annbatch.RandomSampler` and :class:`~annbatch.SequentialSampler`.
-    It supports epoch-based and with-replacement sampling, optional
-    shuffling, and all combinations of ``replacement``, ``num_samples``,
-    and ``drop_last``.
+    It supports with-replacement (shuffle/no-shuffle) and without-replacement sampling.
 
     Parameters
     ----------
@@ -57,7 +55,8 @@ class ChunkSampler(Sampler):
     num_samples
         Total number of observations to draw.  When ``None`` (the
         default), equals the effective observation range.  Must be
-        positive when set.
+        positive when set and less than the number of observations to be
+        yielded when ``replacement=False``.
     """
 
     _batch_size: int
