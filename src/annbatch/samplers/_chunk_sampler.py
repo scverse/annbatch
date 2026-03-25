@@ -296,7 +296,7 @@ def _get_dist_info_torch() -> tuple[int, int]:
     if not dist.is_initialized():
         raise RuntimeError(
             "torch.distributed is not initialized. "
-            "Initialize it before creating a ChunkSamplerDistributed with dist_info='torch'."
+            "Initialize it before creating a DistributedChunkSampler with dist_info='torch'."
         )
     return dist.get_rank(), dist.get_world_size()
 
@@ -308,7 +308,7 @@ def _get_dist_info_jax() -> tuple[int, int]:
     if not jax.distributed.is_initialized():
         raise RuntimeError(
             "JAX distributed is not initialized. "
-            "Call jax.distributed.initialize() before creating a ChunkSamplerDistributed with dist_info='jax'."
+            "Call jax.distributed.initialize() before creating a DistributedChunkSampler with dist_info='jax'."
         )
     return jax.process_index(), jax.process_count()
 
@@ -319,7 +319,7 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
 }
 
 
-class ChunkSamplerDistributed(Sampler):
+class DistributedChunkSampler(Sampler):
     """Distributed chunk-based sampler that shards data across distributed processes.
 
     Partitions the full observation range into ``world_size`` contiguous shards
@@ -337,7 +337,7 @@ class ChunkSamplerDistributed(Sampler):
 
     Example
     -------
-    >>> from annbatch import ChunkSamplerDistributed, RandomSampler
+    >>> from annbatch import DistributedChunkSampler, RandomSampler
     >>> sampler = RandomSampler(
     ...     chunk_size=256,
     ...     preload_nchunks=4,
@@ -346,15 +346,15 @@ class ChunkSamplerDistributed(Sampler):
 
     Using PyTorch distributed
 
-    >>> dist_sampler = ChunkSamplerDistributed(sampler, dist_info="torch")
+    >>> dist_sampler = DistributedChunkSampler(sampler, dist_info="torch")
 
     Using JAX
 
-    >>> dist_sampler = ChunkSamplerDistributed(sampler, dist_info="jax")
+    >>> dist_sampler = DistributedChunkSampler(sampler, dist_info="jax")
 
     Using a custom callable
 
-    >>> dist_sampler = ChunkSamplerDistributed(
+    >>> dist_sampler = DistributedChunkSampler(
     ...     sampler,
     ...     dist_info=lambda: (rank, world_size),
     ... )
