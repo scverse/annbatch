@@ -21,7 +21,6 @@ Breaking:
 
 - Exclude `torch` 2.11 on account of https://github.com/cupy/cupy/issues/9827
 
-
 ## [0.1.0]
 
 ### Breaking
