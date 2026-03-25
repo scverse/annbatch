@@ -273,8 +273,7 @@ class ChunkSampler(Sampler):
     def _compute_epoch_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
         """Compute one epoch's worth of chunks.
 
-        The incomplete chunk (when ``epoch_size`` is not divisible by
-        ``chunk_size``) is always placed last in iteration order regardless
+        The incomplete chunk (chunk that is less than chunk_size) is always placed last in iteration order regardless
         of shuffling -- ensuring no observation is duplicated within an epoch.
         """
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
