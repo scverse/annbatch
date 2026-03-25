@@ -11,7 +11,7 @@ class SequentialSampler(ChunkSampler):
     """Ordered chunk-based sampler for batched data access.
 
     Chunks are emitted in sequential order and every observation in the
-    range is visited exactly once.  Does not support multiple
+    range is visited exactly once.  This sampler does not support multiple
     data-loading workers. Usually used for evaluation or inference.
 
     See :class:`~annbatch.samplers.RandomSampler` for a shuffled
