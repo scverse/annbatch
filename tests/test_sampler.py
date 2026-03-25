@@ -16,6 +16,8 @@ from annbatch.samplers import ChunkSampler, DistributedRandomSampler, RandomSamp
 from annbatch.samplers._utils import WorkerInfo
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from annbatch.types import LoadRequest
 
 
@@ -223,7 +225,7 @@ def test_workers_cover_full_dataset_without_overlap(
     ],
     ids=["without_replacement", "with_replacement"],
 )
-def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_factory):
+def test_batch_shuffle_is_reproducible_with_same_seed_rng(sampler_factory: Callable[..., Sampler]):
     """Test that batch shuffling is reproducible when passing in rngs with identical seeds to RandomSampler directly."""
     n_obs, chunk_size, preload_nchunks, batch_size = 100, 10, 2, 5
 
@@ -281,7 +283,7 @@ def test_validate(mask: slice, n_obs: int, error_match: str | None):
         pytest.param(slice(0, 100, 2), "mask.step must be 1, but got 2", id="step_not_one"),
     ],
 )
-def test_invalid_mask_raises(sampler_class, mask: slice, error_match: str):
+def test_invalid_mask_raises(sampler_class: Callable[..., Sampler], mask: slice, error_match: str):
     """Test that invalid mask configurations raise ValueError at construction."""
     with pytest.raises(ValueError, match=error_match):
         sampler_class(chunk_size=10, preload_nchunks=2, batch_size=5, mask=mask)
@@ -709,12 +711,14 @@ class TestDistributedRandomSampler:
         with pytest.raises(ValueError, match="Unknown dist_info"):
             DistributedRandomSampler(sampler, dist_info="mpi")
 
-    def test_shards_are_disjoint_and_cover_full_dataset(self, make_distributed_sampler):
+    def test_shards_are_disjoint_and_cover_full_dataset(
+        self, make_distributed_sampler: Callable[..., DistributedRandomSampler]
+    ):
         """All ranks receive non-overlapping shards that together cover the full dataset."""
         n_obs, world_size = 200, 4
         chunk_size, preload_nchunks, batch_size = 10, 2, 10
 
-        all_indices = []
+        all_indices: list[list[int]] = []
         for rank in range(world_size):
             sampler = make_distributed_sampler(
                 rank=rank,
@@ -744,7 +748,7 @@ class TestDistributedRandomSampler:
     )
     def test_enforce_equal_batches_all_ranks_same_count(
         self,
-        make_distributed_sampler,
+        make_distributed_sampler: Callable[..., DistributedRandomSampler],
         n_obs: int,
         world_size: int,
         batch_size: int,
@@ -775,7 +779,7 @@ class TestDistributedRandomSampler:
     )
     def test_enforce_equal_batches_per_rank_count(
         self,
-        make_distributed_sampler,
+        make_distributed_sampler: Callable[..., DistributedRandomSampler],
         enforce_equal_batches: bool,
         expected: int,
     ):
@@ -794,7 +798,9 @@ class TestDistributedRandomSampler:
         indices, _, _ = collect_indices(sampler, n_obs)
         assert len(set(indices)) == expected
 
-    def test_batch_shuffle_is_reproducible_with_same_seed_rng(self, make_distributed_sampler):
+    def test_batch_shuffle_is_reproducible_with_same_seed_rng(
+        self, make_distributed_sampler: Callable[..., DistributedRandomSampler]
+    ):
         """Test that batch shuffling is reproducible when passing in rngs with identical seeds."""
         n_obs, chunk_size, preload_nchunks, batch_size = 200, 10, 2, 5
         world_size = 4
@@ -828,7 +834,9 @@ class TestDistributedRandomSampler:
                 f"Rank {rank}: batch shuffling should be reproducible with same seed"
             )
 
-    def test_n_iters_matches_actual_batch_count(self, make_distributed_sampler):
+    def test_n_iters_matches_actual_batch_count(
+        self, make_distributed_sampler: Callable[..., DistributedRandomSampler]
+    ):
         """n_iters should match the actual number of yielded batches."""
         n_obs, world_size = 205, 3
         chunk_size, preload_nchunks, batch_size = 10, 2, 10
