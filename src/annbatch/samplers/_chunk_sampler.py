@@ -365,14 +365,11 @@ class DistributedRandomSampler(Sampler):
         The :class:`~annbatch.RandomSampler` to distribute.
     dist_info
         How to obtain rank and world size.
-        Either a string naming a distributed backend (``"torch"`` or
-        ``"jax"``), or a callable that returns ``(rank, world_size)``.
+        Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
+        or a callable that returns ``(rank, world_size)``.
     enforce_equal_batches
-        If *True*, round each rank's observation count down to a
-        multiple of ``batch_size`` so that all workers (ranks) yield
-        the same number of batches.
-        Set to *False* to use the raw ``n_obs // world_size`` split,
-        which may result in an uneven number of batches per worker.
+        If *True*, round each rank's observation count down to a multiple of ``batch_size`` so that all workers (ranks) yield the same number of batches.
+        Set to *False* to use the raw ``n_obs // world_size`` split, which may result in an uneven number of batches per worker.
     """
 
     _rank: int
