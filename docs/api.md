@@ -24,7 +24,6 @@
 .. autosummary::
    :toctree: generated/
 
-    abc.Sampler
     RandomSampler
     SequentialSampler
     DistributedRandomSampler
