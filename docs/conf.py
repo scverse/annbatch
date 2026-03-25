@@ -130,31 +130,10 @@ html_theme_options = {
 
 pygments_style = "default"
 
-nitpick_ignore = [
+nitpick_ignore: list[str] = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
-    # Typing/xref suppressions for the current docs stack.
-    #
-    # `annbatch.types.TypeAliasType`
-    # PEP 695 `type` aliases in `src/annbatch/types.py` on `sphinx<=8.2.3`.
-    # Upstream:
-    # - https://github.com/sphinx-doc/sphinx/issues/11561
-    # - https://github.com/sphinx-doc/sphinx/pull/13508
-    #
-    # `typing.Union`
-    # Current Python <3.14 + sphinx-autodoc-typehints/sphinx-toolbox combination
-    # emits a `typing.Union` xref with the wrong role for some generated annotations.
-    # e.g. `dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]]`
-    # can generate a `py:data` xref to `typing.Union`, while the Python
-    # intersphinx inventory exposes `typing.Union` as `py:class`.
-    # Upstream:
-    # - https://github.com/tox-dev/sphinx-autodoc-typehints/releases
-    # - https://github.com/tox-dev/sphinx-autodoc-typehints/pull/647,
-    # - https://github.com/tox-dev/sphinx-autodoc-typehints/pull/650
-    # This may become unnecessary once docs build on Python 3.14.
-    # TODO: remove after python 3.14 is supported
-    ("py:class", "annbatch.types.TypeAliasType"),
 ]
 
 qualname_overrides = {
