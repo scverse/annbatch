@@ -15,7 +15,7 @@ Features:
 - Exposed {class}`annbatch.samplers.DistributedRandomSampler` for distributed training.
 
 Breaking:
-- Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler`.
+- Deprecated `annbatch.samplers.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
 
 ### Fixed
@@ -60,7 +60,7 @@ Breaking:
 
 ### Added
 - Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
-- Exposed the older default sampling scheme as {class}`annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
+- Exposed the older default sampling scheme as `annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
 
 ## [0.0.4]
 
