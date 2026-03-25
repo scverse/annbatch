@@ -275,6 +275,7 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ),
         False,
     ],
+    ids=["preload_to_gpu", "dont_preload_to_gpu"],
 )
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_to_torch(
@@ -434,9 +435,9 @@ def test_torch_multiprocess_dataloading_zarr(
 
 
 @pytest.mark.parametrize(
-    "preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])], ids=["cupy", "no_cupy"]
+    "preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])], ids=["no_cupy", "cupy"]
 )
-@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])], ids=["torch", "no_torch"])
+@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])], ids=["no_torch", "torch"])
 def test_3d(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool, to_torch: bool
 ):

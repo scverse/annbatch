@@ -160,17 +160,31 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-            tensor = torch.sparse_csr_tensor(
-                torch.from_numpy(input.indptr),
-                torch.from_numpy(input.indices),
-                torch.from_numpy(input.data),
-                input.shape,
-            )
-        if preload_to_gpu:
-            return tensor.cuda(non_blocking=True)
-        return tensor
+        # TODO: better way to toggle this off for "production" but on for tests?
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
+                # https://github.com/pytorch/pytorch/issues/178309
+                # Without this, under `enable=True` above, there would be the above error.
+                if input.nnz == 0:
+                    indptr = torch.from_numpy(input.indptr)
+                    tensor = torch.sparse_csr_tensor(
+                        indptr,
+                        torch.tensor([], dtype=indptr.dtype),
+                        torch.tensor([]),
+                        size=input.shape,
+                        dtype=torch.from_numpy(input.data).dtype,  # TODO: better way to do this?
+                    )
+                else:
+                    tensor = torch.sparse_csr_tensor(
+                        torch.from_numpy(input.indptr),
+                        torch.from_numpy(input.indices),
+                        torch.from_numpy(input.data),
+                        size=input.shape,
+                    )
+            if preload_to_gpu:
+                return tensor.cuda(non_blocking=True)
+            return tensor
     if isinstance(input, np.ndarray):
         tensor = torch.from_numpy(input)
         if preload_to_gpu:
@@ -185,7 +199,7 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
                 torch.from_dlpack(input.indptr),
                 torch.from_dlpack(input.indices),
                 torch.from_dlpack(input.data),
-                input.shape,
+                size=input.shape,
             )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
