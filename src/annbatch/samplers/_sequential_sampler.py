@@ -12,7 +12,7 @@ class SequentialSampler(ChunkSampler):
 
     Chunks are emitted in sequential order and every observation in the
     range is visited exactly once.  This sampler does not support multiple
-    data-loading workers. Usually used for evaluation or inference.
+    data-loading workers. This sampler is usually used for evaluation or inference.
 
     See :class:`~annbatch.samplers.RandomSampler` for a shuffled
     alternative.
