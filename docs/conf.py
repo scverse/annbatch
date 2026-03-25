@@ -152,7 +152,7 @@ nitpick_ignore = [
     # - https://github.com/tox-dev/sphinx-autodoc-typehints/releases
     # - https://github.com/tox-dev/sphinx-autodoc-typehints/pull/647,
     # - https://github.com/tox-dev/sphinx-autodoc-typehints/pull/650
-    # This won't be needed once we can support Python 3.14.
+    # This may become unnecessary once docs build on Python 3.14.
     ("py:class", "annbatch.types.TypeAliasType"),
     ("py:data", "typing.Union"),
 ]
