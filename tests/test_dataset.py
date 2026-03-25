@@ -14,8 +14,8 @@ import scipy.sparse as sp
 import zarr
 
 from annbatch import Loader, write_sharded
-from annbatch.samplers import SequentialSampler
 from annbatch.abc import Sampler
+from annbatch.samplers import SequentialSampler
 
 try:
     from cupy import ndarray as CupyArray
