@@ -262,22 +262,27 @@ class ChunkSampler(Sampler):
         """
         start, stop = self._resolve_start_stop(n_obs)
         if self._replacement:
-            num_samples = self._resolve_num_samples(n_obs)
-            n_chunks, remainder = divmod(num_samples, self._chunk_size)
-            start_indices = rng.integers(start, stop - self._chunk_size + 1, size=n_chunks)
-            res = [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
-            if remainder > 0 and not self._drop_last:
-                start_index = rng.integers(start, stop - remainder + 1)
-                res.append(slice(start_index, start_index + remainder))
-            return res
+            return self._compute_chunks_with_replacement(start, stop, n_obs, rng)
+        return self._compute_chunks_without_replacement(start, stop, rng)
 
-        return self._compute_epoch_chunks(start, stop, rng)
+    def _compute_chunks_with_replacement(
+        self, start: int, stop: int, n_obs: int, rng: np.random.Generator
+    ) -> list[slice]:
+        """Draw random chunk positions with replacement."""
+        num_samples = self._resolve_num_samples(n_obs)
+        n_chunks, remainder = divmod(num_samples, self._chunk_size)
+        start_indices = rng.integers(start, stop - self._chunk_size + 1, size=n_chunks)
+        res = [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
+        if remainder > 0 and not self._drop_last:
+            start_index = rng.integers(start, stop - remainder + 1)
+            res.append(slice(start_index, start_index + remainder))
+        return res
 
-    def _compute_epoch_chunks(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
-        """Compute one epoch's worth of chunks.
+    def _compute_chunks_without_replacement(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
+        """Compute chunks covering the full range exactly once.
 
         The incomplete chunk (chunk that is less than chunk_size) is always placed last in iteration order regardless
-        of shuffling -- ensuring no observation is duplicated within an epoch.
+        of shuffling -- ensuring no observation is duplicated.
         """
         chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self.shuffle:
