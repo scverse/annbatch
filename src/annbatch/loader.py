@@ -196,12 +196,11 @@ class Loader[
             resolved_core_args = {
                 k: Loader._COMMON_SAMPLER_ARGS[k] if v is None else v for k, v in core_sampler_args.items()
             }
-            if shuffle is not None and not shuffle and rng is not None:
-                raise ValueError("If rng and shuffle are provided but shuffle is False, then rng must be None")
             resolved_shuffle = False if shuffle is None else shuffle
             if resolved_shuffle:
                 self._batch_sampler = RandomSampler(
                     **resolved_core_args,
+                    shuffle=resolved_shuffle,
                     rng=rng if rng is not None else np.random.default_rng(),
                 )
             else:
