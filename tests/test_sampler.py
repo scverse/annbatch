@@ -347,7 +347,10 @@ def test_replacement_with_multiple_workers_raises():
             "annbatch.samplers._chunk_sampler.get_torch_worker_info",
             return_value=WorkerInfo(id=0, num_workers=2),
         ),
-        pytest.raises(ValueError, match="Multiple workers are not supported with replacement sampling"),
+        pytest.raises(
+            NotImplementedError,
+            match="Multiple workers are not supported with replacement sampling. See https://github.com/scverse/annbatch/issues/173",
+        ),
     ):
         list(sampler.sample(100))
 
