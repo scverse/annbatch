@@ -29,6 +29,15 @@
     RandomSampler
     SequentialSampler
     DistributedRandomSampler
+```
+
+```{eval-rst}
+.. module:: annbatch
+   :no-index:
+
+.. autosummary::
+   :toctree: generated/
+
     ChunkSampler
 ```
 
@@ -37,9 +46,6 @@
 ## io helpers
 
 ```{eval-rst}
-.. module:: annbatch
-   :no-index:
-
 .. autosummary::
    :toctree: generated/
 
