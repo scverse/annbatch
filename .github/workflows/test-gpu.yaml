@@ -62,17 +62,17 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
 
       - name: Extract max Python version from classifiers
+        id: max-python
         run: |
           classifiers=$(yq .project.classifiers pyproject.toml -oy  | grep --only-matching --perl-regexp '(?<=Python :: )(\d\.\d+)')
           max_version=$(echo "$classifiers" | sort -V | tail -1)
-          echo "max_python_version=$max_version" >> $GITHUB_ENV
+          echo "max_python_version=$max_version" >> $GITHUB_OUTPUT
 
       - name: Install UV
         uses: astral-sh/setup-uv@v6 # TODO: upgrade once cirun image supports node 24
         with:
           enable-cache: true
-          # Any Cuda 14+ will support Python 3.14: https://github.com/cupy/cupy/issues/9346
-          python-version: '3.13'  # ${{ env.max_python_version }}
+          python-version: ${{ steps.max-python.outputs.max_python_version }}
 
       - name: Install annbatch
         run: |
