@@ -720,7 +720,7 @@ def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
 @pytest.mark.parametrize(
     ("shuffle", "rng", "error_match"),
     [
-        pytest.param(True, None, "rng must also be provided", id="shuffle_without_rng"),
+        pytest.param(True, None, None, id="shuffle_without_rng_ok"),
         pytest.param(False, np.random.default_rng(0), "rng must be None", id="no_shuffle_with_rng"),
         pytest.param(True, np.random.default_rng(0), None, id="shuffle_with_rng_ok"),
         pytest.param(False, None, None, id="no_shuffle_no_rng_ok"),
