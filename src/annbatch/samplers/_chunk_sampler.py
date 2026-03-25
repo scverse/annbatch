@@ -25,10 +25,10 @@ class ChunkSampler(Sampler):
     """Chunk-based sampler for batched data access.
 
     .. deprecated:: 0.1.0
-        Use :class:`~annbatch.RandomSampler` (for shuffled access) or
-        :class:`~annbatch.SequentialSampler` (for ordered access) instead.
+        Use :class:`~annbatch.samplers.RandomSampler` (for shuffled access) or
+        :class:`~annbatch.samplers.SequentialSampler` (for ordered access) instead.
 
-    This is the monolithic sampler that powers both :class:`~annbatch.RandomSampler` and :class:`~annbatch.SequentialSampler`.
+    This is the monolithic sampler that powers both :class:`~annbatch.samplers.RandomSampler` and :class:`~annbatch.samplers.SequentialSampler`.
     It supports with-replacement (shuffle/no-shuffle) and without-replacement sampling.
 
     Parameters
@@ -345,7 +345,7 @@ class DistributedChunkSampler(Sampler):
 
     Example
     -------
-    >>> from annbatch import DistributedChunkSampler, RandomSampler
+    >>> from annbatch.samplers import DistributedChunkSampler, RandomSampler
     >>> sampler = RandomSampler(
     ...     chunk_size=256,
     ...     preload_nchunks=4,
@@ -370,7 +370,7 @@ class DistributedChunkSampler(Sampler):
     Parameters
     ----------
     sampler
-        The :class:`~annbatch.RandomSampler` to distribute.
+        The :class:`~annbatch.samplers.RandomSampler` to distribute.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or ``"jax"``),

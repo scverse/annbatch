@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning][].
 ## [0.1.1]
 
 Features:
-- Added {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
-- Exposed {class}`annbatch.DistributedChunkSampler` for distributed training.
+- Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.samplers.ChunkSampler`.
+- Exposed {class}`annbatch.samplers.DistributedRandomSampler` for distributed training.
 
 Breaking:
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler`.

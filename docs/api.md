@@ -21,6 +21,8 @@
 ## Samplers
 
 ```{eval-rst}
+.. module:: annbatch.samplers
+
 .. autosummary::
    :toctree: generated/
 
