@@ -9,11 +9,18 @@ and this project adheres to [Semantic Versioning][].
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
 ## [0.1.1]
+
 Features:
 - Added {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
 
 Breaking:
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.RandomSampler` and {class}`annbatch.SequentialSampler`.
+
+
+### Fixed
+
+- Exclude `torch` 2.11 on account of https://github.com/cupy/cupy/issues/9827
+
 
 ## [0.1.0]
 
