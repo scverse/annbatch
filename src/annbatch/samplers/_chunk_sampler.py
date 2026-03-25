@@ -35,15 +35,22 @@ class ChunkSampler(Sampler):
 
     Parameters
     ----------
-    chunk_size
-        Number of contiguous observations per on-disk chunk.
-    preload_nchunks
-        Number of chunks to group into each I/O request.
-        ``chunk_size * preload_nchunks`` must be divisible by
-        ``batch_size``.
     batch_size
-        Number of observations per batch.  Must not exceed
-        ``chunk_size * preload_nchunks``.
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    mask
+        A slice defining the observation range to sample from (start:stop).
+    shuffle
+        Whether to shuffle chunk and index order.
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
+    rng
+        Random number generator for shuffling. Note that :func:`torch.manual_seed`
+        has no effect on reproducibility here; pass a seeded
+        :class:`numpy.random.Generator` to control randomness.
     replacement
         If ``True``, draw random chunks with replacement, allowing the
         same observations to appear more than once.
@@ -51,19 +58,6 @@ class ChunkSampler(Sampler):
         Total number of observations to draw.  When ``None`` (the
         default), equals the effective observation range.  Must be
         positive when set.
-    shuffle
-        If ``True``, shuffle chunk order within each epoch.
-    drop_last
-        If ``True``, drop the final batch when it contains fewer than
-        ``batch_size`` observations.
-    mask
-        A ``slice`` restricting sampling to a sub-range of observations.
-        For example, ``slice(100, 500)`` limits sampling to observations
-        100 through 499.
-    rng
-        A :class:`numpy.random.Generator` used for shuffling and
-        replacement draws.  When ``None``, a new default generator is
-        created.
     """
 
     _batch_size: int
