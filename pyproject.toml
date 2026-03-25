@@ -16,11 +16,12 @@ authors = [
   { name = "Felix Fischer" },
   { name = "Ilan Gold" },
 ]
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
   "anndata[lazy]>=0.12.9",
@@ -88,9 +89,9 @@ envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.hatch-test.features = [ "test" ]
 envs.hatch-test.matrix = [
   # Test the lowest and highest supported Python versions with normal deps
-  { deps = [ "minimal" ], python = [ "3.12", "3.13" ] },
+  { deps = [ "minimal" ], python = [ "3.12", "3.14" ] },
   # Test the newest supported Python version also with pre-release deps
-  { deps = [ "pre", "torch" ], python = [ "3.13" ] },
+  { deps = [ "pre", "torch" ], python = [ "3.14" ] },
 ]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
