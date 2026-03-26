@@ -68,8 +68,7 @@ optional-dependencies.test = [
   "pytest",
 ]
 optional-dependencies.torch = [
-  # https://github.com/cupy/cupy/issues/9827
-  "torch>=2,!=2.11",
+  "torch>=2",
 ]
 optional-dependencies.zarrs = [
   "zarrs>=0.2.1",
