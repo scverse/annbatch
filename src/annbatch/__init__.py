@@ -13,7 +13,7 @@ if find_spec("cupy") and Version(version("torch")) >= Version("2.11"):
         msg = (
             "cupy-cuda12x requires torch < 2.11 or >=2.11 with cuda 12 because >=2.11 ships with cuda 13 by default."
             "See the torch release notes: https://github.com/pytorch/pytorch/releases/tag/v2.11.0."
-            "Either ensure torch gets cuda 12 wheels via `--index-url https://download.pytorch.org/whl/cu128` or upgrade `cupy`."
+            "Either ensure torch gets cuda 12 wheels via `--extra-index-url https://download.pytorch.org/whl/cu128` or upgrade `cupy`."
         )
         raise RuntimeError(msg)
 
