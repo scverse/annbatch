@@ -5,7 +5,7 @@ from importlib.util import find_spec
 
 from packaging.version import Version
 
-if find_spec("cupy") and Version(version("torch")) >= Version("2.11"):
+if find_spec("cupy") and find_spec("torch") and Version(version("torch")) >= Version("2.11"):
     import cupy as cp
 
     cuda_version = cp.cuda.runtime.runtimeGetVersion()
