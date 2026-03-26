@@ -193,14 +193,15 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, CupyArray):
         return torch.from_dlpack(input)
     if isinstance(input, CupyCSRMatrix):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-            return torch.sparse_csr_tensor(
-                torch.from_dlpack(input.indptr),
-                torch.from_dlpack(input.indices),
-                torch.from_dlpack(input.data),
-                size=input.shape,
-            )
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
+                return torch.sparse_csr_tensor(
+                    torch.from_dlpack(input.indptr),
+                    torch.from_dlpack(input.indices),
+                    torch.from_dlpack(input.data),
+                    size=input.shape,
+                )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
