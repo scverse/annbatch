@@ -77,7 +77,7 @@ jobs:
       - name: Install annbatch
         run: |
           uv venv
-          uv pip install -e ".[test,${{ matrix.extras }}]" pytest-xdist${{ (contains(matrix.extras, '12') && contains(matrix.extras, 'torch') && ' --extra-index-url https://download.pytorch.org/whl/cu128') || '' }}
+          uv pip install -e ".[test,${{ matrix.extras }}]" pytest-xdist${{ (contains(matrix.extras, '12') && contains(matrix.extras, 'torch') && ' --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match') || '' }}
 
       - name: Env list
         run: uv pip list
