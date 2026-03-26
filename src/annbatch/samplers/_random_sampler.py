@@ -15,7 +15,7 @@ class RandomSampler(ChunkSampler):
     """Shuffled chunk-based sampler for batched data access.
 
     Chunks are drawn in random order.  With ``replacement=False`` (the default),
-    every observation in the range is visited exactly once per epoch.
+    every observation in the range is visited exactly once per epoch up to `drop_last`.
     With ``replacement=True``, chunks are drawn independently at random
     and ``num_samples`` controls the total number of observations drawn.
 
