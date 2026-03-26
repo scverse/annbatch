@@ -8,13 +8,7 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.1.2]
-
-### Fixed
-
-- To handle `torch>=2.11` + `cupy-cuda12x`, because `torch` installs `cuda13` by default from this version onwards, we now install `cupy-cuda12x[ctk]` to ensure the `cuda` version used matches that of `cupy`.  For information on this change [see the cupy docs](https://docs.cupy.dev/en/stable/install.html#installing-cupy).
-
-## [0.1.1]
+## [0.1.3]
 
 Features:
 - Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
@@ -23,6 +17,16 @@ Features:
 Breaking:
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
+
+
+
+## [0.1.2]
+
+### Fixed
+
+- To handle `torch>=2.11` + `cupy-cuda12x`, because `torch` installs `cuda13` by default from this version onwards, we now install `cupy-cuda12x[ctk]` to ensure the `cuda` version used matches that of `cupy`.  For information on this change [see the cupy docs](https://docs.cupy.dev/en/stable/install.html#installing-cupy).
+
+## [0.1.1]
 
 ### Fixed
 
