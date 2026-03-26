@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.1.2]
+
+### Fixed
+
+- Error out with `torch>=2.11` + `cupy-cuda12x`.  To install both, you need to pass in something like `--extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match'`.  We may start providing matched `torch->cupy` extras in 0.2.0 or exclude `cupy-cuda12x` entirely.
+
 ## [0.1.1]
 
 Features:

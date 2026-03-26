@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "annbatch"
-version = "0.1.1"
+version = "0.1.2"
 description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -68,8 +68,7 @@ optional-dependencies.test = [
   "pytest",
 ]
 optional-dependencies.torch = [
-  # https://github.com/cupy/cupy/issues/9827
-  "torch>=2,!=2.11",
+  "torch>=2",
 ]
 optional-dependencies.zarrs = [
   "zarrs>=0.2.1",
