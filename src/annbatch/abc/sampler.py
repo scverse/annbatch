@@ -49,7 +49,7 @@ class Sampler(ABC):
 
         Note
         ----
-        This property is only used when the `splits` argument is not supplied in the {class}`annbatch.types.LoadRequest`.
+        This property is only used when the `splits` argument is not supplied in the :class:`annbatch.types.LoadRequest`.
         When `splits` are explicitly provided, they determine the batch boundaries instead.
 
         Returns
