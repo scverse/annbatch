@@ -29,9 +29,28 @@ class RandomSampler(ChunkSampler):
 
     Parameters
     ----------
+    batch_size
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    mask
+        A slice defining the observation range to sample from (start:stop).
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
     rng
-        A :class:`numpy.random.Generator` used for shuffling.  When
-        ``None``, a new default generator is created.
+        Random number generator for shuffling. Note that :func:`torch.manual_seed`
+        has no effect on reproducibility here; pass a seeded
+        :class:`numpy.random.Generator` to control randomness.
+    replacement
+        If ``True``, draw random chunks with replacement, allowing the
+        same observations to appear more than once.
+    num_samples
+        Total number of observations to draw.  When ``None`` (the
+        default), equals the effective observation range.  Must be
+        positive when set and less than the number of observations to be
+        yielded when ``replacement=False``.
     """
 
     def __init__(

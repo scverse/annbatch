@@ -17,6 +17,18 @@ class SequentialSampler(ChunkSampler):
     See :class:`~annbatch.samplers.RandomSampler` for a shuffled
     alternative.
 
+    Parameters
+    ----------
+    batch_size
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    mask
+        A slice defining the observation range to sample from (start:stop).
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
     """
 
     def __init__(
