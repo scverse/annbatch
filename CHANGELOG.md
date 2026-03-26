@@ -17,9 +17,6 @@ Features:
 Breaking:
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
-
-
-
 ## [0.1.2]
 
 ### Fixed
