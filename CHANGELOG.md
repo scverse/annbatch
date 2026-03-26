@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 
-- Error out with `torch>=2.11` + `cupy-cuda12x`.  To install both, you need to pass in something like `--extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match'`.  We may start providing matched `torch->cupy` extras in 0.2.0 or exclude `cupy-cuda12x` entirely.
+- To handle `torch>=2.11` + `cupy-cuda12x`, because `torch` installs `cuda13` by default from this version onwards, we now install `cupy-cuda12x[ctk]` to ensure the `cuda` version used matches that of `cupy`.  For information on this change [see the cupy docs](https://docs.cupy.dev/en/stable/install.html#installing-cupy).
 
 ## [0.1.1]
 
