@@ -5,13 +5,17 @@ from importlib.util import find_spec
 
 from packaging.version import Version
 
-if find_spec("cupy-cuda12x") and Version(version("torch")) >= Version("2.11"):
-    msg = (
-        "cupy-cuda12x requires torch < 2.11 or >=2.11 with cuda 12 because >=2.11 ships with cuda 13 by default."
-        "See the torch release notes: https://github.com/pytorch/pytorch/releases/tag/v2.11.0."
-        "Either ensure torch gets cuda 12 wheels via `--index-url https://download.pytorch.org/whl/cu128` or upgrade `cupy`."
-    )
-    raise RuntimeError(msg)
+if find_spec("cupy") and Version(version("torch")) >= Version("2.11"):
+    import cupy as cp
+
+    cuda_version = cp.cuda.runtime.runtimeGetVersion()
+    if 12 == int(str(cuda_version)[:2]):
+        msg = (
+            "cupy-cuda12x requires torch < 2.11 or >=2.11 with cuda 12 because >=2.11 ships with cuda 13 by default."
+            "See the torch release notes: https://github.com/pytorch/pytorch/releases/tag/v2.11.0."
+            "Either ensure torch gets cuda 12 wheels via `--index-url https://download.pytorch.org/whl/cu128` or upgrade `cupy`."
+        )
+        raise RuntimeError(msg)
 
 from . import abc, types
 from .io import DatasetCollection, write_sharded
