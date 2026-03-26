@@ -5,7 +5,7 @@ from importlib.util import find_spec
 
 from packaging.version import Version
 
-if find_spec("cupy"):
+if find_spec("cupy") and find_spec("cuda-toolkit"):
     import cupy as cp
 
     cupy_expected_runtime_cuda_version = cp.cuda.runtime.runtimeGetVersion()
