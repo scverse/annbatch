@@ -35,10 +35,10 @@ dependencies = [
   "zarr>=3.1.4",
 ]
 optional-dependencies.cupy-cuda12 = [
-  "cupy-cuda12x",
+  "cupy-cuda12x[ctk]",
 ]
 optional-dependencies.cupy-cuda13 = [
-  "cupy-cuda13x",
+  "cupy-cuda13x[ctk]",
 ]
 optional-dependencies.dev = [
   "pre-commit",
