@@ -28,7 +28,7 @@
 
     RandomSampler
     SequentialSampler
-    DistributedRandomSampler
+    DistributedSampler
 ```
 
 ```{eval-rst}

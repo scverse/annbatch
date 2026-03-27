@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 Features:
 - Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
-- Exposed {class}`annbatch.samplers.DistributedRandomSampler` for distributed training.
+- Exposed {class}`annbatch.samplers.DistributedSampler` for distributed training.
 
 Breaking:
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
