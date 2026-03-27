@@ -1,0 +1,50 @@
+"""SequentialSampler -- ordered chunk-based sampler."""
+
+from __future__ import annotations
+
+from annbatch.samplers._chunk_sampler import _ChunkSampler
+
+
+class SequentialSampler(_ChunkSampler):
+    """Ordered chunk-based sampler for batched data access.
+
+    Chunks are emitted in sequential order and every observation in the
+    range is visited exactly once.  This sampler does not support multiple
+    data-loading workers. This sampler is usually used for evaluation or inference.
+
+    See :class:`~annbatch.samplers.RandomSampler` for a shuffled
+    alternative.
+
+    Parameters
+    ----------
+    batch_size
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    mask
+        A slice defining the observation range to sample from (start:stop).
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        drop_last: bool = False,
+        mask: slice | None = None,
+    ):
+        super().__init__(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            replacement=False,
+            num_samples=None,
+            shuffle=False,
+            drop_last=drop_last,
+            mask=mask,
+        )

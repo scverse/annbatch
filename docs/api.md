@@ -14,6 +14,30 @@
 
     Loader
     Loader.__iter__
+```
+
+(samplers)=
+
+## Samplers
+
+```{eval-rst}
+.. module:: annbatch.samplers
+
+.. autosummary::
+   :toctree: generated/
+
+    RandomSampler
+    SequentialSampler
+    DistributedSampler
+```
+
+```{eval-rst}
+.. module:: annbatch
+   :no-index:
+
+.. autosummary::
+   :toctree: generated/
+
     ChunkSampler
 ```
 

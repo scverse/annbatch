@@ -21,6 +21,27 @@ class Sampler(ABC):
     Samplers control how data is batched and loaded from the underlying datasets.
     """
 
+    _mask: slice = slice(0, None)
+    _rng: np.random.Generator | None = None
+
+    @property
+    def mask(self) -> slice:
+        """The observation range this sampler operates on."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        self._mask = value
+
+    @property
+    def rng(self) -> np.random.Generator | None:
+        """The random number generator used by this sampler."""
+        return self._rng
+
+    @rng.setter
+    def rng(self, value: np.random.Generator | None) -> None:
+        self._rng = value
+
     @property
     @abstractmethod
     def batch_size(self) -> int | None:
@@ -28,7 +49,7 @@ class Sampler(ABC):
 
         Note
         ----
-        This property is only used when the `splits` argument is not supplied in the {class}`annbatch.types.LoadRequest`.
+        This property is only used when the `splits` argument is not supplied in the :class:`annbatch.types.LoadRequest`.
         When `splits` are explicitly provided, they determine the batch boundaries instead.
 
         Returns
@@ -42,9 +63,9 @@ class Sampler(ABC):
     def shuffle(self) -> bool:
         """Whether data is shuffled.
 
-        If `batch_size` is provided and {attr}`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
+        If `batch_size` is provided and :attr:`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
 
-        Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in {class}`annbatch.types.LoadRequest`).
+        Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in :class:`annbatch.types.LoadRequest`).
 
         Returns
         -------

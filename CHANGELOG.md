@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.1.3]
+
+Features:
+- Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
+- Exposed {class}`annbatch.samplers.DistributedSampler` for distributed training.
+
+Breaking:
+- Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
+
 ## [0.1.2]
 
 ### Fixed

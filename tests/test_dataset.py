@@ -13,8 +13,9 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import ChunkSampler, Loader, write_sharded
+from annbatch import Loader, write_sharded
 from annbatch.abc import Sampler
+from annbatch.samplers import SequentialSampler
 
 try:
     from cupy import ndarray as CupyArray
@@ -661,7 +662,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
     expected_n_obs = sum(d["dataset"].shape[0] for d in datas)
     start_idx, end_idx = expected_n_obs // 4, expected_n_obs // 2
 
-    sampler = ChunkSampler(
+    sampler = SequentialSampler(
         mask=slice(start_idx, end_idx),
         batch_size=10,
         chunk_size=10,
@@ -686,7 +687,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
 @pytest.mark.parametrize("kwarg", [{"chunk_size": 10}, {"batch_size": 10}, {"rng": np.random.default_rng(0)}])
 def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
-    chunk_sampler = ChunkSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
+    chunk_sampler = SequentialSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
     with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
         Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
 
