@@ -10,7 +10,6 @@ from annbatch.utils import _spawn_worker_rng
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from annbatch.samplers._random_sampler import RandomSampler
     from annbatch.types import LoadRequest
 
 
@@ -87,7 +86,7 @@ class DistributedRandomSampler(Sampler):
     Parameters
     ----------
     sampler
-        The :class:`~annbatch.samplers.RandomSampler` to distribute.
+        The :class:`~annbatch.abc.Sampler` to distribute.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
@@ -100,11 +99,11 @@ class DistributedRandomSampler(Sampler):
     _rank: int
     _world_size: int
     _enforce_equal_batches: bool
-    _sampler: RandomSampler
+    _sampler: Sampler
 
     def __init__(
         self,
-        sampler: RandomSampler,
+        sampler: Sampler,
         *,
         dist_info: Literal["torch", "jax"] | Callable[[], tuple[int, int]],
         enforce_equal_batches: bool = True,
@@ -117,7 +116,8 @@ class DistributedRandomSampler(Sampler):
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
         self._sampler = sampler
-        sampler.rng = _spawn_worker_rng(sampler.rng, self._rank)
+        if sampler.rng is not None:
+            sampler.rng = _spawn_worker_rng(sampler.rng, self._rank)
 
     @property
     def batch_size(self) -> int:

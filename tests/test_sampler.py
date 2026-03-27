@@ -639,7 +639,12 @@ def test_sampler_no_deprecation_warning(
 
 
 def _make_distributed_sampler_torch(
-    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs: object
+    rank: int,
+    world_size: int,
+    sampler_cls: type[RandomSampler] | type[SequentialSampler] = RandomSampler,
+    *,
+    enforce_equal_batches: bool = True,
+    **sampler_kwargs: object,
 ) -> DistributedRandomSampler:
     """Create a DistributedRandomSampler with mocked torch.distributed backend."""
     mock_dist = MagicMock()
@@ -649,14 +654,20 @@ def _make_distributed_sampler_torch(
     mock_torch = MagicMock()
     mock_torch.distributed = mock_dist
     sampler_kwargs.pop("shuffle", None)
-    sampler_kwargs.setdefault("rng", np.random.default_rng(0))
-    sampler = RandomSampler(**sampler_kwargs)
+    if sampler_cls is RandomSampler:
+        sampler_kwargs.setdefault("rng", np.random.default_rng(0))
+    sampler = sampler_cls(**sampler_kwargs)
     with patch.dict(sys.modules, {"torch": mock_torch, "torch.distributed": mock_dist}):
         return DistributedRandomSampler(sampler, dist_info="torch", enforce_equal_batches=enforce_equal_batches)
 
 
 def _make_distributed_sampler_jax(
-    rank: int, world_size: int, *, enforce_equal_batches: bool = True, **sampler_kwargs: object
+    rank: int,
+    world_size: int,
+    sampler_cls: type[RandomSampler] | type[SequentialSampler] = RandomSampler,
+    *,
+    enforce_equal_batches: bool = True,
+    **sampler_kwargs: object,
 ) -> DistributedRandomSampler:
     """Create a DistributedRandomSampler with mocked jax backend."""
     mock_jax = MagicMock()
@@ -664,8 +675,9 @@ def _make_distributed_sampler_jax(
     mock_jax.process_count.return_value = world_size
     mock_jax.distributed.is_initialized.return_value = True
     sampler_kwargs.pop("shuffle", None)
-    sampler_kwargs.setdefault("rng", np.random.default_rng(0))
-    sampler = RandomSampler(**sampler_kwargs)
+    if sampler_cls is RandomSampler:
+        sampler_kwargs.setdefault("rng", np.random.default_rng(0))
+    sampler = sampler_cls(**sampler_kwargs)
     with patch.dict(sys.modules, {"jax": mock_jax}):
         return DistributedRandomSampler(sampler, dist_info="jax", enforce_equal_batches=enforce_equal_batches)
 
@@ -855,3 +867,28 @@ class TestDistributedRandomSampler:
             _, _, splits = collect_indices(sampler, n_obs)
             actual = len(splits)
             assert actual == expected, f"rank {rank}: n_iters={expected}, actual={actual}"
+
+    def test_wraps_sequential_sampler(self, make_distributed_sampler: Callable[..., DistributedRandomSampler]):
+        """Distributed wrapper should also work with SequentialSampler."""
+        n_obs, world_size = 100, 4
+        chunk_size, preload_nchunks, batch_size = 10, 2, 10
+
+        all_indices: list[list[int]] = []
+        for rank in range(world_size):
+            sampler = make_distributed_sampler(
+                rank=rank,
+                world_size=world_size,
+                sampler_cls=SequentialSampler,
+                chunk_size=chunk_size,
+                preload_nchunks=preload_nchunks,
+                batch_size=batch_size,
+                enforce_equal_batches=False,
+            )
+            all_indices.append(collect_indices(sampler, n_obs)[0])
+
+        for i in range(world_size):
+            for j in range(i + 1, world_size):
+                assert set(all_indices[i]).isdisjoint(set(all_indices[j]))
+        assert set().union(*all_indices) == set(range(n_obs))
+        assert set().union(*all_indices) == set(range(n_obs))
+        assert set().union(*all_indices) == set(range(n_obs))
