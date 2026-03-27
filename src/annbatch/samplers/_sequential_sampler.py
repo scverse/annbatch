@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import warnings
-
-from annbatch.samplers._chunk_sampler import ChunkSampler
+from annbatch.samplers._chunk_sampler import _ChunkSampler
 
 
-class SequentialSampler(ChunkSampler):
+class SequentialSampler(_ChunkSampler):
     """Ordered chunk-based sampler for batched data access.
 
     Chunks are emitted in sequential order and every observation in the
@@ -40,15 +38,13 @@ class SequentialSampler(ChunkSampler):
         drop_last: bool = False,
         mask: slice | None = None,
     ):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="ChunkSampler is deprecated", category=DeprecationWarning)
-            super().__init__(
-                chunk_size=chunk_size,
-                preload_nchunks=preload_nchunks,
-                batch_size=batch_size,
-                replacement=False,
-                num_samples=None,
-                shuffle=False,
-                drop_last=drop_last,
-                mask=mask,
-            )
+        super().__init__(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            replacement=False,
+            num_samples=None,
+            shuffle=False,
+            drop_last=drop_last,
+            mask=mask,
+        )

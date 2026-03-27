@@ -20,43 +20,8 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class ChunkSampler(Sampler):
-    """Chunk-based sampler for batched data access.
-
-    .. deprecated:: 0.1.0
-        Use :class:`~annbatch.samplers.RandomSampler` (for shuffled access) or
-        :class:`~annbatch.samplers.SequentialSampler` (for ordered access) instead.
-
-    This is the monolithic sampler that powers both :class:`~annbatch.samplers.RandomSampler` and :class:`~annbatch.samplers.SequentialSampler`.
-    It supports with-replacement (shuffle/no-shuffle) and without-replacement sampling.
-
-    Parameters
-    ----------
-    batch_size
-        Number of observations per batch.
-    chunk_size
-        Size of each chunk i.e. the range of each chunk yielded.
-    mask
-        A slice defining the observation range to sample from (start:stop).
-    shuffle
-        Whether to shuffle chunk and index order.
-    preload_nchunks
-        Number of chunks to load per iteration.
-    drop_last
-        Whether to drop the last incomplete batch.
-    rng
-        Random number generator for shuffling. Note that :func:`torch.manual_seed`
-        has no effect on reproducibility here; pass a seeded
-        :class:`numpy.random.Generator` to control randomness.
-    replacement
-        If ``True``, draw random chunks with replacement, allowing the
-        same observations to appear more than once.
-    num_samples
-        Total number of observations to draw.  When ``None`` (the
-        default), equals the effective observation range.  Must be
-        positive when set and less than the number of observations to be
-        yielded when ``replacement=False``.
-    """
+class _ChunkSampler(Sampler):
+    """Chunk-based sampler implementation for batched data access."""
 
     _batch_size: int
     _chunk_size: int
@@ -80,12 +45,6 @@ class ChunkSampler(Sampler):
         mask: slice | None = None,
         rng: np.random.Generator | None = None,
     ):
-        warnings.warn(
-            "ChunkSampler is deprecated, use RandomSampler or SequentialSampler instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
         if num_samples is not None:
             check_lt_1([num_samples], ["num_samples"])
 
@@ -294,3 +253,73 @@ class ChunkSampler(Sampler):
         offsets = np.cumsum(offsets)
         starts, stops = offsets[:-1][chunk_indices], offsets[1:][chunk_indices]
         return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]
+
+
+class ChunkSampler(_ChunkSampler):
+    """Chunk-based sampler for batched data access.
+
+    .. deprecated:: 0.1.0
+        Use :class:`~annbatch.samplers.RandomSampler` (for shuffled access) or
+        :class:`~annbatch.samplers.SequentialSampler` (for ordered access) instead.
+
+    This is the monolithic sampler that powers both :class:`~annbatch.samplers.RandomSampler` and
+    :class:`~annbatch.samplers.SequentialSampler`. It supports with-replacement
+    (shuffle/no-shuffle) and without-replacement sampling.
+
+    Parameters
+    ----------
+    batch_size
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    mask
+        A slice defining the observation range to sample from (start:stop).
+    shuffle
+        Whether to shuffle chunk and index order.
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
+    rng
+        Random number generator for shuffling. Note that :func:`torch.manual_seed`
+        has no effect on reproducibility here; pass a seeded
+        :class:`numpy.random.Generator` to control randomness.
+    replacement
+        If ``True``, draw random chunks with replacement, allowing the
+        same observations to appear more than once.
+    num_samples
+        Total number of observations to draw. When ``None`` (the
+        default), equals the effective observation range. Must be
+        positive when set and less than the number of observations to be
+        yielded when ``replacement=False``.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        replacement: bool = False,
+        num_samples: int | None = None,
+        shuffle: bool = False,
+        drop_last: bool = False,
+        mask: slice | None = None,
+        rng: np.random.Generator | None = None,
+    ):
+        warnings.warn(
+            "ChunkSampler is deprecated, use RandomSampler or SequentialSampler instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks,
+            batch_size=batch_size,
+            replacement=replacement,
+            num_samples=num_samples,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            mask=mask,
+            rng=rng,
+        )
