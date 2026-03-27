@@ -846,9 +846,7 @@ class TestDistributedSampler:
                 f"Rank {rank}: batch shuffling should be reproducible with same seed"
             )
 
-    def test_n_iters_matches_actual_batch_count(
-        self, make_distributed_sampler: Callable[..., DistributedSampler]
-    ):
+    def test_n_iters_matches_actual_batch_count(self, make_distributed_sampler: Callable[..., DistributedSampler]):
         """n_iters should match the actual number of yielded batches."""
         n_obs, world_size = 205, 3
         chunk_size, preload_nchunks, batch_size = 10, 2, 10
