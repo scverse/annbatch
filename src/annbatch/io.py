@@ -561,7 +561,7 @@ class DatasetCollection:
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
                 Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
                 Note that this function does not have to return "lazy" `AnnData` objects nor does it have to do I/O.
-                This function can return in-memory objects after pre-processing and treat `adata_paths` as simply a unqiue identifier for identifying the returned object.
+                This function can return in-memory objects (i.e., after pre-processing) and treat `adata_paths` as simply a unqiue identifier for identifying the returned object.
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
