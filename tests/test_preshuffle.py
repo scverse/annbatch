@@ -14,7 +14,7 @@ import zarr
 from humanfriendly import parse_size
 
 from annbatch import DatasetCollection, write_sharded
-from annbatch.io import GROUPBY_ATTR_KEY, V1_ENCODING
+from annbatch.io import GROUPBY_ATTR_KEY, V1_ENCODING, _groupby_adata, _groupby_from_attrs, _normalize_groupby
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -247,6 +247,36 @@ def test_store_creation(
     # sparse indices use obs-based chunk; exact element count depends on per-dataset avg_nnz
     # ensure proper downcasting
     assert z["X"]["indices"].dtype == (np.uint16 if adata.X.shape[1] >= 256 else np.uint8)
+
+
+def test_normalize_groupby_rejects_empty():
+    with pytest.raises(ValueError, match="must contain at least one"):
+        _normalize_groupby([])
+
+
+def test_normalize_groupby_rejects_duplicates():
+    with pytest.raises(ValueError, match="must be unique"):
+        _normalize_groupby(["label", "label"])
+
+
+def test_groupby_from_attrs_rejects_non_mapping():
+    with pytest.raises(ValueError, match="to be a mapping"):
+        _groupby_from_attrs({GROUPBY_ATTR_KEY: "label"})
+
+
+def test_groupby_from_attrs_supports_legacy_obs_column():
+    assert _groupby_from_attrs({GROUPBY_ATTR_KEY: {"obs_column": "label"}}) == ["label"]
+
+
+def test_groupby_from_attrs_rejects_missing_obs_columns():
+    with pytest.raises(ValueError, match="Could not find `obs_columns`"):
+        _groupby_from_attrs({GROUPBY_ATTR_KEY: {}})
+
+
+def test_groupby_adata_rejects_missing_obs_columns():
+    adata = ad.AnnData(obs=pd.DataFrame({"label": ["a", "b"]}))
+    with pytest.raises(ValueError, match="Could not find groupby columns"):
+        _groupby_adata(adata, groupby=["label", "missing"])
 
 
 def _assert_groupby_boundaries(dataset_group, groupby_columns: list[str]) -> None:
