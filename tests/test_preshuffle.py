@@ -14,7 +14,7 @@ import zarr
 from humanfriendly import parse_size
 
 from annbatch import DatasetCollection, write_sharded
-from annbatch.io import V1_ENCODING
+from annbatch.io import GROUPBY_ATTR_KEY, V1_ENCODING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -166,7 +166,7 @@ def test_store_creation_default(
     )
     store = zarr.open(output_path)
     with nullcontext() if is_zarr else pytest.raises(ValueError, match=r"Cannot iterate through"):
-        assert list(iter(collection)) == [store[k] for k in sorted(store.keys())]
+        assert [g.name for g in collection] == [store[k].name for k in sorted(store.keys())]
         assert V1_ENCODING.items() <= store.attrs.items()
 
 
@@ -247,6 +247,108 @@ def test_store_creation(
     # sparse indices use obs-based chunk; exact element count depends on per-dataset avg_nnz
     # ensure proper downcasting
     assert z["X"]["indices"].dtype == (np.uint16 if adata.X.shape[1] >= 256 else np.uint8)
+
+
+def _assert_groupby_boundaries(dataset_group, groupby_columns: list[str]) -> None:
+    dataset_meta = dataset_group.attrs[GROUPBY_ATTR_KEY]
+    adata = ad.io.read_elem(dataset_group)
+    grouped_obs = adata.obs[groupby_columns].reset_index(drop=True)
+    boundaries = dataset_meta["boundaries"]
+
+    assert dataset_meta["obs_columns"] == groupby_columns
+    expected_boundaries = np.flatnonzero(~grouped_obs.duplicated()).tolist() + [adata.n_obs]
+    assert boundaries == expected_boundaries
+    pd.testing.assert_frame_equal(
+        grouped_obs.iloc[boundaries[:-1]].reset_index(drop=True),
+        grouped_obs.drop_duplicates(ignore_index=True),
+    )
+
+
+def _create_groupby_collection(
+    h5_dir: Path,
+    output_name: str,
+    *,
+    groupby: str | list[str],
+    adata_paths: list[Path] | None = None,
+) -> DatasetCollection:
+    output_path = h5_dir.parent / output_name
+    return DatasetCollection(output_path, groupby=groupby).add_adatas(
+        sorted(h5_dir.iterdir()) if adata_paths is None else adata_paths,
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+    )
+
+
+@pytest.mark.parametrize(
+    ("groupby", "output_name"),
+    [
+        pytest.param("label", "zarr_store_creation_test_groupby.zarr", id="single_column"),
+        pytest.param(
+            ["label", "store_id"],
+            "zarr_store_creation_test_groupby_multi.zarr",
+            id="multiple_columns",
+        ),
+    ],
+)
+def test_store_creation_groupby_metadata(
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+    groupby: str | list[str],
+    output_name: str,
+):
+    groupby_columns = [groupby] if isinstance(groupby, str) else groupby
+    h5_dir = adata_with_h5_path_different_var_space[1]
+    output_path = h5_dir.parent / output_name
+    collection = _create_groupby_collection(h5_dir, output_name, groupby=groupby)
+
+    store = zarr.open(output_path)
+    assert store.attrs[GROUPBY_ATTR_KEY] == {"obs_columns": groupby_columns}
+
+    for dataset_group in collection:
+        _assert_groupby_boundaries(dataset_group, groupby_columns)
+
+
+def test_store_creation_groupby_requires_zarr(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    output_path = adata_with_h5_path_different_var_space[1].parent / "h5_store_creation_test_groupby"
+    with pytest.warns(UserWarning, match="Loading h5ad is currently not supported"):
+        with pytest.raises(ValueError, match="only supported for zarr collections"):
+            DatasetCollection(output_path, is_collection_h5ad=True, groupby="label")
+
+
+def test_store_extension_preserves_groupby(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    h5_dir = adata_with_h5_path_different_var_space[1]
+    h5_paths = sorted(h5_dir.iterdir())
+    output_path = h5_dir.parent / "zarr_store_creation_test_groupby_extension.zarr"
+    collection = _create_groupby_collection(
+        h5_dir, "zarr_store_creation_test_groupby_extension.zarr", groupby="label", adata_paths=h5_paths[:3]
+    )
+    collection.add_adatas(
+        h5_paths[3:],
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+    )
+
+    reopened = DatasetCollection(output_path)
+    assert reopened._groupby == ["label"]
+    for dataset_group in reopened:
+        _assert_groupby_boundaries(dataset_group, ["label"])
+
+
+def test_store_collection_groupby_mismatch_raises(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    h5_dir = adata_with_h5_path_different_var_space[1]
+    h5_paths = sorted(h5_dir.iterdir())
+    output_path = h5_dir.parent / "zarr_store_creation_test_groupby_mismatch.zarr"
+    _create_groupby_collection(
+        h5_dir, "zarr_store_creation_test_groupby_mismatch.zarr", groupby="label", adata_paths=h5_paths[:3]
+    )
+
+    with pytest.raises(ValueError, match="does not match existing collection metadata"):
+        DatasetCollection(output_path, groupby="store_id")
 
 
 def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
