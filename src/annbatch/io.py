@@ -395,7 +395,7 @@ def _groupby_from_attrs(attrs: Mapping[str, object]) -> list[str] | None:
         return None
     groupby_meta = attrs[GROUPBY_ATTR_KEY]
     if not isinstance(groupby_meta, dict):
-        raise ValueError(f"Expected `{GROUPBY_ATTR_KEY}` attrs to be a mapping, got {type(groupby_meta).__name__}.")
+        raise ValueError(f"Expected `{GROUPBY_ATTR_KEY}` attrs to be a mapping.")
     if "obs_columns" in groupby_meta:
         return _normalize_groupby(groupby_meta["obs_columns"])
     if "obs_column" in groupby_meta:
