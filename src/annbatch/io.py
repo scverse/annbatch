@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from zarr.abc.codec import BytesBytesCodec
 
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
+GROUPBY_ATTR_KEY = "annbatch-groupby"
 
 
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
@@ -380,6 +381,46 @@ def _create_chunks_for_shuffling(
     ]
 
 
+def _normalize_groupby(groupby: str | Iterable[str]) -> list[str]:
+    groupby_cols = [groupby] if isinstance(groupby, str) else list(groupby)
+    if len(groupby_cols) == 0:
+        raise ValueError("`groupby` must contain at least one `obs` column.")
+    if len(set(groupby_cols)) != len(groupby_cols):
+        raise ValueError("`groupby` columns must be unique.")
+    return groupby_cols
+
+
+def _groupby_from_attrs(attrs: Mapping[str, object]) -> list[str] | None:
+    if GROUPBY_ATTR_KEY not in attrs:
+        return None
+    groupby_meta = attrs[GROUPBY_ATTR_KEY]
+    if not isinstance(groupby_meta, dict):
+        raise ValueError(f"Expected `{GROUPBY_ATTR_KEY}` attrs to be a mapping, got {type(groupby_meta).__name__}.")
+    if "obs_columns" in groupby_meta:
+        return _normalize_groupby(groupby_meta["obs_columns"])
+    if "obs_column" in groupby_meta:
+        return _normalize_groupby(groupby_meta["obs_column"])
+    raise ValueError(f"Could not find `obs_columns` in `{GROUPBY_ATTR_KEY}` attrs.")
+
+
+def _groupby_adata(
+    adata: ad.AnnData, *, groupby: str | Iterable[str]
+) -> tuple[ad.AnnData, dict[str, dict[str, list[str] | list[int]]]]:
+    groupby_cols = _normalize_groupby(groupby)
+    missing_cols = [col for col in groupby_cols if col not in adata.obs]
+    if len(missing_cols) > 0:
+        raise ValueError(f"Could not find groupby columns {missing_cols!r} in `obs`.")
+    group_values = adata.obs[groupby_cols].reset_index(drop=True)
+
+    order = group_values.sort_values(by=groupby_cols, kind="stable").index.to_numpy(dtype=int, copy=False)
+    sorted_values = group_values.iloc[order].reset_index(drop=True)
+
+    boundaries = np.flatnonzero(~sorted_values.duplicated()).tolist()
+    boundaries.append(len(sorted_values))  # add end boundary
+
+    return adata[order], {GROUPBY_ATTR_KEY: {"obs_columns": groupby_cols, "boundaries": boundaries}}
+
+
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
     """.compute() for large datasets is bad: https://github.com/scverse/annbatch/pull/75"""
     if isinstance(x._meta, sp.csr_matrix | sp.csr_array):
@@ -457,9 +498,15 @@ class DatasetCollection:
     """A preshuffled collection object including functionality for creating, adding to, and loading collections shuffled by `annbatch`."""
 
     _group: zarr.Group | Path
+    _groupby: list[str] | None
 
     def __init__(
-        self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a", is_collection_h5ad: bool = False
+        self,
+        group: zarr.Group | str | Path,
+        *,
+        mode: Literal["a", "r", "r+"] = "a",
+        is_collection_h5ad: bool = False,
+        groupby: str | Iterable[str] | None = None,
     ):
         """Initialization of the object at a given location.
 
@@ -472,7 +519,13 @@ class DatasetCollection:
             group
                 The base location for a preshuffled collection.
                 A :class:`zarr.Group` or path ending in `.zarr` indicates zarr as the shuffled format and otherwise a directory of `h5ad` files will be created.
+            groupby
+                Optional collection-level grouping configuration.
+                When provided, new datasets are grouped within each dataset by these `obs` columns.
+                Group boundaries are stored as jsonable dataset attrs rather than inside the AnnData payload.
+                If opening an existing grouped zarr collection, any provided value must match the stored metadata.
         """
+        configured_groupby = _normalize_groupby(groupby) if groupby is not None else None
         if not isinstance(group, zarr.Group):
             if isinstance(group, str | Path):
                 if not is_collection_h5ad:
@@ -491,12 +544,20 @@ class DatasetCollection:
                     )
                     self._group = Path(group)
                     self._group.mkdir(exist_ok=True)
+                    if configured_groupby is not None:
+                        raise ValueError("`groupby` metadata is only supported for zarr collections.")
             else:
                 raise TypeError("Group must either be a zarr group or a path")
         else:
             if is_collection_h5ad:
                 raise ValueError("Do not set `is_collection_h5ad` to True when also passing in a zarr Group.")
             self._group = group
+        stored_groupby = _groupby_from_attrs(dict(self._group.attrs)) if isinstance(self._group, zarr.Group) else None
+        if configured_groupby is not None and stored_groupby is not None and configured_groupby != stored_groupby:
+            raise ValueError(
+                f"`groupby` {configured_groupby!r} does not match existing collection metadata {stored_groupby!r}."
+            )
+        self._groupby = stored_groupby if stored_groupby is not None else configured_groupby
 
     @property
     def _dataset_keys(self) -> list[str]:
@@ -615,6 +676,7 @@ class DatasetCollection:
         """
         if rng is None:
             rng = np.random.default_rng()
+        resolved_groupby = self._groupby
         shared_kwargs = {
             "adata_paths": adata_paths,
             "load_adata": load_adata,
@@ -628,6 +690,7 @@ class DatasetCollection:
         }
         if self.is_empty:
             self._create_collection(**shared_kwargs, dataset_size=dataset_size, var_subset=var_subset)
+            self._groupby = resolved_groupby
         else:
             self._add_to_collection(**shared_kwargs)
         return self
@@ -720,6 +783,7 @@ class DatasetCollection:
             shuffle=shuffle,
             shuffle_n_obs_per_dataset=dataset_size,
         )
+        groupby = self._groupby
 
         if var_subset is None:
             var_subset = adata_concat.var_names
@@ -733,6 +797,9 @@ class DatasetCollection:
                 # shuffle adata in memory to break up individual chunks
                 idxs = rng.permutation(np.arange(len(adata_chunk)))
                 adata_chunk = adata_chunk[idxs]
+            dataset_attrs = None
+            if groupby is not None:
+                adata_chunk, dataset_attrs = _groupby_adata(adata_chunk, groupby=groupby)
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,
@@ -742,6 +809,10 @@ class DatasetCollection:
                     compressors=zarr_compressor,
                     key=f"{DATASET_PREFIX}_{i}",
                 )
+                if dataset_attrs is not None:
+                    dataset_group = self._group[f"{DATASET_PREFIX}_{i}"]
+                    dataset_group.update_attributes(dataset_attrs)
+                    zarr.consolidate_metadata(self._group.store)
             else:
                 ad.io.write_h5ad(
                     self._group / f"{DATASET_PREFIX}_{i}.h5ad",
@@ -749,7 +820,11 @@ class DatasetCollection:
                     dataset_kwargs={"compression": h5ad_compressor},
                 )
         if isinstance(self._group, zarr.Group):
-            self._group.update_attributes(V1_ENCODING)
+            attrs = dict(V1_ENCODING)
+            if groupby is not None:
+                attrs[GROUPBY_ATTR_KEY] = {"obs_columns": _normalize_groupby(groupby)}
+            self._group.update_attributes(attrs)
+            zarr.consolidate_metadata(self._group.store)
 
     def _add_to_collection(
         self,
@@ -798,6 +873,7 @@ class DatasetCollection:
         """
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add_adatas` first.")
+        groupby = self._groupby
         # Check for mismatched keys among the inputs.
         adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
@@ -831,6 +907,9 @@ class DatasetCollection:
             else:
                 idxs = np.arange(adata.shape[0])
             adata = _persist_adata_in_memory(adata[idxs, :].copy())
+            dataset_attrs = None
+            if groupby is not None:
+                adata, dataset_attrs = _groupby_adata(adata, groupby=groupby)
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,
@@ -840,9 +919,15 @@ class DatasetCollection:
                     compressors=zarr_compressor,
                     key=dataset,
                 )
+                if dataset_attrs is not None:
+                    dataset_group = self._group[dataset]
+                    dataset_group.update_attributes(dataset_attrs)
+                    zarr.consolidate_metadata(self._group.store)
             else:
                 ad.io.write_h5ad(
                     self._group / f"{dataset}.h5ad",
                     adata,
                     dataset_kwargs={"compression": h5ad_compressor},
                 )
+        if isinstance(self._group, zarr.Group):
+            zarr.consolidate_metadata(self._group.store)
