@@ -331,7 +331,7 @@ def test_add_adatas_groupby_ordering(
     )
     store = zarr.open(output_path)
     _assert_collection_groupby_ordering(store, groupby_columns)
-    assert [g.name for g in collection] == [store[k].name for k in sorted(store.keys())]
+    assert [g.name for g in collection] == [store[k].name for k in collection._dataset_keys]
 
 
 def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
