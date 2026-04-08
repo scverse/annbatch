@@ -14,7 +14,7 @@ import zarr
 from humanfriendly import parse_size
 
 from annbatch import DatasetCollection, write_sharded
-from annbatch.io import GROUPBY_ATTR_KEY, V1_ENCODING, _groupby_adata, _groupby_from_attrs, _normalize_groupby
+from annbatch.io import V1_ENCODING, _groupby_adata, _normalize_groupby
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -259,59 +259,21 @@ def test_normalize_groupby_rejects_duplicates():
         _normalize_groupby(["label", "label"])
 
 
-def test_groupby_from_attrs_rejects_non_mapping():
-    with pytest.raises(ValueError, match="to be a mapping"):
-        _groupby_from_attrs({GROUPBY_ATTR_KEY: "label"})
-
-
-def test_groupby_from_attrs_rejects_missing_obs_columns():
-    with pytest.raises(ValueError, match="Could not find `obs_columns`"):
-        _groupby_from_attrs({GROUPBY_ATTR_KEY: {}})
-
-
 def test_groupby_adata_rejects_missing_obs_columns():
     adata = ad.AnnData(obs=pd.DataFrame({"label": ["a", "b"]}))
     with pytest.raises(ValueError, match="Could not find groupby columns"):
         _groupby_adata(adata, groupby=["label", "missing"])
 
 
-def _assert_groupby_boundaries(dataset_group, groupby_columns: list[str], boundaries: list[int]) -> None:
-    adata = ad.io.read_elem(dataset_group)
+def _assert_groupby_ordering(adata: ad.AnnData, groupby_columns: list[str]) -> None:
     grouped_obs = adata.obs[groupby_columns].reset_index(drop=True)
-    expected_boundaries = np.flatnonzero(~grouped_obs.duplicated()).tolist() + [adata.n_obs]
-    assert boundaries == expected_boundaries
-    pd.testing.assert_frame_equal(
-        grouped_obs.iloc[boundaries[:-1]].reset_index(drop=True),
-        grouped_obs.drop_duplicates(ignore_index=True),
-    )
+    expected = grouped_obs.sort_values(by=groupby_columns, kind="stable").reset_index(drop=True)
+    pd.testing.assert_frame_equal(grouped_obs, expected)
 
 
-def _assert_root_groupby_metadata(store: zarr.Group, groupby_columns: list[str]) -> None:
-    groupby_meta = store.attrs[GROUPBY_ATTR_KEY]
-    assert groupby_meta["obs_columns"] == groupby_columns
-    assert set(groupby_meta["boundaries"]) == set(store.keys())
-    for dataset_key, boundaries in groupby_meta["boundaries"].items():
-        assert GROUPBY_ATTR_KEY not in store[dataset_key].attrs
-        _assert_groupby_boundaries(store[dataset_key], groupby_columns, boundaries)
-
-
-def _create_groupby_collection(
-    h5_dir: Path,
-    output_name: str,
-    *,
-    groupby: str | list[str],
-    adata_paths: list[Path] | None = None,
-) -> DatasetCollection:
-    output_path = h5_dir.parent / output_name
-    return DatasetCollection(output_path, groupby=groupby).add_adatas(
-        sorted(h5_dir.iterdir()) if adata_paths is None else adata_paths,
-        n_obs_per_chunk=5,
-        shard_size=10,
-        dataset_size=50,
-        shuffle_chunk_size=10,
-        shuffle=True,
-        rng=np.random.default_rng(0),
-    )
+def _assert_collection_groupby_ordering(store: zarr.Group, groupby_columns: list[str]) -> None:
+    for dataset_key in store.keys():
+        _assert_groupby_ordering(ad.io.read_elem(store[dataset_key]), groupby_columns)
 
 
 @pytest.mark.parametrize(
@@ -325,59 +287,28 @@ def _create_groupby_collection(
         ),
     ],
 )
-def test_store_creation_groupby_metadata(
+def test_add_adatas_groupby_ordering(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
     groupby: str | list[str],
     output_name: str,
 ):
-    groupby_columns = [groupby] if isinstance(groupby, str) else groupby
-    h5_dir = adata_with_h5_path_different_var_space[1]
-    output_path = h5_dir.parent / output_name
-    collection = _create_groupby_collection(h5_dir, output_name, groupby=groupby)
-
-    store = zarr.open(output_path)
-    _assert_root_groupby_metadata(store, groupby_columns)
-    assert list(collection._dataset_keys) == list(store.attrs[GROUPBY_ATTR_KEY]["boundaries"])
-
-
-def test_store_creation_groupby_requires_zarr(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
-    output_path = adata_with_h5_path_different_var_space[1].parent / "h5_store_creation_test_groupby"
-    with pytest.warns(UserWarning, match="Loading h5ad is currently not supported"):
-        with pytest.raises(ValueError, match="only supported for zarr collections"):
-            DatasetCollection(output_path, is_collection_h5ad=True, groupby="label")
-
-
-def test_store_extension_preserves_groupby(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
     h5_dir = adata_with_h5_path_different_var_space[1]
     h5_paths = sorted(h5_dir.iterdir())
-    output_path = h5_dir.parent / "zarr_store_creation_test_groupby_extension.zarr"
-    collection = _create_groupby_collection(
-        h5_dir, "zarr_store_creation_test_groupby_extension.zarr", groupby="label", adata_paths=h5_paths[:3]
-    )
-    collection.add_adatas(
-        h5_paths[3:],
+    groupby_columns = [groupby] if isinstance(groupby, str) else groupby
+    output_path = h5_dir.parent / output_name
+    collection = DatasetCollection(output_path).add_adatas(
+        h5_paths,
+        groupby=groupby,
         n_obs_per_chunk=5,
         shard_size=10,
         dataset_size=50,
         shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
     )
-
-    reopened = DatasetCollection(output_path)
-    assert reopened._groupby == ["label"]
     store = zarr.open(output_path)
-    _assert_root_groupby_metadata(store, ["label"])
-
-
-def test_store_collection_groupby_mismatch_raises(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
-    h5_dir = adata_with_h5_path_different_var_space[1]
-    h5_paths = sorted(h5_dir.iterdir())
-    output_path = h5_dir.parent / "zarr_store_creation_test_groupby_mismatch.zarr"
-    _create_groupby_collection(
-        h5_dir, "zarr_store_creation_test_groupby_mismatch.zarr", groupby="label", adata_paths=h5_paths[:3]
-    )
-
-    with pytest.raises(ValueError, match="does not match existing collection metadata"):
-        DatasetCollection(output_path, groupby="store_id")
+    _assert_collection_groupby_ordering(store, groupby_columns)
+    assert [g.name for g in collection] == [store[k].name for k in sorted(store.keys())]
 
 
 def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
