@@ -14,7 +14,7 @@ import zarr
 from humanfriendly import parse_size
 
 from annbatch import DatasetCollection, write_sharded
-from annbatch.io import V1_ENCODING, _groupby_adata, _normalize_groupby
+from annbatch.io import V1_ENCODING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -249,20 +249,43 @@ def test_store_creation(
     assert z["X"]["indices"].dtype == (np.uint16 if adata.X.shape[1] >= 256 else np.uint8)
 
 
-def test_normalize_groupby_rejects_empty():
-    with pytest.raises(ValueError, match="must contain at least one"):
-        _normalize_groupby([])
-
-
-def test_normalize_groupby_rejects_duplicates():
-    with pytest.raises(ValueError, match="must be unique"):
-        _normalize_groupby(["label", "label"])
-
-
-def test_groupby_adata_rejects_missing_obs_columns():
-    adata = ad.AnnData(obs=pd.DataFrame({"label": ["a", "b"]}))
-    with pytest.raises(ValueError, match="Could not find groupby columns"):
-        _groupby_adata(adata, groupby=["label", "missing"])
+@pytest.mark.parametrize(
+    ("groupby", "match", "output_name"),
+    [
+        pytest.param([], "must contain at least one", "zarr_store_creation_test_groupby_empty.zarr", id="empty"),
+        pytest.param(
+            ["label", "label"],
+            "must be unique",
+            "zarr_store_creation_test_groupby_duplicates.zarr",
+            id="duplicates",
+        ),
+        pytest.param(
+            ["label", "missing"],
+            "Could not find groupby columns",
+            "zarr_store_creation_test_groupby_missing.zarr",
+            id="missing_column",
+        ),
+    ],
+)
+def test_add_adatas_rejects_invalid_groupby(
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+    groupby: list[str],
+    match: str,
+    output_name: str,
+):
+    h5_dir = adata_with_h5_path_different_var_space[1]
+    output_path = h5_dir.parent / output_name
+    with pytest.raises(ValueError, match=match):
+        DatasetCollection(output_path).add_adatas(
+            sorted(h5_dir.iterdir()),
+            groupby=groupby,
+            n_obs_per_chunk=5,
+            shard_size=10,
+            dataset_size=50,
+            shuffle_chunk_size=10,
+            shuffle=True,
+            rng=np.random.default_rng(0),
+        )
 
 
 def _assert_groupby_ordering(adata: ad.AnnData, groupby_columns: list[str]) -> None:
