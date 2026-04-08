@@ -4,7 +4,6 @@ import math
 import re
 import warnings
 from collections import defaultdict
-from collections.abc import Mapping
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
@@ -26,7 +25,7 @@ from zarr.codecs import BloscCodec, BloscShuffle
 from annbatch.utils import split_given_size
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterable
+    from collections.abc import Callable, Generator, Iterable, Mapping
     from os import PathLike
     from typing import Literal
 
