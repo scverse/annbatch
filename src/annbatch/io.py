@@ -523,7 +523,7 @@ class DatasetCollection:
                 Group boundaries are stored as jsonable dataset attrs rather than inside the AnnData payload.
                 If opening an existing grouped zarr collection, any provided value must match the stored metadata.
         """
-        configured_groupby = _normalize_groupby(groupby) if groupby is not None else None
+        self._groupby = _normalize_groupby(groupby) if groupby is not None else None
         if not isinstance(group, zarr.Group):
             if isinstance(group, str | Path):
                 if not is_collection_h5ad:
@@ -542,7 +542,7 @@ class DatasetCollection:
                     )
                     self._group = Path(group)
                     self._group.mkdir(exist_ok=True)
-                    if configured_groupby is not None:
+                    if self._groupby is not None:
                         raise ValueError("`groupby` metadata is only supported for zarr collections.")
             else:
                 raise TypeError("Group must either be a zarr group or a path")
@@ -551,11 +551,12 @@ class DatasetCollection:
                 raise ValueError("Do not set `is_collection_h5ad` to True when also passing in a zarr Group.")
             self._group = group
         stored_groupby = _groupby_from_attrs(dict(self._group.attrs)) if isinstance(self._group, zarr.Group) else None
-        if configured_groupby is not None and stored_groupby is not None and configured_groupby != stored_groupby:
+        if self._groupby is not None and stored_groupby is not None and self._groupby != stored_groupby:
             raise ValueError(
-                f"`groupby` {configured_groupby!r} does not match existing collection metadata {stored_groupby!r}."
+                f"`groupby` {self._groupby!r} does not match existing collection metadata {stored_groupby!r}."
             )
-        self._groupby = stored_groupby if stored_groupby is not None else configured_groupby
+        if stored_groupby is not None:
+            self._groupby = stored_groupby
 
     @property
     def _dataset_keys(self) -> list[str]:
@@ -674,7 +675,6 @@ class DatasetCollection:
         """
         if rng is None:
             rng = np.random.default_rng()
-        resolved_groupby = self._groupby
         shared_kwargs = {
             "adata_paths": adata_paths,
             "load_adata": load_adata,
@@ -688,7 +688,6 @@ class DatasetCollection:
         }
         if self.is_empty:
             self._create_collection(**shared_kwargs, dataset_size=dataset_size, var_subset=var_subset)
-            self._groupby = resolved_groupby
         else:
             self._add_to_collection(**shared_kwargs)
         return self
