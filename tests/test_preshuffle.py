@@ -14,8 +14,7 @@ import zarr
 from humanfriendly import parse_size
 
 from annbatch import DatasetCollection, write_sharded
-from annbatch.io import (GROUPBY_ATTR_KEY, V1_ENCODING, _groupby_adata,
-                         _groupby_from_attrs, _normalize_groupby)
+from annbatch.io import GROUPBY_ATTR_KEY, V1_ENCODING, _groupby_adata, _groupby_from_attrs, _normalize_groupby
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -294,6 +293,7 @@ def _assert_root_groupby_metadata(store: zarr.Group, groupby_columns: list[str])
     for dataset_key, boundaries in groupby_meta["boundaries"].items():
         assert GROUPBY_ATTR_KEY not in store[dataset_key].attrs
         _assert_groupby_boundaries(store[dataset_key], groupby_columns, boundaries)
+
 
 def _create_groupby_collection(
     h5_dir: Path,
