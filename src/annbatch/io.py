@@ -410,8 +410,8 @@ def _groupby_adata(
         raise ValueError(f"Could not find groupby columns {missing_cols!r} in `obs`.")
     group_values = adata.obs[groupby_cols].reset_index(drop=True)
 
-    order = group_values.sort_values(by=groupby_cols, kind="stable").index.to_numpy(dtype=int, copy=False)
-    sorted_values = group_values.iloc[order].reset_index(drop=True)
+    sorted_values = group_values.sort_values(by=groupby_cols, kind="stable")
+    order = sorted_values.index.to_numpy(dtype=int, copy=False)
 
     boundaries = np.flatnonzero(~sorted_values.duplicated()).tolist()
     boundaries.append(len(sorted_values))  # add end boundary
