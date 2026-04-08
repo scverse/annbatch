@@ -403,7 +403,7 @@ def _groupby_from_attrs(attrs: Mapping[str, object]) -> list[str] | None:
 
 def _groupby_adata(
     adata: ad.AnnData, *, groupby: str | Iterable[str]
-) -> tuple[ad.AnnData, dict[str, dict[str, list[str] | list[int]]]]:
+) -> tuple[ad.AnnData, dict[str, dict[str, list[int]]]]:
     groupby_cols = _normalize_groupby(groupby)
     missing_cols = [col for col in groupby_cols if col not in adata.obs]
     if len(missing_cols) > 0:
@@ -416,7 +416,7 @@ def _groupby_adata(
     boundaries = np.flatnonzero(~sorted_values.duplicated()).tolist()
     boundaries.append(len(sorted_values))  # add end boundary
 
-    return adata[order], {GROUPBY_ATTR_KEY: {"obs_columns": groupby_cols, "boundaries": boundaries}}
+    return adata[order], {GROUPBY_ATTR_KEY: {"boundaries": boundaries}}
 
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
@@ -785,6 +785,7 @@ class DatasetCollection:
 
         if var_subset is None:
             var_subset = adata_concat.var_names
+        collection_boundaries: dict[str, list[int]] = {}
         for i, chunk in enumerate(tqdm(chunks, desc="Creating dataset collection")):
             var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
@@ -808,9 +809,7 @@ class DatasetCollection:
                     key=f"{DATASET_PREFIX}_{i}",
                 )
                 if dataset_attrs is not None:
-                    dataset_group = self._group[f"{DATASET_PREFIX}_{i}"]
-                    dataset_group.update_attributes(dataset_attrs)
-                    zarr.consolidate_metadata(self._group.store)
+                    collection_boundaries[f"{DATASET_PREFIX}_{i}"] = dataset_attrs[GROUPBY_ATTR_KEY]["boundaries"]
             else:
                 ad.io.write_h5ad(
                     self._group / f"{DATASET_PREFIX}_{i}.h5ad",
@@ -820,7 +819,10 @@ class DatasetCollection:
         if isinstance(self._group, zarr.Group):
             attrs = dict(V1_ENCODING)
             if groupby is not None:
-                attrs[GROUPBY_ATTR_KEY] = {"obs_columns": _normalize_groupby(groupby)}
+                attrs[GROUPBY_ATTR_KEY] = {
+                    "obs_columns": _normalize_groupby(groupby),
+                    "boundaries": collection_boundaries,
+                }
             self._group.update_attributes(attrs)
             zarr.consolidate_metadata(self._group.store)
 
@@ -890,6 +892,7 @@ class DatasetCollection:
         )
 
         adata_concat.obs_names_make_unique()
+        collection_boundaries: dict[str, list[int]] = {}
         for dataset, chunk in tqdm(
             zip(self._dataset_keys, chunks, strict=True),
             total=len(self._dataset_keys),
@@ -918,9 +921,7 @@ class DatasetCollection:
                     key=dataset,
                 )
                 if dataset_attrs is not None:
-                    dataset_group = self._group[dataset]
-                    dataset_group.update_attributes(dataset_attrs)
-                    zarr.consolidate_metadata(self._group.store)
+                    collection_boundaries[dataset] = dataset_attrs[GROUPBY_ATTR_KEY]["boundaries"]
             else:
                 ad.io.write_h5ad(
                     self._group / f"{dataset}.h5ad",
@@ -928,4 +929,13 @@ class DatasetCollection:
                     dataset_kwargs={"compression": h5ad_compressor},
                 )
         if isinstance(self._group, zarr.Group):
+            if groupby is not None:
+                self._group.update_attributes(
+                    {
+                        GROUPBY_ATTR_KEY: {
+                            "obs_columns": _normalize_groupby(groupby),
+                            "boundaries": collection_boundaries,
+                        }
+                    }
+                )
             zarr.consolidate_metadata(self._group.store)

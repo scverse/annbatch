@@ -276,13 +276,9 @@ def test_groupby_adata_rejects_missing_obs_columns():
         _groupby_adata(adata, groupby=["label", "missing"])
 
 
-def _assert_groupby_boundaries(dataset_group, groupby_columns: list[str]) -> None:
-    dataset_meta = dataset_group.attrs[GROUPBY_ATTR_KEY]
+def _assert_groupby_boundaries(dataset_group, groupby_columns: list[str], boundaries: list[int]) -> None:
     adata = ad.io.read_elem(dataset_group)
     grouped_obs = adata.obs[groupby_columns].reset_index(drop=True)
-    boundaries = dataset_meta["boundaries"]
-
-    assert dataset_meta["obs_columns"] == groupby_columns
     expected_boundaries = np.flatnonzero(~grouped_obs.duplicated()).tolist() + [adata.n_obs]
     assert boundaries == expected_boundaries
     pd.testing.assert_frame_equal(
@@ -290,6 +286,14 @@ def _assert_groupby_boundaries(dataset_group, groupby_columns: list[str]) -> Non
         grouped_obs.drop_duplicates(ignore_index=True),
     )
 
+
+def _assert_root_groupby_metadata(store: zarr.Group, groupby_columns: list[str]) -> None:
+    groupby_meta = store.attrs[GROUPBY_ATTR_KEY]
+    assert groupby_meta["obs_columns"] == groupby_columns
+    assert set(groupby_meta["boundaries"]) == set(store.keys())
+    for dataset_key, boundaries in groupby_meta["boundaries"].items():
+        assert GROUPBY_ATTR_KEY not in store[dataset_key].attrs
+        _assert_groupby_boundaries(store[dataset_key], groupby_columns, boundaries)
 
 def _create_groupby_collection(
     h5_dir: Path,
@@ -332,10 +336,8 @@ def test_store_creation_groupby_metadata(
     collection = _create_groupby_collection(h5_dir, output_name, groupby=groupby)
 
     store = zarr.open(output_path)
-    assert store.attrs[GROUPBY_ATTR_KEY] == {"obs_columns": groupby_columns}
-
-    for dataset_group in collection:
-        _assert_groupby_boundaries(dataset_group, groupby_columns)
+    _assert_root_groupby_metadata(store, groupby_columns)
+    assert list(collection._dataset_keys) == list(store.attrs[GROUPBY_ATTR_KEY]["boundaries"])
 
 
 def test_store_creation_groupby_requires_zarr(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
@@ -362,8 +364,8 @@ def test_store_extension_preserves_groupby(adata_with_h5_path_different_var_spac
 
     reopened = DatasetCollection(output_path)
     assert reopened._groupby == ["label"]
-    for dataset_group in reopened:
-        _assert_groupby_boundaries(dataset_group, ["label"])
+    store = zarr.open(output_path)
+    _assert_root_groupby_metadata(store, ["label"])
 
 
 def test_store_collection_groupby_mismatch_raises(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
@@ -571,5 +573,4 @@ def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, da
                 assert total_data_bytes >= budget * 0.9, (
                     f"dataset {dataset_grp.name} data is {total_data_bytes}B, "
                     f"expected >= {budget * 0.9:.0f}B (90% of budget)"
-                )
                 )
