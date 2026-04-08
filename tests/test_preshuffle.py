@@ -14,7 +14,8 @@ import zarr
 from humanfriendly import parse_size
 
 from annbatch import DatasetCollection, write_sharded
-from annbatch.io import GROUPBY_ATTR_KEY, V1_ENCODING, _groupby_adata, _groupby_from_attrs, _normalize_groupby
+from annbatch.io import (GROUPBY_ATTR_KEY, V1_ENCODING, _groupby_adata,
+                         _groupby_from_attrs, _normalize_groupby)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -262,10 +263,6 @@ def test_normalize_groupby_rejects_duplicates():
 def test_groupby_from_attrs_rejects_non_mapping():
     with pytest.raises(ValueError, match="to be a mapping"):
         _groupby_from_attrs({GROUPBY_ATTR_KEY: "label"})
-
-
-def test_groupby_from_attrs_supports_legacy_obs_column():
-    assert _groupby_from_attrs({GROUPBY_ATTR_KEY: {"obs_column": "label"}}) == ["label"]
 
 
 def test_groupby_from_attrs_rejects_missing_obs_columns():
@@ -574,4 +571,5 @@ def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, da
                 assert total_data_bytes >= budget * 0.9, (
                     f"dataset {dataset_grp.name} data is {total_data_bytes}B, "
                     f"expected >= {budget * 0.9:.0f}B (90% of budget)"
+                )
                 )

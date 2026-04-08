@@ -398,8 +398,6 @@ def _groupby_from_attrs(attrs: Mapping[str, object]) -> list[str] | None:
         raise ValueError(f"Expected `{GROUPBY_ATTR_KEY}` attrs to be a mapping.")
     if "obs_columns" in groupby_meta:
         return _normalize_groupby(groupby_meta["obs_columns"])
-    if "obs_column" in groupby_meta:
-        return _normalize_groupby(groupby_meta["obs_column"])
     raise ValueError(f"Could not find `obs_columns` in `{GROUPBY_ATTR_KEY}` attrs.")
 
 
