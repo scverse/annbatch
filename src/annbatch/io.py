@@ -751,6 +751,7 @@ class DatasetCollection:
             shuffle=shuffle,
             shuffle_n_obs_per_dataset=dataset_size,
         )
+
         if var_subset is None:
             var_subset = adata_concat.var_names
         for i, chunk in enumerate(tqdm(chunks, desc="Creating dataset collection")):
@@ -781,8 +782,7 @@ class DatasetCollection:
                     dataset_kwargs={"compression": h5ad_compressor},
                 )
         if isinstance(self._group, zarr.Group):
-            self._group.update_attributes(dict(V1_ENCODING))
-            zarr.consolidate_metadata(self._group.store)
+            self._group.update_attributes(V1_ENCODING)
 
     def _add_to_collection(
         self,
@@ -882,5 +882,3 @@ class DatasetCollection:
                     adata,
                     dataset_kwargs={"compression": h5ad_compressor},
                 )
-        if isinstance(self._group, zarr.Group):
-            zarr.consolidate_metadata(self._group.store)
