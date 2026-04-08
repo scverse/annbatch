@@ -480,11 +480,7 @@ class DatasetCollection:
     _group: zarr.Group | Path
 
     def __init__(
-        self,
-        group: zarr.Group | str | Path,
-        *,
-        mode: Literal["a", "r", "r+"] = "a",
-        is_collection_h5ad: bool = False,
+        self, group: zarr.Group | str | Path, *, mode: Literal["a", "r", "r+"] = "a", is_collection_h5ad: bool = False
     ):
         """Initialization of the object at a given location.
 
