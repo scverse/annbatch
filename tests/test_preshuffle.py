@@ -166,7 +166,7 @@ def test_store_creation_default(
     )
     store = zarr.open(output_path)
     with nullcontext() if is_zarr else pytest.raises(ValueError, match=r"Cannot iterate through"):
-        assert [g.name for g in collection] == [store[k].name for k in sorted(store.keys())]
+        assert list(iter(collection)) == [store[k] for k in sorted(store.keys())]
         assert V1_ENCODING.items() <= store.attrs.items()
 
 
