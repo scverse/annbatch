@@ -330,6 +330,37 @@ def test_add_adatas_groupby_ordering(
     assert [g.name for g in collection] == [store[k].name for k in collection._dataset_keys]
 
 
+def test_add_adatas_groupby_ordering_on_append(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+    h5_dir = adata_with_h5_path_different_var_space[1]
+    h5_paths = sorted(h5_dir.iterdir())
+    output_path = h5_dir.parent / "zarr_store_extension_test_groupby.zarr"
+    groupby_columns = ["label", "store_id"]
+    collection = DatasetCollection(output_path).add_adatas(
+        h5_paths[:3],
+        groupby=groupby_columns,
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+    )
+    collection.add_adatas(
+        h5_paths[3:],
+        groupby=groupby_columns,
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+    )
+
+    store = zarr.open(output_path)
+    _assert_collection_groupby_ordering(store, groupby_columns)
+    assert [g.name for g in collection] == [store[k].name for k in collection._dataset_keys]
+
+
 def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
     adata_ = ad.experimental.read_lazy(path)
     if adata_.raw is not None:
