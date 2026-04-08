@@ -288,15 +288,11 @@ def test_add_adatas_rejects_invalid_groupby(
         )
 
 
-def _assert_groupby_ordering(adata: ad.AnnData, groupby_columns: list[str]) -> None:
-    grouped_obs = adata.obs[groupby_columns].reset_index(drop=True)
-    expected = grouped_obs.sort_values(by=groupby_columns, kind="stable").reset_index(drop=True)
-    pd.testing.assert_frame_equal(grouped_obs, expected)
-
-
 def _assert_collection_groupby_ordering(store: zarr.Group, groupby_columns: list[str]) -> None:
     for dataset_key in store.keys():
-        _assert_groupby_ordering(ad.io.read_elem(store[dataset_key]), groupby_columns)
+        grouped_obs = ad.io.read_elem(store[dataset_key]).obs[groupby_columns].reset_index(drop=True)
+        expected = grouped_obs.sort_values(by=groupby_columns, kind="stable").reset_index(drop=True)
+        pd.testing.assert_frame_equal(grouped_obs, expected)
 
 
 @pytest.mark.parametrize(
