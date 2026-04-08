@@ -520,7 +520,7 @@ class DatasetCollection:
             groupby
                 Optional collection-level grouping configuration.
                 When provided, new datasets are grouped within each dataset by these `obs` columns.
-                Group boundaries are stored as jsonable dataset attrs rather than inside the AnnData payload.
+                Group boundaries are stored as jsonable dataset attrs.
                 If opening an existing grouped zarr collection, any provided value must match the stored metadata.
         """
         self._groupby = _normalize_groupby(groupby) if groupby is not None else None
