@@ -268,22 +268,211 @@ def test_store_creation(
     ],
 )
 def test_add_adatas_rejects_invalid_groupby(
-    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+    tmp_path: Path,
     groupby: list[str],
     match: str,
     output_name: str,
 ):
-    h5_dir = adata_with_h5_path_different_var_space[1]
-    output_path = h5_dir.parent / output_name
+    h5_paths = _write_consistent_groupby_test_inputs(tmp_path, n_files=2)
+    output_path = tmp_path / output_name
     with pytest.raises(ValueError, match=match):
         DatasetCollection(output_path).add_adatas(
-            sorted(h5_dir.iterdir()),
+            h5_paths,
             groupby=groupby,
             n_obs_per_chunk=5,
             shard_size=10,
             dataset_size=50,
             shuffle_chunk_size=10,
             shuffle=True,
+            rng=np.random.default_rng(0),
+        )
+
+
+def _write_groupby_test_adata(
+    path: Path,
+    *,
+    label_values: list[str] | None = None,
+    label_categories: list[str] | None = None,
+    store_id_values: list[int] | None = None,
+) -> Path:
+    n_obs = 3 if label_values is None else len(label_values)
+    obs = {"store_id": np.arange(n_obs) if store_id_values is None else store_id_values}
+    if label_values is not None:
+        obs["label"] = pd.Categorical(label_values, categories=label_categories)
+    ad.AnnData(
+        X=sp.csr_matrix(np.eye(n_obs, dtype="f4")),
+        obs=pd.DataFrame(obs, index=[f"cell_{i}" for i in range(n_obs)]),
+        var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_obs)]),
+    ).write_h5ad(path, compression=None)
+    return path
+
+
+def _write_consistent_groupby_test_inputs(tmp_path: Path, *, n_files: int = 6) -> list[Path]:
+    paths = []
+    labels = [
+        ["b", "a", "c"],
+        ["c", "b", "a"],
+        ["a", "c", "b"],
+    ]
+    for i in range(n_files):
+        paths.append(
+            _write_groupby_test_adata(
+                tmp_path / f"adata_{i}.h5ad",
+                label_values=labels[i % len(labels)],
+                label_categories=["a", "b", "c"],
+                store_id_values=[i] * 3,
+            )
+        )
+    return paths
+
+
+def test_add_adatas_rejects_groupby_missing_in_some_inputs(tmp_path: Path):
+    output_path = tmp_path / "collection.zarr"
+    with_label = _write_groupby_test_adata(
+        tmp_path / "with_label.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=["a", "b"],
+    )
+    without_label = _write_groupby_test_adata(tmp_path / "without_label.h5ad")
+
+    with pytest.raises(ValueError, match="groupby columns .* not present in all anndatas"):
+        DatasetCollection(output_path).add_adatas(
+            [with_label, without_label],
+            groupby="label",
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+
+
+@pytest.mark.parametrize(
+    ("first_categories", "second_categories"),
+    [
+        pytest.param(["a", "b"], ["a", "b", "c"], id="different_values"),
+        pytest.param(["a", "b"], ["b", "a"], id="different_order"),
+    ],
+)
+def test_add_adatas_rejects_groupby_categorical_mismatch_on_create(
+    tmp_path: Path,
+    first_categories: list[str],
+    second_categories: list[str],
+):
+    output_path = tmp_path / "collection.zarr"
+    first = _write_groupby_test_adata(
+        tmp_path / "first.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=first_categories,
+    )
+    second = _write_groupby_test_adata(
+        tmp_path / "second.h5ad",
+        label_values=["b", "a", "b"],
+        label_categories=second_categories,
+    )
+
+    with pytest.raises(ValueError, match="groupby categorical columns .* inconsistent categories"):
+        DatasetCollection(output_path).add_adatas(
+            [first, second],
+            groupby="label",
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+
+
+@pytest.mark.parametrize(
+    ("create_with_label", "append_with_label"),
+    [
+        pytest.param(False, True, id="only_in_incoming_data"),
+        pytest.param(True, False, id="only_on_disk"),
+    ],
+)
+def test_add_adatas_rejects_groupby_missing_between_disk_and_append_inputs(
+    tmp_path: Path,
+    create_with_label: bool,
+    append_with_label: bool,
+):
+    output_path = tmp_path / "collection.zarr"
+    initial = _write_groupby_test_adata(
+        tmp_path / "initial.h5ad",
+        label_values=["a", "b", "a"] if create_with_label else None,
+        label_categories=["a", "b"] if create_with_label else None,
+    )
+    additional = _write_groupby_test_adata(
+        tmp_path / "additional.h5ad",
+        label_values=["a", "b", "a"] if append_with_label else None,
+        label_categories=["a", "b"] if append_with_label else None,
+    )
+
+    collection = DatasetCollection(output_path).add_adatas(
+        [initial],
+        n_obs_per_chunk=2,
+        shard_size=2,
+        dataset_size=3,
+        shuffle_chunk_size=1,
+        shuffle=False,
+        rng=np.random.default_rng(0),
+    )
+
+    with pytest.raises(ValueError, match="groupby columns"):
+        collection.add_adatas(
+            [additional],
+            groupby="label",
+            n_obs_per_chunk=2,
+            shard_size=2,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+
+
+@pytest.mark.parametrize(
+    ("initial_categories", "additional_categories"),
+    [
+        pytest.param(["a", "b"], ["a", "b", "c"], id="different_values"),
+        pytest.param(["a", "b"], ["b", "a"], id="different_order"),
+    ],
+)
+def test_add_adatas_rejects_groupby_categorical_mismatch_on_append(
+    tmp_path: Path,
+    initial_categories: list[str],
+    additional_categories: list[str],
+):
+    output_path = tmp_path / "collection.zarr"
+    initial = _write_groupby_test_adata(
+        tmp_path / "initial.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=initial_categories,
+    )
+    additional = _write_groupby_test_adata(
+        tmp_path / "additional.h5ad",
+        label_values=["b", "a", "b"],
+        label_categories=additional_categories,
+    )
+
+    collection = DatasetCollection(output_path).add_adatas(
+        [initial],
+        n_obs_per_chunk=2,
+        shard_size=2,
+        dataset_size=3,
+        shuffle_chunk_size=1,
+        shuffle=False,
+        rng=np.random.default_rng(0),
+    )
+
+    with pytest.raises(ValueError, match="groupby categorical columns .* inconsistent categories"):
+        collection.add_adatas(
+            [additional],
+            groupby="label",
+            n_obs_per_chunk=2,
+            shard_size=2,
+            shuffle_chunk_size=1,
+            shuffle=False,
             rng=np.random.default_rng(0),
         )
 
@@ -306,15 +495,10 @@ def _assert_collection_groupby_ordering(store: zarr.Group, groupby_columns: list
         ),
     ],
 )
-def test_add_adatas_groupby_ordering(
-    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
-    groupby: str | list[str],
-    output_name: str,
-):
-    h5_dir = adata_with_h5_path_different_var_space[1]
-    h5_paths = sorted(h5_dir.iterdir())
+def test_add_adatas_groupby_ordering(tmp_path: Path, groupby: str | list[str], output_name: str):
+    h5_paths = _write_consistent_groupby_test_inputs(tmp_path)
     groupby_columns = [groupby] if isinstance(groupby, str) else groupby
-    output_path = h5_dir.parent / output_name
+    output_path = tmp_path / output_name
     collection = DatasetCollection(output_path).add_adatas(
         h5_paths,
         groupby=groupby,
@@ -330,10 +514,9 @@ def test_add_adatas_groupby_ordering(
     assert [g.name for g in collection] == [store[k].name for k in collection._dataset_keys]
 
 
-def test_add_adatas_groupby_ordering_on_append(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
-    h5_dir = adata_with_h5_path_different_var_space[1]
-    h5_paths = sorted(h5_dir.iterdir())
-    output_path = h5_dir.parent / "zarr_store_extension_test_groupby.zarr"
+def test_add_adatas_groupby_ordering_on_append(tmp_path: Path):
+    h5_paths = _write_consistent_groupby_test_inputs(tmp_path)
+    output_path = tmp_path / "zarr_store_extension_test_groupby.zarr"
     groupby_columns = ["label", "store_id"]
     collection = DatasetCollection(output_path).add_adatas(
         h5_paths[:3],
