@@ -255,7 +255,6 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
     -------
     The average bytes per observation row when *estimate_bytes_per_obs_row* is ``True``, otherwise ``None``.
     """
-    paths_or_anndatas = list(paths_or_anndatas)
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
         "layers": defaultdict(lambda: 0),
@@ -316,23 +315,24 @@ def _validate_groupby_columns[T: zarr.Group | h5py.Group | PathLike[str] | str](
     for path_or_anndata in tqdm(paths_or_anndatas, desc="Validating groupby columns"):
         adata = load_adata(path_or_anndata) if not isinstance(path_or_anndata, ad.AnnData) else path_or_anndata
         for col in groupby_cols:
-            if col not in adata.obs:
-                continue
-            found_groupby_cols[col] += 1
-            dtype = adata.obs[col].dtype
-            # TODO: why not isinstance(dtype, pd.CategoricalDtype)?
-            is_categorical = dtype == "category"
-            categories = pd.Index(dtype.categories) if is_categorical else None
-            if col not in groupby_categorical_dtypes:
-                groupby_categorical_dtypes[col] = (is_categorical, categories)
-                continue
-            prev_is_categorical, prev_categories = groupby_categorical_dtypes[col]
-            if prev_is_categorical != is_categorical:
-                raise ValueError(f"Found groupby column {col!r} with inconsistent categorical dtype across anndatas.")
-            if is_categorical and prev_categories is not None and not prev_categories.equals(categories):
-                raise ValueError(
-                    f"Found groupby categorical columns {[col]!r} with inconsistent categories across anndatas."
-                )
+            if col in adata.obs:
+                found_groupby_cols[col] += 1
+                dtype = adata.obs[col].dtype
+                # TODO: why not isinstance(dtype, pd.CategoricalDtype)?
+                is_categorical = dtype == "category"
+                categories = pd.Index(dtype.categories) if is_categorical else None
+                if col in groupby_categorical_dtypes:
+                    prev_is_categorical, prev_categories = groupby_categorical_dtypes[col]
+                    if prev_is_categorical != is_categorical:
+                        raise ValueError(
+                            f"Found groupby column {col!r} with inconsistent categorical dtype across anndatas."
+                        )
+                    if is_categorical and prev_categories is not None and not prev_categories.equals(categories):
+                        raise ValueError(
+                            f"Found groupby categorical columns {[col]!r} with inconsistent categories across anndatas."
+                        )
+                else:
+                    groupby_categorical_dtypes[col] = (is_categorical, categories)
 
     missing_groupby_cols = [col for col, count in found_groupby_cols.items() if count == 0]
     if len(missing_groupby_cols) > 0:
