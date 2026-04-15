@@ -86,7 +86,7 @@ envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
 envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.hatch-test.features = [ "test" ]
-envs.hatch-test.python = [ "3.14" ]
+envs.hatch-test.python = "3.14"
 envs.hatch-test.matrix = [
   { deps = [ "minimal", "pre", "torch" ] },
 ]
