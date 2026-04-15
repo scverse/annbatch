@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
+from importlib.metadata import version
 from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
@@ -12,6 +13,7 @@ import numpy as np
 import pandas as pd
 import zarr
 import zarr.core.sync as zsync
+from packaging.version import Version
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
@@ -590,12 +592,15 @@ class Loader[
 
     @_fetch_data.register
     async def _fetch_data_dense(self, dataset: ZarrArray, slices: list[slice]) -> np.ndarray:
+        print(Version(version("zarr")) <= Version("3.1.6"))
         indexer = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
                     (s, Ellipsis),
                     shape=dataset.metadata.shape,
-                    chunk_grid=dataset.metadata.chunk_grid,
+                    chunk_grid=dataset.metadata.chunk_grid
+                    if Version(version("zarr")) <= Version("3.1.6")
+                    else dataset._chunk_grid,
                 )
                 for s in slices
             ]
@@ -675,7 +680,13 @@ class Loader[
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
         indexer = MultiBasicIndexer(
             [
-                zarr.core.indexing.BasicIndexer((l,), shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid)
+                zarr.core.indexing.BasicIndexer(
+                    (l,),
+                    shape=data.metadata.shape,
+                    chunk_grid=data.metadata.chunk_grid
+                    if Version(version("zarr")) <= Version("3.1.6")
+                    else data._chunk_grid,
+                )
                 for l in indptr_limits
             ]
         )
