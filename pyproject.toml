@@ -88,7 +88,7 @@ envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.hatch-test.features = [ "test" ]
 envs.hatch-test.python = "3.14"
 envs.hatch-test.matrix = [
-  { deps = [ "minimal", "pre", "torch" ] },
+  { deps = [ "min-low", "pre", "torch", "min-high" ] },
 ]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
@@ -102,7 +102,7 @@ envs.hatch-test.overrides.matrix.deps.pre-install-commands = [
   ], value = "echo 'zarr @ git+https://github.com/zarr-developers/zarr-python.git' > pre-deps.txt" }
 ]
 envs.hatch-test.overrides.matrix.deps.python = [
-  { if = [ "minimal" ], value = "3.12" },
+  { if = [ "min-low" ], value = "3.12" },
 ]
 envs.hatch-test.overrides.matrix.deps.features = [
   { if = [ "torch" ], value = "torch" },
