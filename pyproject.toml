@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "annbatch"
-version = "0.1.2"
+version = "0.1.3"
 description = "A minibatch loader for AnnData stores"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -86,16 +86,23 @@ envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
 envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.hatch-test.features = [ "test" ]
+envs.hatch-test.python = "3.14"
 envs.hatch-test.matrix = [
-  # Test the lowest and highest supported Python versions with normal deps
-  { deps = [ "minimal" ], python = [ "3.12", "3.14" ] },
-  # Test the newest supported Python version also with pre-release deps
-  { deps = [ "pre", "torch" ], python = [ "3.14" ] },
+  { deps = [ "min-low", "pre", "torch", "min-high" ] },
 ]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
 envs.hatch-test.overrides.matrix.deps.env-vars = [
   { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
+  { if = [ "pre" ], key = "UV_CONSTRAINT", value = "pre-deps.txt" }
+]
+envs.hatch-test.overrides.matrix.deps.pre-install-commands = [
+  { if = [
+    "pre",
+  ], value = "echo 'zarr @ git+https://github.com/zarr-developers/zarr-python.git' > pre-deps.txt" }
+]
+envs.hatch-test.overrides.matrix.deps.python = [
+  { if = [ "min-low" ], value = "3.12" },
 ]
 envs.hatch-test.overrides.matrix.deps.features = [
   { if = [ "torch" ], value = "torch" },

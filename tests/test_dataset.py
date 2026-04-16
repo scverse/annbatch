@@ -56,7 +56,7 @@ def open_sparse(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata
             "var": ad.io.read_elem(path["var"]),
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=data["obs"])
+        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
     return data
 
 
@@ -72,7 +72,7 @@ def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata:
             "var": ad.io.read_elem(path["var"]),
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=data["obs"])
+        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
     return data
 
 
@@ -85,16 +85,14 @@ def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
         data = {
             "dataset": path["obsm"]["3d"],
             "obs": ad.io.read_elem(path["obs"]),
+            "var": ad.io.read_elem(path["var"]),
         }
     return data
 
 
 def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     return (
-        {
-            "datasets": [d["dataset"] for d in datas],
-            "obs": [d["obs"] for d in datas],
-        }
+        {"datasets": [d["dataset"] for d in datas], "obs": [d["obs"] for d in datas], "var": [d["var"] for d in datas]}
         if all(isinstance(d, dict) for d in datas)
         else datas
     )
@@ -125,7 +123,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 )
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}-concat_strategy={concat_strategy}",  # type: ignore[attr-defined]
-            marks=skip_if_no_cupy,
+            marks=[skip_if_no_cupy, pytest.mark.gpu] if preload_to_gpu else [],
         )
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu, concat_strategy in [
             elem

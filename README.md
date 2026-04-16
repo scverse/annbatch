@@ -160,3 +160,12 @@ See the [changelog][].
 
 For questions and help requests, you can reach out in the [scverse discourse][].
 If you found a bug, please use the [issue tracker][].
+
+
+## Citation
+
+If you use `annbatch` in your work, please cite the `annbatch` publication as follows:
+
+> **annbatch unlocks terabyte-scale training of biological data in anndata**
+>
+> Gold, I., Fischer, F., Arnoldt, L., Wolf, F. A., & Theis, F. J. (2026b). annbatch unlocks terabyte-scale training of biological data in anndata. arXiv (Cornell University). https://doi.org/10.48550/arxiv.2604.01949
