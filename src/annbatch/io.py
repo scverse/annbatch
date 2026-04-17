@@ -6,7 +6,7 @@ import warnings
 from collections import defaultdict
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import anndata as ad
 import dask.array as da
@@ -27,7 +27,7 @@ from annbatch.utils import split_given_size
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterable, Mapping
     from os import PathLike
-    from typing import Any, Literal
+    from typing import Literal
 
     from zarr.abc.codec import BytesBytesCodec
 
@@ -301,6 +301,49 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
     return float(np.mean(bytes_per_obs_samples)) if bytes_per_obs_samples else None
 
 
+def _validate_groupby_columns[T: zarr.Group | h5py.Group | PathLike[str] | str](
+    paths_or_anndatas: Iterable[T | ad.AnnData],
+    *,
+    groupby: str | Iterable[str],
+    load_adata: Callable[[T], ad.AnnData] = lambda x: ad.experimental.read_lazy(x, load_annotation_index=False),
+) -> None:
+    groupby_cols = _normalize_groupby(groupby)
+    paths_or_anndatas = list(paths_or_anndatas)
+    found_groupby_cols = dict.fromkeys(groupby_cols, 0)
+    groupby_categorical_dtypes: dict[str, tuple[bool, pd.Index | None]] = {}
+
+    for path_or_anndata in tqdm(paths_or_anndatas, desc="Validating groupby columns"):
+        adata = load_adata(path_or_anndata) if not isinstance(path_or_anndata, ad.AnnData) else path_or_anndata
+        for col in groupby_cols:
+            if col in adata.obs:
+                found_groupby_cols[col] += 1
+                dtype = adata.obs[col].dtype
+                # TODO: why not isinstance(dtype, pd.CategoricalDtype)?
+                is_categorical = dtype == "category"
+                categories = pd.Index(dtype.categories) if is_categorical else None
+                if col in groupby_categorical_dtypes:
+                    prev_is_categorical, prev_categories = groupby_categorical_dtypes[col]
+                    if prev_is_categorical != is_categorical:
+                        raise ValueError(
+                            f"Found groupby column {col!r} with inconsistent categorical dtype across anndatas."
+                        )
+                    if is_categorical and prev_categories is not None and not prev_categories.equals(categories):
+                        raise ValueError(
+                            f"Found groupby categorical columns {[col]!r} with inconsistent categories across anndatas."
+                        )
+                else:
+                    groupby_categorical_dtypes[col] = (is_categorical, categories)
+
+    missing_groupby_cols = [col for col, count in found_groupby_cols.items() if count == 0]
+    if len(missing_groupby_cols) > 0:
+        raise ValueError(f"Could not find groupby columns {missing_groupby_cols!r} in `obs`.")
+    partially_missing_groupby_cols = [
+        col for col, count in found_groupby_cols.items() if count != len(paths_or_anndatas)
+    ]
+    if len(partially_missing_groupby_cols) > 0:
+        raise ValueError(f"Found groupby columns {partially_missing_groupby_cols!r} not present in all anndatas.")
+
+
 def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
     load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
@@ -378,6 +421,27 @@ def _create_chunks_for_shuffling(
             else np.array_split(idxs_as_slices, n_chunkings)
         )
     ]
+
+
+def _normalize_groupby(groupby: str | Iterable[str]) -> list[str]:
+    groupby_cols = [groupby] if isinstance(groupby, str) else list(groupby)
+    if len(groupby_cols) == 0:
+        raise ValueError("`groupby` must contain at least one `obs` column.")
+    if len(set(groupby_cols)) != len(groupby_cols):
+        raise ValueError("`groupby` columns must be unique.")
+    return groupby_cols
+
+
+def _groupby_adata(adata: ad.AnnData, *, groupby: str | Iterable[str]) -> ad.AnnData:
+    groupby_cols = _normalize_groupby(groupby)
+    missing_cols = [col for col in groupby_cols if col not in adata.obs]
+    if len(missing_cols) > 0:
+        raise ValueError(f"Could not find groupby columns {missing_cols!r} in `obs`.")
+    group_values = adata.obs[groupby_cols].reset_index(drop=True)
+
+    sorted_values = group_values.sort_values(by=groupby_cols, kind="stable")
+    order = sorted_values.index.to_numpy(dtype=int, copy=False)
+    return adata[order]
 
 
 def _compute_blockwise(x: DaskArray) -> sp.spmatrix:
@@ -530,6 +594,7 @@ class DatasetCollection:
         adata_paths: Iterable[zarr.Group | h5py.Group | PathLike[str] | str],
         *,
         load_adata: Callable[[zarr.Group | h5py.Group | PathLike[str] | str], ad.AnnData] = _default_load_adata,
+        groupby: str | Iterable[str] | None = None,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
@@ -560,6 +625,8 @@ class DatasetCollection:
                 Function to customize (lazy-)loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used with categoricals/nullables read into memory and `(-1)` chunks for `obs`.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
                 Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
+            groupby
+                Optional `obs` columns to sort by within each output dataset before writing.
             var_subset
                 Subset of gene names to include in the store. If None, all genes are included.
                 Genes are subset based on the `var_names` attribute of the concatenated AnnData object.
@@ -615,8 +682,11 @@ class DatasetCollection:
         """
         if rng is None:
             rng = np.random.default_rng()
+        adata_paths = list(adata_paths)
+        groupby = _normalize_groupby(groupby) if groupby is not None else None
         shared_kwargs = {
             "adata_paths": adata_paths,
+            "groupby": groupby,
             "load_adata": load_adata,
             "n_obs_per_chunk": n_obs_per_chunk,
             "shard_size": shard_size,
@@ -636,6 +706,7 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        groupby: list[str] | None = None,
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = _default_load_adata,
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
@@ -696,6 +767,8 @@ class DatasetCollection:
         """
         if not self.is_empty:
             raise RuntimeError("Cannot create a collection at a location that already has a shuffled collection")
+        if groupby is not None:
+            _validate_groupby_columns(adata_paths, load_adata=load_adata, groupby=groupby)
         needs_estimate = isinstance(dataset_size, str)
         estimated_bytes_per_row = _validate_anndatas_and_maybe_get_bytes_per_row(
             adata_paths, load_adata=load_adata, estimate_bytes_per_obs_row=needs_estimate
@@ -733,6 +806,8 @@ class DatasetCollection:
                 # shuffle adata in memory to break up individual chunks
                 idxs = rng.permutation(np.arange(len(adata_chunk)))
                 adata_chunk = adata_chunk[idxs]
+            if groupby is not None:
+                adata_chunk = _groupby_adata(adata_chunk, groupby=groupby)
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,
@@ -755,6 +830,7 @@ class DatasetCollection:
         self,
         *,
         adata_paths: Iterable[PathLike[str]] | Iterable[str],
+        groupby: list[str] | None = None,
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
@@ -798,6 +874,10 @@ class DatasetCollection:
         """
         if self.is_empty:
             raise ValueError("Store is empty. Please run `DatasetCollection.add_adatas` first.")
+        adata_paths = list(adata_paths)
+        if groupby is not None:
+            _validate_groupby_columns(adata_paths, load_adata=load_adata, groupby=groupby)
+        _validate_anndatas_and_maybe_get_bytes_per_row(adata_paths, load_adata=load_adata)
         # Check for mismatched keys among the inputs.
         adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
@@ -805,7 +885,19 @@ class DatasetCollection:
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
                 "Open an issue if the incoming anndata is so small it cannot be distributed across the on-disk data"
             )
+
         # Check for mismatched keys between datasets and the inputs.
+        def validate_load_adata(path_or_group):
+            if isinstance(path_or_group, zarr.Group | h5py.Group):
+                return _default_load_adata(path_or_group)
+            return load_adata(path_or_group)
+
+        if groupby is not None:
+            _validate_groupby_columns(
+                [*adata_paths, *[self._group[k] for k in self._dataset_keys]],
+                load_adata=validate_load_adata,
+                groupby=groupby,
+            )
         _validate_anndatas_and_maybe_get_bytes_per_row([adata_concat] + [self._group[k] for k in self._dataset_keys])
         chunks = _create_chunks_for_shuffling(
             adata_concat.shape[0],
@@ -831,6 +923,8 @@ class DatasetCollection:
             else:
                 idxs = np.arange(adata.shape[0])
             adata = _persist_adata_in_memory(adata[idxs, :].copy())
+            if groupby is not None:
+                adata = _groupby_adata(adata, groupby=groupby)
             if isinstance(self._group, zarr.Group):
                 write_sharded(
                     self._group,

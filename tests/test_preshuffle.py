@@ -249,6 +249,243 @@ def test_store_creation(
     assert z["X"]["indices"].dtype == (np.uint16 if adata.X.shape[1] >= 256 else np.uint8)
 
 
+def _write_groupby_test_adata(
+    path: Path,
+    *,
+    label_values: list[str] | None = None,
+    label_categories: list[str] | None = None,
+    store_id_values: list[int] | None = None,
+) -> Path:
+    n_obs = 3 if label_values is None else len(label_values)
+    obs = {"store_id": np.arange(n_obs) if store_id_values is None else store_id_values}
+    if label_values is not None:
+        obs["label"] = pd.Categorical(label_values, categories=label_categories)
+    ad.AnnData(
+        X=sp.csr_matrix(np.eye(n_obs, dtype="f4")),
+        obs=pd.DataFrame(obs, index=[f"cell_{i}" for i in range(n_obs)]),
+        var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_obs)]),
+    ).write_h5ad(path, compression=None)
+    return path
+
+
+@pytest.fixture
+def consistent_groupby_h5_paths(tmp_path: Path) -> list[Path]:
+    labels = [
+        ["b", "a", "c"],
+        ["c", "b", "a"],
+        ["a", "c", "b"],
+    ]
+    n_files = 6
+    return [
+        _write_groupby_test_adata(
+            tmp_path / f"adata_{i}.h5ad",
+            label_values=labels[i % len(labels)],
+            label_categories=["a", "b", "c"],
+            store_id_values=[i] * 3,
+        )
+        for i in range(n_files)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("groupby", "match"),
+    [
+        pytest.param([], "must contain at least one", id="empty"),
+        pytest.param(["label", "label"], "must be unique", id="duplicates"),
+        pytest.param(["label", "missing"], "Could not find groupby columns", id="missing_column"),
+    ],
+)
+def test_add_adatas_rejects_invalid_groupby(
+    tmp_path: Path,
+    consistent_groupby_h5_paths: list[Path],
+    groupby: list[str],
+    match: str,
+):
+    with pytest.raises(ValueError, match=match):
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            consistent_groupby_h5_paths,
+            groupby=groupby,
+            n_obs_per_chunk=5,
+            shard_size=10,
+            dataset_size=50,
+            shuffle_chunk_size=10,
+            shuffle=True,
+            rng=np.random.default_rng(0),
+        )
+
+
+@pytest.mark.parametrize(
+    ("first_kwargs", "second_kwargs", "match"),
+    [
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {},
+            "groupby columns .* not present in all anndatas",
+            id="missing_in_some",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
+            "groupby categorical columns .* inconsistent categories",
+            id="different_categories",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
+            "groupby categorical columns .* inconsistent categories",
+            id="different_category_order",
+        ),
+    ],
+)
+def test_add_adatas_rejects_invalid_groupby_inputs_on_create(
+    tmp_path: Path,
+    first_kwargs: dict,
+    second_kwargs: dict,
+    match: str,
+):
+    first = _write_groupby_test_adata(tmp_path / "first.h5ad", **first_kwargs)
+    second = _write_groupby_test_adata(tmp_path / "second.h5ad", **second_kwargs)
+    with pytest.raises(ValueError, match=match):
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [first, second],
+            groupby="label",
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+
+
+@pytest.mark.parametrize(
+    ("initial_kwargs", "additional_kwargs", "match"),
+    [
+        pytest.param(
+            {},
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            "groupby columns .* not present in all anndatas",
+            id="label_only_in_incoming_data",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {},
+            # incoming inputs are validated on their own first, so this fails
+            # with "Could not find" before the cross-boundary check runs
+            "Could not find groupby columns",
+            id="label_only_on_disk",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
+            "groupby categorical columns .* inconsistent categories",
+            id="different_categories",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
+            "groupby categorical columns .* inconsistent categories",
+            id="different_category_order",
+        ),
+    ],
+)
+def test_add_adatas_rejects_invalid_groupby_inputs_on_append(
+    tmp_path: Path,
+    initial_kwargs: dict,
+    additional_kwargs: dict,
+    match: str,
+):
+    initial = _write_groupby_test_adata(tmp_path / "initial.h5ad", **initial_kwargs)
+    additional = _write_groupby_test_adata(tmp_path / "additional.h5ad", **additional_kwargs)
+    collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+        [initial],
+        n_obs_per_chunk=2,
+        shard_size=2,
+        dataset_size=3,
+        shuffle_chunk_size=1,
+        shuffle=False,
+        rng=np.random.default_rng(0),
+    )
+    with pytest.raises(ValueError, match=match):
+        collection.add_adatas(
+            [additional],
+            groupby="label",
+            n_obs_per_chunk=2,
+            shard_size=2,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+
+
+def _assert_collection_groupby_ordering(store: zarr.Group, groupby_columns: list[str]) -> None:
+    for dataset_key in store.keys():
+        grouped_obs = ad.io.read_elem(store[dataset_key]["obs"])[groupby_columns].reset_index(drop=True)
+        expected = grouped_obs.sort_values(by=groupby_columns, kind="stable").reset_index(drop=True)
+        pd.testing.assert_frame_equal(grouped_obs, expected)
+
+
+@pytest.mark.parametrize(
+    "groupby",
+    [
+        pytest.param("label", id="single_column"),
+        pytest.param(["label", "store_id"], id="multiple_columns"),
+    ],
+)
+def test_add_adatas_groupby_ordering(
+    tmp_path: Path,
+    consistent_groupby_h5_paths: list[Path],
+    groupby: str | list[str],
+):
+    groupby_columns = [groupby] if isinstance(groupby, str) else groupby
+    output_path = tmp_path / "collection.zarr"
+    collection = DatasetCollection(output_path).add_adatas(
+        consistent_groupby_h5_paths,
+        groupby=groupby,
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+    )
+    store = zarr.open(output_path)
+    _assert_collection_groupby_ordering(store, groupby_columns)
+    assert [g.name for g in collection] == [store[k].name for k in collection._dataset_keys]
+
+
+def test_add_adatas_groupby_ordering_on_append(
+    tmp_path: Path,
+    consistent_groupby_h5_paths: list[Path],
+):
+    output_path = tmp_path / "collection.zarr"
+    groupby_columns = ["label", "store_id"]
+    collection = DatasetCollection(output_path).add_adatas(
+        consistent_groupby_h5_paths[:3],
+        groupby=groupby_columns,
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+    )
+    collection.add_adatas(
+        consistent_groupby_h5_paths[3:],
+        groupby=groupby_columns,
+        n_obs_per_chunk=5,
+        shard_size=10,
+        dataset_size=50,
+        shuffle_chunk_size=10,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+    )
+
+    store = zarr.open(output_path)
+    _assert_collection_groupby_ordering(store, groupby_columns)
+    assert [g.name for g in collection] == [store[k].name for k in collection._dataset_keys]
+
+
 def _read_lazy_x_and_obs_only_from_raw(path) -> ad.AnnData:
     adata_ = ad.experimental.read_lazy(path)
     if adata_.raw is not None:
