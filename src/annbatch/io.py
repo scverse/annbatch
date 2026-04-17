@@ -289,7 +289,9 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
                 if not (elem_name in {"var", "obs"} and key == "_index"):
                     key_count[key] += 1
         categorical_obs_cols_in_adata = {
-            col: pd.Index(adata.obs[col].dtype.categories) for col in adata.obs.columns if adata.obs[col].dtype == "category"
+            col: pd.Index(adata.obs[col].dtype.categories)
+            for col in adata.obs.columns
+            if adata.obs[col].dtype == "category"
         }
         for col, categories in categorical_obs_cols_in_adata.items():
             found_categorical_obs_cols[col] += 1
@@ -313,7 +315,9 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
                 f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
-    categorical_obs_cols_mismatched = [col for col, count in found_categorical_obs_cols.items() if count != num_anndatas]
+    categorical_obs_cols_mismatched = [
+        col for col, count in found_categorical_obs_cols.items() if count != num_anndatas
+    ]
     if len(categorical_obs_cols_mismatched) > 0:
         warnings.warn(
             f"Found categorical obs columns {categorical_obs_cols_mismatched} not present in all anndatas {paths_or_anndatas}; outer concatenation may introduce missing values in those columns.",
