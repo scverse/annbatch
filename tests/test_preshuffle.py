@@ -249,45 +249,6 @@ def test_store_creation(
     assert z["X"]["indices"].dtype == (np.uint16 if adata.X.shape[1] >= 256 else np.uint8)
 
 
-@pytest.mark.parametrize(
-    ("groupby", "match", "output_name"),
-    [
-        pytest.param([], "must contain at least one", "zarr_store_creation_test_groupby_empty.zarr", id="empty"),
-        pytest.param(
-            ["label", "label"],
-            "must be unique",
-            "zarr_store_creation_test_groupby_duplicates.zarr",
-            id="duplicates",
-        ),
-        pytest.param(
-            ["label", "missing"],
-            "Could not find groupby columns",
-            "zarr_store_creation_test_groupby_missing.zarr",
-            id="missing_column",
-        ),
-    ],
-)
-def test_add_adatas_rejects_invalid_groupby(
-    tmp_path: Path,
-    consistent_groupby_h5_paths: list[Path],
-    groupby: list[str],
-    match: str,
-    output_name: str,
-):
-    output_path = tmp_path / output_name
-    with pytest.raises(ValueError, match=match):
-        DatasetCollection(output_path).add_adatas(
-            consistent_groupby_h5_paths,
-            groupby=groupby,
-            n_obs_per_chunk=5,
-            shard_size=10,
-            dataset_size=50,
-            shuffle_chunk_size=10,
-            shuffle=True,
-            rng=np.random.default_rng(0),
-        )
-
-
 def _write_groupby_test_adata(
     path: Path,
     *,
@@ -324,6 +285,33 @@ def consistent_groupby_h5_paths(tmp_path: Path) -> list[Path]:
         )
         for i in range(n_files)
     ]
+
+
+@pytest.mark.parametrize(
+    ("groupby", "match"),
+    [
+        pytest.param([], "must contain at least one", id="empty"),
+        pytest.param(["label", "label"], "must be unique", id="duplicates"),
+        pytest.param(["label", "missing"], "Could not find groupby columns", id="missing_column"),
+    ],
+)
+def test_add_adatas_rejects_invalid_groupby(
+    tmp_path: Path,
+    consistent_groupby_h5_paths: list[Path],
+    groupby: list[str],
+    match: str,
+):
+    with pytest.raises(ValueError, match=match):
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            consistent_groupby_h5_paths,
+            groupby=groupby,
+            n_obs_per_chunk=5,
+            shard_size=10,
+            dataset_size=50,
+            shuffle_chunk_size=10,
+            shuffle=True,
+            rng=np.random.default_rng(0),
+        )
 
 
 @pytest.mark.parametrize(
@@ -438,24 +426,19 @@ def _assert_collection_groupby_ordering(store: zarr.Group, groupby_columns: list
 
 
 @pytest.mark.parametrize(
-    ("groupby", "output_name"),
+    "groupby",
     [
-        pytest.param("label", "zarr_store_creation_test_groupby.zarr", id="single_column"),
-        pytest.param(
-            ["label", "store_id"],
-            "zarr_store_creation_test_groupby_multi.zarr",
-            id="multiple_columns",
-        ),
+        pytest.param("label", id="single_column"),
+        pytest.param(["label", "store_id"], id="multiple_columns"),
     ],
 )
 def test_add_adatas_groupby_ordering(
     tmp_path: Path,
     consistent_groupby_h5_paths: list[Path],
     groupby: str | list[str],
-    output_name: str,
 ):
     groupby_columns = [groupby] if isinstance(groupby, str) else groupby
-    output_path = tmp_path / output_name
+    output_path = tmp_path / "collection.zarr"
     collection = DatasetCollection(output_path).add_adatas(
         consistent_groupby_h5_paths,
         groupby=groupby,
@@ -475,7 +458,7 @@ def test_add_adatas_groupby_ordering_on_append(
     tmp_path: Path,
     consistent_groupby_h5_paths: list[Path],
 ):
-    output_path = tmp_path / "zarr_store_extension_test_groupby.zarr"
+    output_path = tmp_path / "collection.zarr"
     groupby_columns = ["label", "store_id"]
     collection = DatasetCollection(output_path).add_adatas(
         consistent_groupby_h5_paths[:3],
