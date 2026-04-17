@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import glob
+import re
+import warnings
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Literal
 
@@ -20,6 +22,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from os import PathLike
     from pathlib import Path
+
+
+def _assert_warning_match(caught_warnings: list[warnings.WarningMessage], match: str) -> None:
+    assert any(re.search(match, str(warning.message)) for warning in caught_warnings)
 
 
 @pytest.mark.parametrize(
@@ -285,6 +291,104 @@ def consistent_groupby_h5_paths(tmp_path: Path) -> list[Path]:
         )
         for i in range(n_files)
     ]
+
+
+@pytest.mark.parametrize(
+    ("first_kwargs", "second_kwargs", "match"),
+    [
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {},
+            "categorical obs columns .* not present in all anndatas",
+            id="missing_in_some",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
+            "categorical obs columns .* inconsistent categories",
+            id="different_categories",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
+            "categorical obs columns .* inconsistent categories",
+            id="different_category_order",
+        ),
+    ],
+)
+def test_store_creation_warns_on_categorical_obs_mismatch(
+    tmp_path: Path,
+    first_kwargs: dict,
+    second_kwargs: dict,
+    match: str,
+):
+    first = _write_groupby_test_adata(tmp_path / "first.h5ad", **first_kwargs)
+    second = _write_groupby_test_adata(tmp_path / "second.h5ad", **second_kwargs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [first, second],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    _assert_warning_match(caught_warnings, match)
+
+
+@pytest.mark.parametrize(
+    ("initial_kwargs", "additional_kwargs", "match"),
+    [
+        pytest.param(
+            {},
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            "categorical obs columns .* not present in all anndatas",
+            id="label_only_in_incoming_data",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
+            "categorical obs columns .* inconsistent categories",
+            id="different_categories",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
+            "categorical obs columns .* inconsistent categories",
+            id="different_category_order",
+        ),
+    ],
+)
+def test_store_addition_warns_on_categorical_obs_mismatch(
+    tmp_path: Path,
+    initial_kwargs: dict,
+    additional_kwargs: dict,
+    match: str,
+):
+    initial = _write_groupby_test_adata(tmp_path / "initial.h5ad", **initial_kwargs)
+    additional = _write_groupby_test_adata(tmp_path / "additional.h5ad", **additional_kwargs)
+    collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+        [initial],
+        n_obs_per_chunk=2,
+        shard_size=2,
+        dataset_size=3,
+        shuffle_chunk_size=1,
+        shuffle=False,
+        rng=np.random.default_rng(0),
+    )
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        collection.add_adatas(
+            [additional],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    _assert_warning_match(caught_warnings, match)
 
 
 @pytest.mark.parametrize(
