@@ -32,6 +32,11 @@ def _assert_no_warning_match(caught_warnings: list[warnings.WarningMessage], mat
     assert not any(re.search(match, str(warning.message)) for warning in caught_warnings)
 
 
+def _assert_warning_count(caught_warnings: list[warnings.WarningMessage], message_substring: str, count: int) -> None:
+    warning_messages = [str(warning.message) for warning in caught_warnings]
+    assert sum(message_substring in message for message in warning_messages) == count
+
+
 @pytest.mark.parametrize(
     ["chunk_size", "expected_shard_size"],
     [pytest.param(3, 9, id="n_obs_not_divisible_by_chunk"), pytest.param(5, 10, id="n_obs_divisible_by_chunk")],
@@ -276,7 +281,7 @@ def _write_groupby_test_adata(
         obs["label"] = pd.Categorical(label_values, categories=label_categories)
     ad.AnnData(
         X=sp.csr_matrix(np.eye(n_obs, dtype="f4")),
-        obs=pd.DataFrame(obs, index=[f"cell_{i}" for i in range(n_obs)]),
+        obs=pd.DataFrame(obs, index=[f"{path.stem}_cell_{i}" for i in range(n_obs)]),
         var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_obs)]),
     ).write_h5ad(path, compression=None)
     return path
@@ -308,18 +313,26 @@ def test_store_creation_warns_when_outer_join_introduces_missing_categorical_val
         label_categories=["a", "b"],
     )
     second = _write_groupby_test_adata(tmp_path / "second.h5ad")
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
-            [first, second],
-            n_obs_per_chunk=2,
-            shard_size=2,
-            dataset_size=3,
-            shuffle_chunk_size=1,
-            shuffle=False,
-            rng=np.random.default_rng(0),
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
         )
-    _assert_warning_match(caught_warnings, "categorical obs columns .* not present in all anndatas")
+        with pytest.warns(UserWarning) as caught_warnings:
+            DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+                [first, second],
+                n_obs_per_chunk=2,
+                shard_size=2,
+                dataset_size=3,
+                shuffle_chunk_size=1,
+                shuffle=False,
+                rng=np.random.default_rng(0),
+            )
+    _assert_warning_count(caught_warnings, "Found obs keys", 1)
+    _assert_warning_count(caught_warnings, "categorical obs columns", 1)
 
 
 def test_store_addition_warns_when_outer_join_introduces_missing_categorical_values(tmp_path: Path):
@@ -329,26 +342,42 @@ def test_store_addition_warns_when_outer_join_introduces_missing_categorical_val
         label_values=["a", "b", "a"],
         label_categories=["a", "b"],
     )
-    collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
-        [initial],
-        n_obs_per_chunk=2,
-        shard_size=2,
-        dataset_size=3,
-        shuffle_chunk_size=1,
-        shuffle=False,
-        rng=np.random.default_rng(0),
-    )
-    with warnings.catch_warnings(record=True) as caught_warnings:
-        warnings.simplefilter("always")
-        collection.add_adatas(
-            [additional],
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [initial],
             n_obs_per_chunk=2,
             shard_size=2,
+            dataset_size=3,
             shuffle_chunk_size=1,
             shuffle=False,
             rng=np.random.default_rng(0),
         )
-    _assert_warning_match(caught_warnings, "categorical obs columns .* not present in all anndatas")
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        with pytest.warns(UserWarning) as caught_warnings:
+            collection.add_adatas(
+                [additional],
+                n_obs_per_chunk=2,
+                shard_size=2,
+                shuffle_chunk_size=1,
+                shuffle=False,
+                rng=np.random.default_rng(0),
+            )
+    _assert_warning_count(caught_warnings, "Found obs keys", 1)
+    _assert_warning_count(caught_warnings, "categorical obs columns", 1)
 
 
 @pytest.mark.parametrize(
@@ -409,15 +438,23 @@ def test_store_addition_does_not_warn_for_categorical_category_expansion(
 ):
     initial = _write_groupby_test_adata(tmp_path / "initial.h5ad", **initial_kwargs)
     additional = _write_groupby_test_adata(tmp_path / "additional.h5ad", **additional_kwargs)
-    collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
-        [initial],
-        n_obs_per_chunk=2,
-        shard_size=2,
-        dataset_size=3,
-        shuffle_chunk_size=1,
-        shuffle=False,
-        rng=np.random.default_rng(0),
-    )
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [initial],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         collection.add_adatas(
