@@ -291,7 +291,7 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
             for col in adata.obs.columns
             # src_path is an annbatch-internal annotation that is always per-dataset by construction,
             # and should not participate in user-facing outer-join validation.
-            if isinstance(adata.obs[col].dtype, pd.CategoricalDtype) and col != "src_path"
+            if adata.obs[col].dtype == "category" and col != "src_path"
         }
         if "dataset2d_categoricals_to_convert" in adata.uns:
             categorical_obs_cols_in_adata.update(
