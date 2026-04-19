@@ -347,11 +347,18 @@ def _validate_groupby_columns[T: zarr.Group | h5py.Group | PathLike[str] | str](
 def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
     load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
+    var_subset: Iterable[str] | None = None,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
     for i, path in tqdm(enumerate(paths), total=len(paths), desc="Lazy loading anndatas"):
         adata = load_adata(path)
+        # TODO: Probably bug in anndata, need the true index for proper outer joins (can't skirt this with fake indexes, at least not in the mixed-type regime).
+        # See: https://github.com/scverse/anndata/pull/2299
+        if isinstance(adata.var, Dataset2D):
+            adata.var.index = adata.var.true_index
+        if var_subset is not None:
+            adata = adata[:, adata.var.index.isin(var_subset)]
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
             np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
@@ -371,10 +378,6 @@ def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
                     categoricals_in_all_adatas[k] = categoricals_in_all_adatas[k].union(
                         categorical_cols_in_this_adata[k]
                     )
-        # TODO: Probably bug in anndata, need the true index for proper outer joins (can't skirt this with fake indexes, at least not in the mixed-type regime).
-        # See: https://github.com/scverse/anndata/pull/2299
-        if isinstance(adata.var, Dataset2D):
-            adata.var.index = adata.var.true_index
         if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):
             adata.raw.var.index = adata.raw.var.true_index
         adatas.append(adata)
@@ -783,7 +786,7 @@ class DatasetCollection:
                 "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `dataset_size`."
             )
 
-        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata, var_subset=var_subset)
         adata_concat.obs_names_make_unique()
         dataset_size = min(adata_concat.shape[0], dataset_size)
         chunks = _create_chunks_for_shuffling(
@@ -793,14 +796,10 @@ class DatasetCollection:
             shuffle=shuffle,
             shuffle_n_obs_per_dataset=dataset_size,
         )
-
-        if var_subset is None:
-            var_subset = adata_concat.var_names
         for i, chunk in enumerate(tqdm(chunks, desc="Creating dataset collection")):
-            var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
-            adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
+            adata_chunk = adata_concat[np.sort(chunk), :].copy()
             adata_chunk = _persist_adata_in_memory(adata_chunk)
             if shuffle:
                 # shuffle adata in memory to break up individual chunks
