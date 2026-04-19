@@ -24,17 +24,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _assert_warning_match(caught_warnings: list[warnings.WarningMessage], match: str) -> None:
-    assert any(re.search(match, str(warning.message)) for warning in caught_warnings)
-
-
-def _assert_no_warning_match(caught_warnings: list[warnings.WarningMessage], match: str) -> None:
-    assert not any(re.search(match, str(warning.message)) for warning in caught_warnings)
-
-
-def _assert_warning_count(caught_warnings: list[warnings.WarningMessage], message_substring: str, count: int) -> None:
-    warning_messages = [str(warning.message) for warning in caught_warnings]
-    assert sum(message_substring in message for message in warning_messages) == count
+def _assert_warning_count(caught_warnings: list[warnings.WarningMessage], match: str, count: int) -> None:
+    assert sum(bool(re.search(match, str(warning.message))) for warning in caught_warnings) == count
 
 
 @pytest.mark.parametrize(
@@ -68,7 +59,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
             dataset_size=10,
             shuffle_chunk_size=10,
         )
-    _assert_warning_match(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas")
+    _assert_warning_count(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas", 1)
 
 
 def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
@@ -147,7 +138,7 @@ def test_store_addition_different_keys(
             shard_size=10,
             shuffle_chunk_size=2,
         )
-    _assert_warning_match(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas")
+    _assert_warning_count(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas", 1)
 
 
 def test_h5ad_and_zarr_simultaneously(tmp_path: Path):
@@ -331,8 +322,8 @@ def test_store_creation_warns_when_outer_join_introduces_missing_categorical_val
                 shuffle=False,
                 rng=np.random.default_rng(0),
             )
-    _assert_warning_count(caught_warnings, "Found obs keys", 1)
-    _assert_warning_count(caught_warnings, "categorical obs columns", 1)
+    _assert_warning_count(caught_warnings, r"Found obs keys", 1)
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 1)
 
 
 def test_store_addition_warns_when_outer_join_introduces_missing_categorical_values(tmp_path: Path):
@@ -376,8 +367,8 @@ def test_store_addition_warns_when_outer_join_introduces_missing_categorical_val
                 shuffle=False,
                 rng=np.random.default_rng(0),
             )
-    _assert_warning_count(caught_warnings, "Found obs keys", 1)
-    _assert_warning_count(caught_warnings, "categorical obs columns", 1)
+    _assert_warning_count(caught_warnings, r"Found obs keys", 1)
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 1)
 
 
 @pytest.mark.parametrize(
@@ -413,7 +404,7 @@ def test_store_creation_does_not_warn_for_categorical_category_expansion(
             shuffle=False,
             rng=np.random.default_rng(0),
         )
-    _assert_no_warning_match(caught_warnings, "categorical obs columns")
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 0)
 
 
 @pytest.mark.parametrize(
@@ -465,7 +456,7 @@ def test_store_addition_does_not_warn_for_categorical_category_expansion(
             shuffle=False,
             rng=np.random.default_rng(0),
         )
-    _assert_no_warning_match(caught_warnings, "categorical obs columns")
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 0)
 
 
 @pytest.mark.parametrize(
