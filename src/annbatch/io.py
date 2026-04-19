@@ -263,8 +263,6 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
         "obs": defaultdict(lambda: 0),
     }
     found_categorical_obs_cols: defaultdict[str, int] = defaultdict(lambda: 0)
-    categorical_obs_categories: dict[str, pd.Index] = {}
-    mismatched_categorical_obs_cols: set[str] = set()
     bytes_per_obs_samples: list[float] = []
     for path_or_anndata in tqdm(paths_or_anndatas, desc="Validating anndatas"):
         if not isinstance(path_or_anndata, ad.AnnData):
@@ -289,17 +287,18 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
                 if not (elem_name in {"var", "obs"} and key == "_index"):
                     key_count[key] += 1
         categorical_obs_cols_in_adata = {
-            col: pd.Index(adata.obs[col].dtype.categories)
+            col
             for col in adata.obs.columns
-            if adata.obs[col].dtype == "category"
+            # src_path is an annbatch-internal annotation that is always per-dataset by construction,
+            # and should not participate in user-facing outer-join validation.
+            if isinstance(adata.obs[col].dtype, pd.CategoricalDtype) and col != "src_path"
         }
-        for col, categories in categorical_obs_cols_in_adata.items():
+        if "dataset2d_categoricals_to_convert" in adata.uns:
+            categorical_obs_cols_in_adata.update(
+                col for col in adata.uns["dataset2d_categoricals_to_convert"] if col != "src_path"
+            )
+        for col in categorical_obs_cols_in_adata:
             found_categorical_obs_cols[col] += 1
-            if col not in categorical_obs_categories:
-                categorical_obs_categories[col] = categories
-            elif not categorical_obs_categories[col].equals(categories):
-                mismatched_categorical_obs_cols.add(col)
-                categorical_obs_categories[col] = categorical_obs_categories[col].union(categories)
         if adata.raw is not None:
             num_raw_in_adata += 1
     num_anndatas = len(paths_or_anndatas)
@@ -321,11 +320,6 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
     if len(categorical_obs_cols_mismatched) > 0:
         warnings.warn(
             f"Found categorical obs columns {categorical_obs_cols_mismatched} not present in all anndatas {paths_or_anndatas}; outer concatenation may introduce missing values in those columns.",
-            stacklevel=2,
-        )
-    if len(mismatched_categorical_obs_cols) > 0:
-        warnings.warn(
-            f"Found categorical obs columns {sorted(mismatched_categorical_obs_cols)!r} with inconsistent categories across anndatas {paths_or_anndatas}; categories will be expanded when concatenating.",
             stacklevel=2,
         )
     return float(np.mean(bytes_per_obs_samples)) if bytes_per_obs_samples else None

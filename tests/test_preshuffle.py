@@ -28,6 +28,10 @@ def _assert_warning_match(caught_warnings: list[warnings.WarningMessage], match:
     assert any(re.search(match, str(warning.message)) for warning in caught_warnings)
 
 
+def _assert_no_warning_match(caught_warnings: list[warnings.WarningMessage], match: str) -> None:
+    assert not any(re.search(match, str(warning.message)) for warning in caught_warnings)
+
+
 @pytest.mark.parametrize(
     ["chunk_size", "expected_shard_size"],
     [pytest.param(3, 9, id="n_obs_not_divisible_by_chunk"), pytest.param(5, 10, id="n_obs_divisible_by_chunk")],
@@ -50,7 +54,8 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
     path_2 = tmp_path / "with_extra_key.h5ad"
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
-    with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
         DatasetCollection(tmp_path / "collection.zarr").add_adatas(
             [path_1, path_2],
             n_obs_per_chunk=5,
@@ -58,6 +63,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
             dataset_size=10,
             shuffle_chunk_size=10,
         )
+    _assert_warning_match(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas")
 
 
 def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
@@ -127,7 +133,8 @@ def test_store_addition_different_keys(
     adata = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
-    with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
         collection.add_adatas(
             [additional_path],
             load_adata=load_adata,
@@ -135,6 +142,7 @@ def test_store_addition_different_keys(
             shard_size=10,
             shuffle_chunk_size=2,
         )
+    _assert_warning_match(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas")
 
 
 def test_h5ad_and_zarr_simultaneously(tmp_path: Path):
@@ -293,34 +301,75 @@ def consistent_groupby_h5_paths(tmp_path: Path) -> list[Path]:
     ]
 
 
+def test_store_creation_warns_when_outer_join_introduces_missing_categorical_values(tmp_path: Path):
+    first = _write_groupby_test_adata(
+        tmp_path / "first.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=["a", "b"],
+    )
+    second = _write_groupby_test_adata(tmp_path / "second.h5ad")
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [first, second],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    _assert_warning_match(caught_warnings, "categorical obs columns .* not present in all anndatas")
+
+
+def test_store_addition_warns_when_outer_join_introduces_missing_categorical_values(tmp_path: Path):
+    initial = _write_groupby_test_adata(tmp_path / "initial.h5ad")
+    additional = _write_groupby_test_adata(
+        tmp_path / "additional.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=["a", "b"],
+    )
+    collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+        [initial],
+        n_obs_per_chunk=2,
+        shard_size=2,
+        dataset_size=3,
+        shuffle_chunk_size=1,
+        shuffle=False,
+        rng=np.random.default_rng(0),
+    )
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        collection.add_adatas(
+            [additional],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    _assert_warning_match(caught_warnings, "categorical obs columns .* not present in all anndatas")
+
+
 @pytest.mark.parametrize(
-    ("first_kwargs", "second_kwargs", "match"),
+    ("first_kwargs", "second_kwargs"),
     [
         pytest.param(
             {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
-            {},
-            "categorical obs columns .* not present in all anndatas",
-            id="missing_in_some",
-        ),
-        pytest.param(
-            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
             {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
-            "categorical obs columns .* inconsistent categories",
             id="different_categories",
         ),
         pytest.param(
             {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
             {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
-            "categorical obs columns .* inconsistent categories",
             id="different_category_order",
         ),
     ],
 )
-def test_store_creation_warns_on_categorical_obs_mismatch(
+def test_store_creation_does_not_warn_for_categorical_category_expansion(
     tmp_path: Path,
     first_kwargs: dict,
     second_kwargs: dict,
-    match: str,
 ):
     first = _write_groupby_test_adata(tmp_path / "first.h5ad", **first_kwargs)
     second = _write_groupby_test_adata(tmp_path / "second.h5ad", **second_kwargs)
@@ -335,37 +384,28 @@ def test_store_creation_warns_on_categorical_obs_mismatch(
             shuffle=False,
             rng=np.random.default_rng(0),
         )
-    _assert_warning_match(caught_warnings, match)
+    _assert_no_warning_match(caught_warnings, "categorical obs columns")
 
 
 @pytest.mark.parametrize(
-    ("initial_kwargs", "additional_kwargs", "match"),
+    ("initial_kwargs", "additional_kwargs"),
     [
-        pytest.param(
-            {},
-            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
-            "categorical obs columns .* not present in all anndatas",
-            id="label_only_in_incoming_data",
-        ),
         pytest.param(
             {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
             {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
-            "categorical obs columns .* inconsistent categories",
             id="different_categories",
         ),
         pytest.param(
             {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
             {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
-            "categorical obs columns .* inconsistent categories",
             id="different_category_order",
         ),
     ],
 )
-def test_store_addition_warns_on_categorical_obs_mismatch(
+def test_store_addition_does_not_warn_for_categorical_category_expansion(
     tmp_path: Path,
     initial_kwargs: dict,
     additional_kwargs: dict,
-    match: str,
 ):
     initial = _write_groupby_test_adata(tmp_path / "initial.h5ad", **initial_kwargs)
     additional = _write_groupby_test_adata(tmp_path / "additional.h5ad", **additional_kwargs)
@@ -388,7 +428,7 @@ def test_store_addition_warns_on_categorical_obs_mismatch(
             shuffle=False,
             rng=np.random.default_rng(0),
         )
-    _assert_warning_match(caught_warnings, match)
+    _assert_no_warning_match(caught_warnings, "categorical obs columns")
 
 
 @pytest.mark.parametrize(
