@@ -390,7 +390,7 @@ def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
                     categoricals_in_all_adatas[k] = categoricals_in_all_adatas[k].union(
                         categorical_cols_in_this_adata[k]
                     )
-        if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):
+        if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):  # pragma: no cover
             raise RuntimeError("No Dataset 2D raw allowed")
         adatas.append(adata)
     if len(adatas) == 1:
@@ -481,14 +481,14 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     if isinstance(adata.obs, Dataset2D):
         adata.obs = _ds_to_memory(adata.obs)
     adata = _to_categorical_obs(adata)
-    if isinstance(adata.var, Dataset2D):
+    if isinstance(adata.var, Dataset2D):  # pragma: no cover
         raise RuntimeError("No Dataset2D var should be found")
 
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
         if isinstance(adata_raw.X, DaskArray):
             adata_raw.X = _compute_blockwise(adata_raw.X)
-        if isinstance(adata_raw.var, Dataset2D):
+        if isinstance(adata_raw.var, Dataset2D):  # pragma: no cover
             raise RuntimeError("No Dataset2D var should be found")
         if isinstance(adata_raw.obs, Dataset2D):
             adata_raw.obs = adata_raw.obs.to_memory()
