@@ -188,7 +188,10 @@ def test_store_creation(
     # apply merge
     orig_adatas = [ad.read_h5ad(shard) for shard in h5_files]
     adata_orig = ad.concat(
-        [adata[:, adata.var_names.isin(var_subset)] for adata in orig_adatas],
+        [
+            adata[:, adata.var_names.isin(var_subset) if var_subset is not None else slice(None)]
+            for adata in orig_adatas
+        ],
         join="outer",
         merge=merge,
     )
