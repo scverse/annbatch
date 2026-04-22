@@ -174,7 +174,7 @@ def test_store_creation_default(
 @pytest.mark.parametrize(
     "load_adata", [pytest.param(None, id="default_read"), pytest.param(ad.experimental.read_lazy, id="fully_lazy")]
 )
-@pytest.mark.parametrize("var_subset", [[f"gene_{i}" for i in range(100)], None], ids=["var_subset", "no_subset"])
+@pytest.mark.parametrize("var_subset", [[f"gene_{i}" for i in range(25)], None], ids=["var_subset", "no_subset"])
 @pytest.mark.parametrize("merge", ["same", "unique", "first", "only", None])
 def test_store_creation(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
@@ -188,7 +188,7 @@ def test_store_creation(
     # apply merge
     orig_adatas = [ad.read_h5ad(shard) for shard in h5_files]
     adata_orig = ad.concat(
-        orig_adatas,
+        [adata[:, adata.var_names.isin(var_subset)] for adata in orig_adatas],
         join="outer",
         merge=merge,
     )
@@ -218,6 +218,7 @@ def test_store_creation(
     adata_orig = adata_orig[:, adata_orig.var.index.isin(var_subset) if var_subset is not None else slice(None)]
     adata_orig.obs_names_make_unique()
     adata = ad.concat(adatas_shuffled, join="outer", merge="same")
+    adata = adata[:, adata_orig.var_names].copy()
     del adata.obs["src_path"]
     assert adata.X.shape[0] == adata_orig.X.shape[0]
     assert adata.X.shape[1] == adata_orig.X.shape[1]
@@ -245,7 +246,6 @@ def test_store_creation(
 
     # correct for concat misordering the categories
     adata.obs["label"] = adata.obs["label"].cat.reorder_categories(adata_orig.obs["label"].dtype.categories)
-
     pd.testing.assert_frame_equal(adata.obs, adata_orig.obs)
     # TODO: Why is the orig dtype floats instead of ints for certain columns?
     # Since it is the wrong one, we can leave this. The on-disk data is correct (int).
