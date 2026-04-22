@@ -36,9 +36,12 @@ V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1
 
 def _ds_to_memory(ds: Dataset2D) -> pd.DataFrame:
     ds.index = ds.true_index
-    if "_index" in ds.columns:
-        del ds["_index"]
-    return ds.to_memory()
+    df = ds.to_memory()
+    # TODO: This is a bug in anndata?
+    if "_index" in df.columns:
+        df.index = df["_index"]
+        del df["_index"]
+    return df
 
 
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
