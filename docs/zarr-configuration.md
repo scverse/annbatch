@@ -43,9 +43,10 @@ zarr.config.set({"async.concurrency": 64})
 ```
 
 which is 64 by default.
-See the [zarr page on concurrency][] for more information.
+See the [zarr page on concurrency][] for more information. Furthermore, we recommend using [`obstore` over `fsspec`][] for performance reasons.
 
 [performance may suffer]: https://gist.github.com/ilan-gold/705bd36329b0e19542286385b09b421b
 [zarr page on concurrency]: https://zarr.readthedocs.io/en/latest/user-guide/consolidated_metadata/#synchronization-and-concurrency
 [zarr python's config docs]: https://zarr.readthedocs.io/en/latest/user-guide/config/
 [paper looking at `mmap` for databases]: https://db.cs.cmu.edu/papers/2022/cidr2022-p13-crotty.pdf
+[`obstore` over `fsspec`]: https://zarr.readthedocs.io/en/latest/user-guide/storage/#object-store
