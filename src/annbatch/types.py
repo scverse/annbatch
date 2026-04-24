@@ -8,12 +8,11 @@ import pandas as pd  # noqa: TC002
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from .compat import CupyArray, CupyCSRMatrix, Tensor
-from .utils import CSRContainer
+from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCsrMatrix, Tensor
 
 type BackingArray_T = ad.abc.CSRDataset | ZarrArray
-type InputInMemoryArray_T = CSRContainer | np.ndarray
-type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray | Tensor
+type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray | Tensor | JaxArray | JAXCsrMatrix
+type Dense_T = JaxArray | np.ndarray | CupyArray | Tensor
 
 
 class LoadRequest(TypedDict):
