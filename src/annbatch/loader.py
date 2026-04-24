@@ -120,6 +120,7 @@ class Loader[
                 We now write directly from disk to the in-memory buffer from which data is yielded.
                 This has optimal memory and compute performance obviating the need for this argument.
                 It will be removed in the next minor release.
+
             The strategy for how in-memory, preloaded data should be concatenated and yielded.
             With `concat-shuffle`, preloaded data is concatenated and then subsetted/shuffled (higher memory usage, but faster, at least for sparse data)
             With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
