@@ -62,6 +62,13 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+optional-dependencies.jax = [ "jax" ]
+optional-dependencies.jax-cuda12 = [
+  "jax[cuda12]",
+]
+optional-dependencies.jax-cuda13 = [
+  "jax[cuda13]",
+]
 optional-dependencies.test = [
   "annbatch[zarrs]",
   "coverage",
@@ -88,7 +95,7 @@ envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.hatch-test.features = [ "test" ]
 envs.hatch-test.python = "3.14"
 envs.hatch-test.matrix = [
-  { deps = [ "min-low", "pre", "torch", "min-high" ] },
+  { deps = [ "min-low", "pre", "torch", "min-high", "jax" ] },
 ]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
@@ -106,6 +113,7 @@ envs.hatch-test.overrides.matrix.deps.python = [
 ]
 envs.hatch-test.overrides.matrix.deps.features = [
   { if = [ "torch" ], value = "torch" },
+  { if = [ "jax" ], value = "jax" },
 ]
 
 [tool.ruff]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -120,3 +121,17 @@ def simple_collection(
         shuffle_chunk_size=10,
     )
     return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection
+
+
+def pytest_itemcollected(item: pytest.Item) -> None:
+    """Define behavior of pytest.mark.{gpu,array_api}."""
+    is_marked = len(list(item.iter_markers(name="gpu"))) > 0
+    if is_marked:
+        try:
+            has_gpu = (
+                subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            )
+        except FileNotFoundError:
+            has_gpu = False
+        if not has_gpu:
+            item.add_marker(pytest.mark.skip())

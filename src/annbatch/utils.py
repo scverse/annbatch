@@ -5,7 +5,7 @@ import itertools
 import warnings
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Concatenate, Protocol
+from typing import TYPE_CHECKING, Concatenate, Literal, Protocol
 
 import anndata as ad
 import numpy as np
@@ -13,7 +13,7 @@ import pandas as pd
 import scipy as sp
 import zarr
 
-from .compat import CupyArray, CupyCSRMatrix, Tensor
+from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCsrMatrix, Tensor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -68,13 +68,55 @@ def interval_indexer_from_slices(slices: Iterable[slice]) -> pd.IntervalIndex:
     )
 
 
+def _cupy_dtype(dtype: np.dtype) -> np.dtype:
+    if dtype in {np.dtype("float32"), np.dtype("float64"), np.dtype("bool")}:
+        return dtype
+    if dtype.itemsize < 4:
+        return np.dtype("float32")
+    return np.dtype("float64")
+
+
 @dataclass
-class CSRContainer:
+class CSRContainer[DenseT: JaxArray | CupyArray | Tensor | np.ndarray]:
     """A low-cost container for moving around the buffers of a CSR object"""
 
-    elems: tuple[np.ndarray, np.ndarray, np.ndarray]
+    elems: tuple[DenseT, DenseT, DenseT]
     shape: tuple[int, int]
     dtype: np.dtype
+
+    def to(
+        self, target: Literal["jax", "torch", "cupy"] | None
+    ) -> Tensor | CupyCSRMatrix | JAXCsrMatrix | sp.sparse.csr_matrix:
+        """Put the CSR matrix into the correct output data structure.
+
+        Parameters
+        ----------
+        target
+            String target
+
+        Returns
+        -------
+            The sparse matrix.
+        """
+        match target:
+            case "torch":
+                import torch
+
+                return torch.sparse_csr_tensor(
+                    self.elems[2], self.elems[1], self.elems[0], size=self.shape, dtype=self.dtype
+                )
+            case "cupy" | None | "jax":
+                if target == "cupy":
+                    csr_matrix = CupyCSRMatrix
+                elif target is None:
+                    from scipy.sparse import csr_matrix
+                else:
+                    csr_matrix = JAXCsrMatrix
+                return csr_matrix(
+                    self.elems,
+                    shape=self.shape,
+                    dtype=_cupy_dtype(self.dtype) if target == "cupy" else self.dtype,
+                )
 
 
 # TODO: make this part of the public zarr or zarrs-python API.

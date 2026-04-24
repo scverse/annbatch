@@ -19,18 +19,17 @@ from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
 from annbatch.samplers import RandomSampler, SequentialSampler
-from annbatch.types import BackingArray_T, LoaderOutput, OutputInMemoryArray_T
+from annbatch.types import BackingArray_T, Dense_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
     MultiBasicIndexer,
     check_lt_1,
     check_var_shapes,
     load_x_and_obs_and_var,
-    to_torch,
     validate_sampler,
 )
 
-from .compat import IterableDataset
+from .compat import CupyArray, IterableDataset, JaxArray, Tensor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
     OutputInMemoryArray = OutputInMemoryArray_T
+    Dense = Dense_T
 type concat_strategies = Literal["concat-shuffle", "shuffle-concat"]
 
 
@@ -53,18 +53,7 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
-def _cupy_dtype(dtype: np.dtype) -> np.dtype:
-    if dtype in {np.dtype("float32"), np.dtype("float64"), np.dtype("bool")}:
-        return dtype
-    if dtype.itemsize < 4:
-        return np.dtype("float32")
-    return np.dtype("float64")
-
-
-class Loader[
-    BackingArray: BackingArray_T,
-    OutputInMemoryArray: OutputInMemoryArray_T,
-](IterableDataset):
+class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryArray_T, Dense: Dense_T](IterableDataset):
     """A loader for on-disk data anndata stores.
 
     This loader batches together slice requests to the underlying stores to achieve higher performance.
@@ -157,7 +146,7 @@ class Loader[
     _return_index: bool = False
     _shapes: list[tuple[int, int]]
     _preload_to_gpu: bool = True
-    _to_torch: bool = True
+    _to: Literal["torch", "cupy", "jax"] | None = None
     _dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _dataset_intervals: pd.IntervalIndex | None = None
@@ -172,11 +161,12 @@ class Loader[
         shuffle: bool | None = None,
         return_index: bool = False,
         batch_size: int | None = None,
-        preload_to_gpu: bool = find_spec("cupy") is not None,
+        preload_to_gpu: bool | None = None,
         drop_last: bool | None = None,
-        to_torch: bool = find_spec("torch") is not None,
+        to_torch: bool | None = None,
         concat_strategy: None | concat_strategies = None,
         rng: np.random.Generator | None = None,
+        to: Literal["torch", "cupy", "jax"] | None = None,
     ):
         if concat_strategy is not None:
             warn(
@@ -184,6 +174,39 @@ class Loader[
                 DeprecationWarning,
                 stacklevel=2,
             )
+        if preload_to_gpu is None or preload_to_gpu:
+            if to is None:
+                if find_spec("cupy") is None:
+                    if preload_to_gpu:
+                        raise ImportError(
+                            "Install cupy using our extras to recover old behavior of automatic cupy usage.  Otherwise, don't use this argument without to."
+                        )
+                    to = None
+                else:
+                    warn(
+                        "preload_to_gpu will no longer automatically put the array on the gpu.",
+                        FutureWarning,
+                        stacklevel=2,
+                    )
+                    to = "cupy"
+        if to_torch is not None:
+            warn(
+                'to_torch will be replaced by `to = "torch"`.',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            to_torch = "torch" if to_torch else None
+        else:
+            to_torch = "torch" if find_spec("torch") is not None else None
+        if to is not None:
+            if find_spec(to) is not None:
+                self._to = to
+            else:
+                raise ImportError(
+                    f"Try `pip install annbatch[{to}-cudaXX]` (with XX replaced by your cuda version if cuda is required, see our `pyproject.toml`). Found {to} argument to `Loader`."
+                )
+        else:
+            self._to = to_torch
         # args that are passed after resolving defaults
         core_sampler_args = {
             "chunk_size": chunk_size,
@@ -211,10 +234,6 @@ class Loader[
                 )
             else:
                 self._batch_sampler = SequentialSampler(**resolved_core_args)
-        if to_torch and not find_spec("torch"):
-            raise ImportError("Could not find torch dependency. Try `pip install torch`.")
-        if preload_to_gpu and not find_spec("cupy"):
-            raise ImportError("Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.")
 
         self._return_index = return_index
         self._preload_to_gpu = preload_to_gpu
@@ -559,7 +578,7 @@ class Loader[
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
 
-    def _allocate_out(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> CSRContainer | np.ndarray:
+    def _allocate_out(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> CSRContainer | Dense:
         """Preallocate a single contiguous output buffer covering all datasets and slices.
 
         For sparse data the buffer is a :class:`~annbatch.utils.CSRContainer` whose ``data``
@@ -572,12 +591,26 @@ class Loader[
         """
         total_rows = sum(s.stop - s.start for slices in dataset_index_to_slices.values() for s in slices)
 
-        def _alloc(shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
-            if self._preload_to_gpu:
-                import cupyx as cpx
+        def _alloc(shape: tuple[int, ...], dtype: np.dtype) -> Dense:
+            match self._to:
+                case "torch":
+                    import torch
 
-                return cpx.empty_pinned(shape, dtype)
-            return np.empty(shape, dtype)
+                    return torch.empty(shape, dtype, pin_memory=True)
+                case "cupy":
+                    import cupyx as cpx
+
+                    return cpx.empty_pinned(shape, dtype)
+                case "jax":
+                    import jax
+                    import jax.numpy as jnp
+
+                    cpu = jax.devices("cpu")[0]
+
+                    with jax.default_device(cpu):
+                        return jnp.empty(shape, dtype)
+                case None:
+                    return np.empty(shape, dtype)
 
         if issubclass(self.dataset_type, ad.abc.CSRDataset):
             total_nnz = sum(
@@ -609,7 +642,7 @@ class Loader[
         self,
         dataset: ZarrArray | CSRDatasetElems,
         slices: list[slice],
-        out: CSRContainer | np.ndarray,
+        out: CSRContainer | JaxArray | np.ndarray | CupyArray | Tensor,
     ) -> None:
         """Fetch data from an on-disk store into a preallocated buffer.
 
@@ -631,7 +664,9 @@ class Loader[
         raise NotImplementedError(f"Cannot fetch data for type {type(dataset)}")
 
     @_fetch_data.register
-    async def _fetch_data_dense(self, dataset: ZarrArray, slices: list[slice], out: np.ndarray) -> None:
+    async def _fetch_data_dense(
+        self, dataset: ZarrArray, slices: list[slice], out: JaxArray | np.ndarray | CupyArray | Tensor
+    ) -> None:
         indexer = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
@@ -746,7 +781,7 @@ class Loader[
     async def _index_datasets(
         self,
         dataset_index_to_slices: OrderedDict[int, list[slice]],
-    ) -> CSRContainer | np.ndarray:
+    ) -> CSRContainer | Dense:
         """Preallocate one output buffer, dispatch concurrent fetches into per-dataset views, then return the buffer.
 
         Parameters
@@ -832,23 +867,25 @@ class Loader[
             splits = load_request["splits"]
             dataset_index_to_slices = self._slices_to_slices_with_array_index(chunks_to_load, use_original_space=False)
 
-            raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_slices))
+            raw_out: CSRContainer | Dense = zsync.sync(self._index_datasets(dataset_index_to_slices))
 
-            if is_sparse:
-                in_memory_data = self._sp_module.csr_matrix(
-                    tuple(self._np_module.asarray(e) for e in raw_out.elems),
-                    shape=raw_out.shape,
-                    dtype=_cupy_dtype(raw_out.dtype) if self._preload_to_gpu else raw_out.dtype,
-                )
-            else:
-                in_memory_data = self._np_module.asarray(raw_out)
+            in_memory_data = raw_out.to(self._to) if isinstance(raw_out, CSRContainer) else raw_out
+            if self._preload_to_gpu:
+                match self._to:
+                    case "torch":
+                        in_memory_data = in_memory_data.cuda(non_blocking=True)
+                    case "jax":
+                        import jax
+
+                        gpu = jax.devices("gpu")[0]
+                        in_memory_data = jax.device_put(in_memory_data, device=gpu)
 
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_slices)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(chunks_to_load)
             for split in splits:
                 data = in_memory_data[split]
                 yield {
-                    "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
+                    "X": data,
                     "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
                     "var": self._var,
                     "index": in_memory_indices[split] if in_memory_indices is not None else None,
