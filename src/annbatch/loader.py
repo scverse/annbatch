@@ -578,7 +578,9 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
 
-    def _allocate_out(self, dataset_index_to_slices: OrderedDict[int, list[slice]]) -> CSRContainer | Dense:
+    def _allocate_out[OutT: CSRContainer | Dense](
+        self, dataset_index_to_slices: OrderedDict[int, list[slice]]
+    ) -> tuple[OutT, OutT]:
         """Preallocate a single contiguous output buffer covering all datasets and slices.
 
         For sparse data the buffer is a :class:`~annbatch.utils.CSRContainer` whose ``data``
@@ -596,20 +598,30 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
                 case "torch":
                     import torch
 
-                    return torch.empty(shape, dtype, pin_memory=True)
+                    # lol how do people put up with this?
+                    for dtype_str in [
+                        "uint8",
+                        "uint16",
+                        "uint32",
+                        "uint64",
+                        "int8",
+                        "int16",
+                        "int32",
+                        "int64",
+                        "float16",
+                        "float32",
+                        "float64",
+                    ]:
+                        if str(dtype) == dtype_str:
+                            res = torch.empty(shape, dtype=getattr(torch, dtype_str), device="cpu", pin_memory=True)
+                            return res
+                    raise TypeError(f"Unsupported dtype for conversion to torch: {dtype}")
                 case "cupy":
                     import cupyx as cpx
 
                     return cpx.empty_pinned(shape, dtype)
-                case "jax":
-                    import jax
-                    import jax.numpy as jnp
-
-                    cpu = jax.devices("cpu")[0]
-
-                    with jax.default_device(cpu):
-                        return jnp.empty(shape, dtype)
-                case None:
+                case None | "jax":
+                    # I can't figure out if jax supports this or not, but probably not since their memory is immutable.
                     return np.empty(shape, dtype)
 
         if issubclass(self.dataset_type, ad.abc.CSRDataset):
@@ -622,7 +634,7 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
             data_dtype = self._dataset_elem_cache[first_idx].data.dtype
             indices_dtype = self._dataset_elem_cache[first_idx].indices.dtype
             indptr_dtype = self._dataset_elem_cache[first_idx].indptr.dtype
-            return CSRContainer(
+            return_container = CSRContainer(
                 elems=(
                     _alloc((total_nnz,), data_dtype),
                     _alloc((total_nnz,), indices_dtype),
@@ -631,11 +643,21 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
                 shape=(total_rows, self.n_var),
                 dtype=data_dtype,
             )
+            # Can't roundtrip pinned memory in torch!
+            write_container = CSRContainer(
+                elems=return_container.elems
+                if self._to != "torch"
+                else tuple(e.numpy() for e in return_container.elems),
+                shape=(total_rows, self.n_var),
+                dtype=data_dtype,
+            )
+            return return_container, write_container
         else:
             first_idx = next(iter(dataset_index_to_slices))
             dtype = self._train_datasets[first_idx].dtype
             shape_res = self._train_datasets[first_idx].shape[1:]
-            return _alloc((total_rows, *shape_res), dtype)
+            return_container = _alloc((total_rows, *shape_res), dtype)
+            return return_container, return_container if self._to != "torch" else return_container.numpy()
 
     @singledispatchmethod
     async def _fetch_data(
@@ -793,7 +815,7 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
         if is_sparse:
             await self._ensure_sparse_cache()
 
-        out = self._allocate_out(dataset_index_to_slices)
+        return_container, write_container = self._allocate_out(dataset_index_to_slices)
 
         tasks = []
         row_offset = 0
@@ -806,16 +828,16 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
                 nnnz = sum(int(cached_indptr[s.stop] - cached_indptr[s.start]) for s in slices)
                 out_view: CSRContainer | np.ndarray = CSRContainer(
                     elems=(
-                        out.elems[0][nnz_offset : nnz_offset + nnnz],
-                        out.elems[1][nnz_offset : nnz_offset + nnnz],
-                        out.elems[2][row_offset : row_offset + nrows + 1],
+                        write_container.elems[0][nnz_offset : nnz_offset + nnnz],
+                        write_container.elems[1][nnz_offset : nnz_offset + nnnz],
+                        write_container.elems[2][row_offset : row_offset + nrows + 1],
                     ),
                     shape=(nrows, self.n_var),
-                    dtype=out.dtype,
+                    dtype=write_container.dtype,
                 )
                 nnz_offset += nnnz
             else:
-                out_view = out[row_offset : row_offset + nrows]
+                out_view = write_container[row_offset : row_offset + nrows]
 
             tasks.append(
                 self._fetch_data(
@@ -831,18 +853,29 @@ class Loader[BackingArray: BackingArray_T, OutputInMemoryArray: OutputInMemoryAr
         if is_sparse:
             running_nnz = 0
             row_pos = 0
-            out.elems[2][0] = 0
+            write_container.elems[2][0] = 0
             for dataset_idx, slices in dataset_index_to_slices.items():
                 cached_indptr = self._dataset_elem_cache[dataset_idx].indptr
                 for s in slices:
                     nrows_s = s.stop - s.start
-                    out.elems[2][row_pos + 1 : row_pos + nrows_s + 1] = (
+                    write_container.elems[2][row_pos + 1 : row_pos + nrows_s + 1] = (
                         cached_indptr[s.start + 1 : s.stop + 1] - cached_indptr[s.start] + running_nnz
                     )
                     running_nnz += int(cached_indptr[s.stop] - cached_indptr[s.start])
                     row_pos += nrows_s
+        if self._to == "jax":
+            import jax.numpy as jnp
 
-        return out
+            return_container = (
+                CSRContainer(
+                    elems=tuple(jnp.array(e, copy=False) for e in return_container.elems),
+                    dtype=return_container.dtype,
+                    shape=return_container.shape,
+                )
+                if isinstance(return_container, CSRContainer)
+                else jnp.array(return_container, copy=False)
+            )
+        return return_container
 
     def __iter__(
         self,

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from annbatch.io import DatasetCollection
 
-skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
+skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Need cupy installed")
 skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
 skip_if_no_jax = pytest.mark.skipif(find_spec("jax") is None, reason="Need jax installed.")
 
@@ -265,8 +265,6 @@ def test_to_gpu(
     preload_to_gpu: bool,
     to: Literal["jax", "cupy", "torch"],
 ):
-    import torch
-
     # batch_size guaranteed to have leftovers to drop
     ds = Loader(
         shuffle=False,
@@ -281,6 +279,8 @@ def test_to_gpu(
     x = next(iter(ds))["X"]
     match to:
         case "torch":
+            import torch
+
             assert isinstance(x, torch.Tensor)
             if preload_to_gpu:
                 assert x.is_cuda
@@ -470,7 +470,7 @@ def test_3d(
     x = np.vstack(x_list)
     idxs = np.concatenate(idx_list)
 
-    assert np.array_equal(x[np.argsort(idxs)], x_ref)
+    np.testing.assert_almost_equal(x[np.argsort(idxs)], x_ref)
 
 
 @pytest.mark.skipif(

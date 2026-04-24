@@ -115,7 +115,11 @@ class CSRContainer[DenseT: JaxArray | CupyArray | Tensor | np.ndarray]:
                 return csr_matrix(
                     self.elems,
                     shape=self.shape,
-                    dtype=_cupy_dtype(self.dtype) if target == "cupy" else self.dtype,
+                    **(
+                        {"dtype": _cupy_dtype(self.dtype) if target == "cupy" else self.dtype}
+                        if target != "jax"
+                        else {}
+                    ),
                 )
 
 
