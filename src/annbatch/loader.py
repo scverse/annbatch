@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict, defaultdict
 from functools import singledispatchmethod
+from importlib.metadata import version
 from importlib.util import find_spec
 from itertools import accumulate, chain, pairwise
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
@@ -12,10 +13,11 @@ import numpy as np
 import pandas as pd
 import zarr
 import zarr.core.sync as zsync
+from packaging.version import Version
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
 
-from annbatch.samplers import ChunkSampler
+from annbatch.samplers import RandomSampler, SequentialSampler
 from annbatch.types import BackingArray_T, InputInMemoryArray_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
@@ -23,7 +25,7 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     interval_indexer_from_slices,
-    load_x_and_obs,
+    load_x_and_obs_and_var,
     to_torch,
     validate_sampler,
 )
@@ -81,12 +83,12 @@ class Loader[
     If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
     `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
-    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`annbatch.ChunkSampler`.
+    When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.samplers.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.samplers.SequentialSampler`.
 
     Parameters
     ----------
         batch_sampler
-            If not provided, a default :class:`annbatch.ChunkSampler` will be used with the same defaults below.
+            If not provided, a default :class:`~annbatch.samplers.SequentialSampler` or :class:`~annbatch.samplers.RandomSampler` will be used with the same defaults below.
         chunk_size
             The obs size (i.e., axis 0) of contiguous array data to fetch. Mutually exclusive with `batch_sampler`. Defaults to 512.
         preload_nchunks
@@ -131,7 +133,7 @@ class Loader[
                 batch_size=4096,
                 chunk_size=32,
                 preload_nchunks=512,
-            ).add_anndata(my_anndata)
+            ).add_adata(my_anndata)
         >>> for batch in ds:
                 # optionally convert to dense
                 # batch = batch.to_dense()
@@ -142,9 +144,7 @@ class Loader[
         "chunk_size": 512,
         "preload_nchunks": 32,
         "batch_size": 1,
-        "shuffle": False,
         "drop_last": False,
-        "rng": np.random.default_rng(),
     }
     # TODO(selmanozleyen): these should be also presented in the documentation
     # but this is not ideal since they are hardcoded into the docstrings
@@ -152,6 +152,7 @@ class Loader[
 
     _train_datasets: list[BackingArray]
     _obs: list[pd.DataFrame] | None = None
+    _var: pd.DataFrame | None = None
     _return_index: bool = False
     _shapes: list[tuple[int, int]]
     _preload_to_gpu: bool = True
@@ -160,6 +161,7 @@ class Loader[
     _batch_sampler: Sampler
     _concat_strategy: None | concat_strategies = None
     _dataset_intervals: pd.IntervalIndex | None = None
+    _collection_added: bool = False
 
     def __init__(
         self,
@@ -176,14 +178,14 @@ class Loader[
         concat_strategy: None | concat_strategies = None,
         rng: np.random.Generator | None = None,
     ):
-        sampler_args = {
+        # args that are passed after resolving defaults
+        core_sampler_args = {
             "chunk_size": chunk_size,
             "preload_nchunks": preload_nchunks,
             "batch_size": batch_size,
-            "shuffle": shuffle,
             "drop_last": drop_last,
-            "rng": rng,
         }
+        sampler_args = {**core_sampler_args, "rng": rng, "shuffle": shuffle}
         if batch_sampler is not None:
             if any(v is not None for v in sampler_args.values()):
                 provided_args = [name for name, val in sampler_args.items() if val is not None]
@@ -193,11 +195,16 @@ class Loader[
                 )
             self._batch_sampler = batch_sampler
         else:
-            sampler_args_processed = {
-                k: (v if v is not None else Loader._COMMON_SAMPLER_ARGS[k]) for k, v in sampler_args.items()
+            resolved_core_args = {
+                k: Loader._COMMON_SAMPLER_ARGS[k] if v is None else v for k, v in core_sampler_args.items()
             }
-            self._batch_sampler = ChunkSampler(**sampler_args_processed)
-
+            if shuffle is not None and shuffle:
+                self._batch_sampler = RandomSampler(
+                    **resolved_core_args,
+                    rng=rng if rng is not None else np.random.default_rng(),
+                )
+            else:
+                self._batch_sampler = SequentialSampler(**resolved_core_args)
         if to_torch and not find_spec("torch"):
             raise ImportError("Could not find torch dependency. Try `pip install torch`.")
         if preload_to_gpu and not find_spec("cupy"):
@@ -212,7 +219,7 @@ class Loader[
         self._concat_strategy = concat_strategy
 
     def __len__(self) -> int:
-        return self.n_obs
+        return self._batch_sampler.n_iters(self.n_obs)
 
     @property
     def _sp_module(self) -> ModuleType:
@@ -274,6 +281,16 @@ class Loader[
         return self._shapes[0][1]
 
     @property
+    def var(self) -> pd.DataFrame | None:
+        """The var annotations for the variables in this loader.
+
+        Returns
+        -------
+            The var DataFrame or None if no var annotations were provided.
+        """
+        return self._var
+
+    @property
     def batch_sampler(self) -> Sampler:
         """The sampler used to generate batches.
 
@@ -284,16 +301,19 @@ class Loader[
         return self._batch_sampler
 
     def use_collection(
-        self, collection: DatasetCollection, *, load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs
+        self,
+        collection: DatasetCollection,
+        *,
+        load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
     ) -> Self:
         """Load from an existing :class:`annbatch.DatasetCollection`.
 
-        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_anndatas` or open an issue.
+        This function can only be called once. If you want to manually add more data, use :meth:`Loader.add_adatas` or open an issue.
 
         Parameters
         ----------
         collection
-            The collection who on-disk datasets should be used in this loader.
+            The collection whose on-disk datasets should be used in this loader.
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
             Default is to just load `X` and all of `obs`.
@@ -301,56 +321,66 @@ class Loader[
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
-        if getattr(self, "_collection_added", False):
+        if self._collection_added:
             raise RuntimeError(
-                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_anndatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_anndatas`."
+                "You should not add multiple collections, independently shuffled - please preshuffle multiple collections, use `add_adatas` manually if you know what you are doing, or open an issue if you believe that this should be supported at an API level higher than `add_adatas`."
             )
         adatas = [load_adata(g) for g in collection]
-        self.add_anndatas(adatas)
+        self.add_adatas(adatas)
         self._collection_added = True
         return self
 
     @validate_sampler
-    def add_anndatas(
+    def add_adatas(
         self,
         adatas: list[ad.AnnData],
     ) -> Self:
-        """Append anndatas to this dataset.
+        """Append adatas to this dataset.
 
         Parameters
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
         """
-        check_lt_1([len(adatas)], ["Number of anndatas"])
+        check_lt_1([len(adatas)], ["Number of adatas"])
         for adata in adatas:
-            dataset, obs = self._prepare_dataset_and_obs(adata)
-            self._add_dataset_unchecked(dataset, obs)
+            dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
+            self._add_dataset_unchecked(dataset, obs, var)
         return self
 
-    def add_anndata(self, adata: ad.AnnData) -> Self:
-        """Append an anndata to this dataset.
+    def add_adata(self, adata: ad.AnnData) -> Self:
+        """Append an adata to this dataset.
 
         Parameters
         ----------
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
+                :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
         """
-        dataset, obs = self._prepare_dataset_and_obs(adata)
-        self.add_dataset(dataset, obs)
+        dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
+        self.add_dataset(dataset, obs, var)
         return self
 
-    def _prepare_dataset_and_obs(self, adata: ad.AnnData) -> tuple[BackingArray, pd.DataFrame | None]:
+    def _prepare_dataset_obs_and_var(
+        self, adata: ad.AnnData
+    ) -> tuple[BackingArray, pd.DataFrame | None, pd.DataFrame | None]:
         dataset = adata.X
         obs = adata.obs
+        var = adata.var
         if len(obs.columns) == 0:
             obs = None
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
-        return cast("BackingArray", dataset), obs
+
+        return cast("BackingArray", dataset), obs, var
 
     @validate_sampler
-    def add_datasets(self, datasets: list[BackingArray], obs: list[pd.DataFrame] | None = None) -> Self:
+    def add_datasets(
+        self,
+        datasets: list[BackingArray],
+        obs: list[pd.DataFrame] | None = None,
+        var: list[pd.DataFrame] | None = None,
+    ) -> Self:
         """Append datasets to this dataset.
 
         Parameters
@@ -359,16 +389,23 @@ class Loader[
                 List of :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` objects, generally from :attr:`anndata.AnnData.X`.
                 They must all be of the same type and match that of any already added datasets.
             obs
-                List of :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
+                List of :class:`~pandas.DataFrame` for annotating observations (i.e., samples), generally from :attr:`anndata.AnnData.obs`.
+            var
+                List of :class:`~pandas.DataFrame` for annotating features, generally from :attr:`anndata.AnnData.var`.
+                All var DataFrames must be identical.
         """
         if obs is None:
             obs = [None] * len(datasets)
-        for ds, o in zip(datasets, obs, strict=True):
-            self._add_dataset_unchecked(ds, o)
+        if var is None:
+            var = [None] * len(datasets)
+        for ds, o, v in zip(datasets, obs, var, strict=True):
+            self._add_dataset_unchecked(ds, o, v)
         return self
 
     @validate_sampler
-    def add_dataset(self, dataset: BackingArray, obs: pd.DataFrame | None = None) -> Self:
+    def add_dataset(
+        self, dataset: BackingArray, obs: pd.DataFrame | None = None, var: pd.DataFrame | None = None
+    ) -> Self:
         """Append a dataset to this dataset.
 
         Parameters
@@ -377,11 +414,16 @@ class Loader[
                 A :class:`zarr.Array` or :class:`anndata.abc.CSRDataset` object, generally from :attr:`anndata.AnnData.X`.
             obs
                 :class:`~pandas.DataFrame` obs, generally from :attr:`anndata.AnnData.obs`.
+            var
+                :class:`~pandas.DataFrame` var, generally from :attr:`anndata.AnnData.var`.
+                :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
         """
-        self._add_dataset_unchecked(dataset, obs)
+        self._add_dataset_unchecked(dataset, obs, var)
         return self
 
-    def _add_dataset_unchecked(self, dataset: BackingArray, obs: pd.DataFrame | None = None) -> Self:
+    def _add_dataset_unchecked(
+        self, dataset: BackingArray, obs: pd.DataFrame | None = None, var: pd.DataFrame | None = None
+    ) -> Self:
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
                 raise ValueError(
@@ -390,6 +432,14 @@ class Loader[
             if self._obs is not None and obs is None:
                 raise ValueError(
                     "Cannot add a dataset with no obs label when training datasets have already been added without obs"
+                )
+            if self._var is None and var is not None:
+                raise ValueError(
+                    "Cannot add a dataset with var when training datasets have already been added without var"
+                )
+            if self._var is not None and var is None:
+                raise ValueError(
+                    "Cannot add a dataset without var when training datasets have already been added with var"
                 )
             if not isinstance(dataset, self.dataset_type):
                 raise ValueError(
@@ -403,6 +453,8 @@ class Loader[
             )
         if not isinstance(obs, pd.DataFrame) and obs is not None:
             raise TypeError("obs must be a pandas DataFrame")
+        if not isinstance(var, pd.DataFrame) and var is not None:
+            raise TypeError("var must be a pandas DataFrame")
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
         self._shapes = self._shapes + [dataset.shape]
@@ -411,6 +463,14 @@ class Loader[
             self._obs += [obs]
         elif obs is not None:  # obs dont exist yet, but are being added for the first time
             self._obs = [obs]
+        # var is the same across all datasets (describes variables/features)
+        if self._var is None and var is not None:
+            self._var = var
+        elif self._var is not None and var is not None and not self._var.equals(var):
+            raise ValueError(
+                "All datasets must have identical var DataFrames. "
+                "The var of the new dataset does not match the existing var."
+            )
         if self._concat_strategy is None:
             if is_sparse:
                 self._concat_strategy = "concat-shuffle"
@@ -499,6 +559,15 @@ class Loader[
             dataset_index_to_slices_sorted[k] = dataset_index_to_slices[k]
         return dataset_index_to_slices_sorted
 
+    def _get_kwargs_for_zarr_fetching(self, z: zarr.Array, indexer_shape: tuple[int, ...]) -> dict:
+        buffer_prototype = zarr.core.buffer.default_buffer_prototype()
+        kwargs = {"prototype": buffer_prototype}
+        if self._preload_to_gpu:
+            import cupyx as cpx
+
+            kwargs["out"] = buffer_prototype.nd_buffer(cpx.empty_pinned(indexer_shape, z.dtype))
+        return kwargs
+
     @singledispatchmethod
     async def _fetch_data(self, dataset: ZarrArray | CSRDatasetElems, slices: list[slice]) -> InputInMemoryArray:
         """Fetch data from an on-disk store.
@@ -523,19 +592,24 @@ class Loader[
 
     @_fetch_data.register
     async def _fetch_data_dense(self, dataset: ZarrArray, slices: list[slice]) -> np.ndarray:
+        print(Version(version("zarr")) <= Version("3.1.6"))
         indexer = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
                     (s, Ellipsis),
                     shape=dataset.metadata.shape,
-                    chunk_grid=dataset.metadata.chunk_grid,
+                    chunk_grid=dataset.metadata.chunk_grid
+                    if Version(version("zarr")) <= Version("3.1.6")
+                    else dataset._chunk_grid,
                 )
                 for s in slices
             ]
         )
         res = cast(
             "np.ndarray",
-            await dataset._async_array._get_selection(indexer, prototype=zarr.core.buffer.default_buffer_prototype()),
+            await dataset._async_array._get_selection(
+                indexer, **self._get_kwargs_for_zarr_fetching(dataset, indexer.shape)
+            ),
         )
         return res
 
@@ -606,13 +680,22 @@ class Loader[
         indptr_limits = [slice(i[0], i[-1]) for i in indptr_indices]
         indexer = MultiBasicIndexer(
             [
-                zarr.core.indexing.BasicIndexer((l,), shape=data.metadata.shape, chunk_grid=data.metadata.chunk_grid)
+                zarr.core.indexing.BasicIndexer(
+                    (l,),
+                    shape=data.metadata.shape,
+                    chunk_grid=data.metadata.chunk_grid
+                    if Version(version("zarr")) <= Version("3.1.6")
+                    else data._chunk_grid,
+                )
                 for l in indptr_limits
             ]
         )
+
         data_np, indices_np = await asyncio.gather(
-            data._get_selection(indexer, prototype=zarr.core.buffer.default_buffer_prototype()),
-            indices._get_selection(indexer, prototype=zarr.core.buffer.default_buffer_prototype()),
+            *(
+                z._get_selection(indexer, **self._get_kwargs_for_zarr_fetching(z, indexer.shape))
+                for z in [data, indices]
+            )
         )
         gaps = (s1.start - s0.stop for s0, s1 in pairwise(indptr_limits))
         offsets = accumulate(chain([indptr_limits[0].start], gaps))
@@ -691,6 +774,7 @@ class Loader[
                     yield {
                         "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                         "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
+                        "var": self._var,
                         "index": in_memory_indices[split] if in_memory_indices is not None else None,
                     }
             elif self._concat_strategy == "shuffle-concat":
@@ -712,6 +796,7 @@ class Loader[
                     yield {
                         "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                         "obs": concatenated_obs.iloc[sorted_split] if concatenated_obs is not None else None,
+                        "var": self._var,
                         "index": in_memory_indices[sorted_split] if in_memory_indices is not None else None,
                     }
             else:  # pragma: no cover

@@ -4,8 +4,7 @@ import inspect
 import itertools
 import warnings
 from dataclasses import dataclass
-from functools import cached_property, wraps
-from importlib.util import find_spec
+from functools import wraps
 from typing import TYPE_CHECKING, Concatenate, Protocol
 
 import anndata as ad
@@ -102,59 +101,14 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-class WorkerHandle:  # noqa: D101
-    @cached_property
-    def _worker_info(self):
-        if find_spec("torch"):
-            from torch.utils.data import get_worker_info
+def _spawn_worker_rng(rng: np.random.Generator, worker_id: int) -> np.random.Generator:
+    """Create a worker-specific RNG using the sequence-of-integers seeding pattern.
 
-            return get_worker_info()
-        return None
-
-    @property
-    def num_workers(self) -> int:
-        """Return the number of workers, or 1 if not in a worker context."""
-        if self._worker_info is None:
-            return 1
-        return self._worker_info.num_workers
-
-    @cached_property
-    def _rng(self):
-        if self._worker_info is None:
-            return np.random.default_rng()
-        else:
-            # This is used for the _get_chunks function
-            # Use the same seed for all workers that the resulting splits are the same across workers
-            # torch default seed is `base_seed + worker_id`. Hence, subtract worker_id to get the base seed
-            return np.random.default_rng(self._worker_info.seed - self._worker_info.id)
-
-    def shuffle(self, obj: np.typing.ArrayLike) -> None:
-        """Perform in-place shuffle.
-
-        Parameters
-        ----------
-            obj
-                The object to be shuffled
-        """
-        self._rng.shuffle(obj)
-
-    def get_part_for_worker(self, obj: np.ndarray) -> np.ndarray:
-        """Get a chunk of an incoming array accordnig to the current worker id.
-
-        Parameters
-        ----------
-            obj
-                Incoming array
-
-        Returns
-        -------
-            A evenly split part of the ray corresponding to how many workers there are.
-        """
-        if self._worker_info is None:
-            return obj
-        num_workers, worker_id = self._worker_info.num_workers, self._worker_info.id
-        chunks_split = np.array_split(obj, num_workers)
-        return chunks_split[worker_id]
+    Uses NumPy's recommended approach for multi-process RNG. See:
+    https://numpy.org/doc/stable/reference/random/parallel.html#sequence-of-integer-seeds
+    """
+    root_seed = rng.integers(np.iinfo(np.int64).max)
+    return np.random.default_rng([worker_id, root_seed])
 
 
 def check_lt_1(vals: list[int], obs: list[str]) -> None:
@@ -206,17 +160,31 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, torch.Tensor):
         return input
     if isinstance(input, sp.sparse.csr_matrix):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-            tensor = torch.sparse_csr_tensor(
-                torch.from_numpy(input.indptr),
-                torch.from_numpy(input.indices),
-                torch.from_numpy(input.data),
-                input.shape,
-            )
-        if preload_to_gpu:
-            return tensor.cuda(non_blocking=True)
-        return tensor
+        # TODO: better way to toggle this off for "production" but on for tests?
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
+                # https://github.com/pytorch/pytorch/issues/178309
+                # Without this, under `enable=True` above, there would be the above error.
+                if input.nnz == 0:
+                    indptr = torch.from_numpy(input.indptr)
+                    tensor = torch.sparse_csr_tensor(
+                        indptr,
+                        torch.tensor([], dtype=indptr.dtype),
+                        torch.tensor([]),
+                        size=input.shape,
+                        dtype=torch.from_numpy(input.data).dtype,  # TODO: better way to do this?
+                    )
+                else:
+                    tensor = torch.sparse_csr_tensor(
+                        torch.from_numpy(input.indptr),
+                        torch.from_numpy(input.indices),
+                        torch.from_numpy(input.data),
+                        size=input.shape,
+                    )
+            if preload_to_gpu:
+                return tensor.cuda(non_blocking=True)
+            return tensor
     if isinstance(input, np.ndarray):
         tensor = torch.from_numpy(input)
         if preload_to_gpu:
@@ -225,19 +193,22 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     if isinstance(input, CupyArray):
         return torch.from_dlpack(input)
     if isinstance(input, CupyCSRMatrix):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
-            return torch.sparse_csr_tensor(
-                torch.from_dlpack(input.indptr),
-                torch.from_dlpack(input.indices),
-                torch.from_dlpack(input.data),
-                input.shape,
-            )
+        with torch.sparse.check_sparse_tensor_invariants(enable=False):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", "Sparse CSR tensor support is in beta state", UserWarning)
+                return torch.sparse_csr_tensor(
+                    torch.from_dlpack(input.indptr),
+                    torch.from_dlpack(input.indices),
+                    torch.from_dlpack(input.data),
+                    size=input.shape,
+                )
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
-def load_x_and_obs(g: zarr.Group) -> ad.AnnData:
+def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
     """Load X as a sparse array or dense zarr array and obs from a group"""
     return ad.AnnData(
-        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]), obs=ad.io.read_elem(g["obs"])
+        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
+        obs=ad.io.read_elem(g["obs"]),
+        var=pd.DataFrame(index=pd.Index(g[f"var/{g['var'].attrs.get('_index')}"][:])),
     )

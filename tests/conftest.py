@@ -34,6 +34,7 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
     for shard in range(n_shards):
         adata = ad.AnnData(
             X=np.random.random((n_cells_per_shard, feature_dim)).astype("f4"),
+            var=pd.DataFrame(index=[f"gene_{i}" for i in range(feature_dim)]),
             obs=pd.DataFrame(
                 {"label": np.random.default_rng().integers(0, 5, size=n_cells_per_shard)},
                 index=np.arange(n_cells_per_shard).astype(str),
@@ -50,10 +51,8 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
         write_sharded(
             f,
             adata,
-            sparse_chunk_size=10,
-            sparse_shard_size=20,
-            dense_chunk_size=10,
-            dense_shard_size=20,
+            n_obs_per_chunk=10,
+            shard_size=20,
         )
     yield (
         # need to match directory iteration order for correctness so can't just concatenate
@@ -115,11 +114,9 @@ def simple_collection(
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
     collection = DatasetCollection(output_path).add_adatas(
         zarr_stores,
-        zarr_sparse_chunk_size=10,
-        zarr_sparse_shard_size=20,
-        zarr_dense_chunk_size=10,
-        zarr_dense_shard_size=20,
-        n_obs_per_dataset=60,
+        n_obs_per_chunk=10,
+        shard_size=20,
+        dataset_size=60,
         shuffle_chunk_size=10,
     )
     return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection

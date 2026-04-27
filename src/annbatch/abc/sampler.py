@@ -21,6 +21,27 @@ class Sampler(ABC):
     Samplers control how data is batched and loaded from the underlying datasets.
     """
 
+    _mask: slice = slice(0, None)
+    _rng: np.random.Generator | None = None
+
+    @property
+    def mask(self) -> slice:
+        """The observation range this sampler operates on."""
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        self._mask = value
+
+    @property
+    def rng(self) -> np.random.Generator | None:
+        """The random number generator used by this sampler."""
+        return self._rng
+
+    @rng.setter
+    def rng(self, value: np.random.Generator | None) -> None:
+        self._rng = value
+
     @property
     @abstractmethod
     def batch_size(self) -> int | None:
@@ -50,6 +71,21 @@ class Sampler(ABC):
         -------
         bool
             True if data should be shuffled, False otherwise.
+        """
+
+    @abstractmethod
+    def n_iters(self, n_obs: int) -> int:
+        """Return the number of batches.
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations available.
+
+        Returns
+        -------
+        int
+            The total number of batches this sampler will produce.
         """
 
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:

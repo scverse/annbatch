@@ -56,22 +56,23 @@ jobs:
         run: nvidia-smi
 
       - name: Install yq # https://cirun.slack.com/archives/C09SNDRB3A8/p1766512487317849?thread_ts=1766512112.938459&cid=C09SNDRB3A8
+        # Pinned version: https://github.com/mikefarah/yq/issues/2592
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo wget -qO /usr/local/bin/yq http://github.com/mikefarah/yq/releases/download/v4.49.2/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
       - name: Extract max Python version from classifiers
+        id: max-python
         run: |
           classifiers=$(yq .project.classifiers pyproject.toml -oy  | grep --only-matching --perl-regexp '(?<=Python :: )(\d\.\d+)')
           max_version=$(echo "$classifiers" | sort -V | tail -1)
-          echo "max_python_version=$max_version" >> $GITHUB_ENV
+          echo "max_python_version=$max_version" >> $GITHUB_OUTPUT
 
       - name: Install UV
         uses: astral-sh/setup-uv@v6 # TODO: upgrade once cirun image supports node 24
         with:
           enable-cache: true
-          # Any Cuda 14+ will support Python 3.14: https://github.com/cupy/cupy/issues/9346
-          python-version: '3.13'  # ${{ env.max_python_version }}
+          python-version: ${{ steps.max-python.outputs.max_python_version }}
 
       - name: Install annbatch
         run: |

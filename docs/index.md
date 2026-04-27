@@ -61,6 +61,22 @@ We support user-configurable sampling strategies like weighting or sampling by i
 
 Please open an issue if you want to contribute a new sampler to this repo.
 
+:::{warning}
+Provided implementations of {class}`~annbatch.abc.Sampler`s use NumPy's random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
+
+
+To control reproducibility, pass a seeded {class}`numpy.random.Generator` via the `rng` parameter:
+
+```python
+import numpy as np
+
+rng = np.random.default_rng(42)
+sampler = ChunkSampler(..., rng=rng)
+```
+
+Using `annbatch` with {class}`torch.utils.data.DataLoader` is neither explicitly supported nor guaranteed to behave as expected with respect to seeding and worker behavior.
+:::
+
 ### Speed comparison to other dataloaders
 
 We provide a speed comparison to other comparable dataloaders below:
