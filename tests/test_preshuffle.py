@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import glob
+import re
+import warnings
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Literal
 
@@ -20,6 +22,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from os import PathLike
     from pathlib import Path
+
+
+def _assert_warning_count(caught_warnings: list[warnings.WarningMessage], match: str, count: int) -> None:
+    assert sum(bool(re.search(match, str(warning.message))) for warning in caught_warnings) == count
 
 
 @pytest.mark.parametrize(
@@ -44,7 +50,8 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
     path_2 = tmp_path / "with_extra_key.h5ad"
     adata_1.write_h5ad(path_1)
     adata_2.write_h5ad(path_2)
-    with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
         DatasetCollection(tmp_path / "collection.zarr").add_adatas(
             [path_1, path_2],
             n_obs_per_chunk=5,
@@ -52,6 +59,7 @@ def test_store_creation_warnings_with_different_keys(elem_name: Literal["obsm", 
             dataset_size=10,
             shuffle_chunk_size=10,
         )
+    _assert_warning_count(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas", 1)
 
 
 def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
@@ -121,7 +129,8 @@ def test_store_addition_different_keys(
     adata = ad.AnnData(X=np.random.randn(10, 20), **extra_args)
     additional_path = tmp_path / "with_extra_key.h5ad"
     adata.write_h5ad(additional_path)
-    with pytest.warns(UserWarning, match=rf"Found {elem_name} keys.* not present in all anndatas"):
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
         collection.add_adatas(
             [additional_path],
             load_adata=load_adata,
@@ -129,6 +138,7 @@ def test_store_addition_different_keys(
             shard_size=10,
             shuffle_chunk_size=2,
         )
+    _assert_warning_count(caught_warnings, rf"Found {elem_name} keys.* not present in all anndatas", 1)
 
 
 def test_h5ad_and_zarr_simultaneously(tmp_path: Path):
@@ -262,7 +272,7 @@ def _write_groupby_test_adata(
         obs["label"] = pd.Categorical(label_values, categories=label_categories)
     ad.AnnData(
         X=sp.csr_matrix(np.eye(n_obs, dtype="f4")),
-        obs=pd.DataFrame(obs, index=[f"cell_{i}" for i in range(n_obs)]),
+        obs=pd.DataFrame(obs, index=[f"{path.stem}_cell_{i}" for i in range(n_obs)]),
         var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_obs)]),
     ).write_h5ad(path, compression=None)
     return path
@@ -285,6 +295,168 @@ def consistent_groupby_h5_paths(tmp_path: Path) -> list[Path]:
         )
         for i in range(n_files)
     ]
+
+
+def test_store_creation_warns_when_outer_join_introduces_missing_categorical_values(tmp_path: Path):
+    first = _write_groupby_test_adata(
+        tmp_path / "first.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=["a", "b"],
+    )
+    second = _write_groupby_test_adata(tmp_path / "second.h5ad")
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        with pytest.warns(UserWarning) as caught_warnings:
+            DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+                [first, second],
+                n_obs_per_chunk=2,
+                shard_size=2,
+                dataset_size=3,
+                shuffle_chunk_size=1,
+                shuffle=False,
+                rng=np.random.default_rng(0),
+            )
+    _assert_warning_count(caught_warnings, r"Found obs keys", 1)
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 1)
+
+
+def test_store_addition_warns_when_outer_join_introduces_missing_categorical_values(tmp_path: Path):
+    initial = _write_groupby_test_adata(tmp_path / "initial.h5ad")
+    additional = _write_groupby_test_adata(
+        tmp_path / "additional.h5ad",
+        label_values=["a", "b", "a"],
+        label_categories=["a", "b"],
+    )
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [initial],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        with pytest.warns(UserWarning) as caught_warnings:
+            collection.add_adatas(
+                [additional],
+                n_obs_per_chunk=2,
+                shard_size=2,
+                shuffle_chunk_size=1,
+                shuffle=False,
+                rng=np.random.default_rng(0),
+            )
+    _assert_warning_count(caught_warnings, r"Found obs keys", 1)
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 1)
+
+
+@pytest.mark.parametrize(
+    ("first_kwargs", "second_kwargs"),
+    [
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
+            id="different_categories",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
+            id="different_category_order",
+        ),
+    ],
+)
+def test_store_creation_does_not_warn_for_categorical_category_expansion(
+    tmp_path: Path,
+    first_kwargs: dict,
+    second_kwargs: dict,
+):
+    first = _write_groupby_test_adata(tmp_path / "first.h5ad", **first_kwargs)
+    second = _write_groupby_test_adata(tmp_path / "second.h5ad", **second_kwargs)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [first, second],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 0)
+
+
+@pytest.mark.parametrize(
+    ("initial_kwargs", "additional_kwargs"),
+    [
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["a", "b", "c"]},
+            id="different_categories",
+        ),
+        pytest.param(
+            {"label_values": ["a", "b", "a"], "label_categories": ["a", "b"]},
+            {"label_values": ["b", "a", "b"], "label_categories": ["b", "a"]},
+            id="different_category_order",
+        ),
+    ],
+)
+def test_store_addition_does_not_warn_for_categorical_category_expansion(
+    tmp_path: Path,
+    initial_kwargs: dict,
+    additional_kwargs: dict,
+):
+    initial = _write_groupby_test_adata(tmp_path / "initial.h5ad", **initial_kwargs)
+    additional = _write_groupby_test_adata(tmp_path / "additional.h5ad", **additional_kwargs)
+    with warnings.catch_warnings():
+        # annbatch writes Zarr v3 stores and consolidates metadata during writes,
+        # which currently triggers a known zarr warning unrelated to the behavior under test.
+        warnings.filterwarnings(
+            "ignore",
+            message="Consolidated metadata is currently not part.*",
+            category=UserWarning,
+        )
+        collection = DatasetCollection(tmp_path / "collection.zarr").add_adatas(
+            [initial],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            dataset_size=3,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        collection.add_adatas(
+            [additional],
+            n_obs_per_chunk=2,
+            shard_size=2,
+            shuffle_chunk_size=1,
+            shuffle=False,
+            rng=np.random.default_rng(0),
+        )
+    _assert_warning_count(caught_warnings, r"categorical obs columns", 0)
 
 
 @pytest.mark.parametrize(

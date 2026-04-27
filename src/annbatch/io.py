@@ -255,12 +255,14 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
     -------
     The average bytes per observation row when *estimate_bytes_per_obs_row* is ``True``, otherwise ``None``.
     """
+    paths_or_anndatas = list(paths_or_anndatas)
     num_raw_in_adata = 0
     found_keys: dict[str, defaultdict[str, int]] = {
         "layers": defaultdict(lambda: 0),
         "obsm": defaultdict(lambda: 0),
         "obs": defaultdict(lambda: 0),
     }
+    found_categorical_obs_cols: defaultdict[str, int] = defaultdict(lambda: 0)
     bytes_per_obs_samples: list[float] = []
     for path_or_anndata in tqdm(paths_or_anndatas, desc="Validating anndatas"):
         if not isinstance(path_or_anndata, ad.AnnData):
@@ -284,9 +286,23 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
             for key in curr_keys:
                 if not (elem_name in {"var", "obs"} and key == "_index"):
                     key_count[key] += 1
+        categorical_obs_cols_in_adata = {
+            col
+            for col in adata.obs.columns
+            # src_path is an annbatch-internal annotation that is always per-dataset by construction,
+            # and should not participate in user-facing outer-join validation.
+            if adata.obs[col].dtype == "category" and col != "src_path"
+        }
+        if "dataset2d_categoricals_to_convert" in adata.uns:
+            categorical_obs_cols_in_adata.update(
+                col for col in adata.uns["dataset2d_categoricals_to_convert"] if col != "src_path"
+            )
+        for col in categorical_obs_cols_in_adata:
+            found_categorical_obs_cols[col] += 1
         if adata.raw is not None:
             num_raw_in_adata += 1
-    if num_raw_in_adata != (num_anndatas := len(list(paths_or_anndatas))) and num_raw_in_adata != 0:
+    num_anndatas = len(paths_or_anndatas)
+    if num_raw_in_adata != num_anndatas and num_raw_in_adata != 0:
         warnings.warn(
             f"Found raw keys not present in all anndatas {paths_or_anndatas}, consider deleting raw or moving it to a shared layer/X location via `load_adata`",
             stacklevel=2,
@@ -298,6 +314,14 @@ def _validate_anndatas_and_maybe_get_bytes_per_row[T: zarr.Group | h5py.Group | 
                 f"Found {elem_name} keys {elem_keys_mismatched} not present in all anndatas {paths_or_anndatas}, consider stopping and using the `load_adata` argument to alter {elem_name} accordingly.",
                 stacklevel=2,
             )
+    categorical_obs_cols_mismatched = [
+        col for col, count in found_categorical_obs_cols.items() if count != num_anndatas
+    ]
+    if len(categorical_obs_cols_mismatched) > 0:
+        warnings.warn(
+            f"Found categorical obs columns {categorical_obs_cols_mismatched} not present in all anndatas {paths_or_anndatas}; outer concatenation may introduce missing values in those columns.",
+            stacklevel=2,
+        )
     return float(np.mean(bytes_per_obs_samples)) if bytes_per_obs_samples else None
 
 

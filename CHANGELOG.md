@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 Features:
 - Added `groupby` support to {meth}`annbatch.DatasetCollection.add_adatas` to group observations per dataset before writing collections. When appending to an existing on-disk collection, groupby columns must already exist and categorical categories must be identical to those on-disk.
+- Warn when building or extending a {class}`annbatch.DatasetCollection` if outer concatenation would introduce missing values into categorical `obs` columns because those columns are absent from some inputs.
 
 ## [0.1.3]
 
