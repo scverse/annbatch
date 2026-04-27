@@ -43,7 +43,7 @@ zarr.config.set({"async.concurrency": 64})
 ```
 
 which is 64 by default.
-See the [zarr page on concurrency][] for more information. Furthermore, we recommend using [`obstore` over `fsspec`][] for performance reasons.
+See the [zarr page on concurrency][] for more information. Furthermore, we recommend using [`obstore` over `fsspec`][] for performance reasons without using the `zarrs` pipeline.
 
 [performance may suffer]: https://gist.github.com/ilan-gold/705bd36329b0e19542286385b09b421b
 [zarr page on concurrency]: https://zarr.readthedocs.io/en/latest/user-guide/consolidated_metadata/#synchronization-and-concurrency
