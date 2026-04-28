@@ -2,7 +2,7 @@
 
 To implement a custom sampler, you need to understand two key components:
 
-### {class}`annbatch.abc.Sampler`
+## {class}`annbatch.abc.Sampler`
 
 This is the abstract base class that all samplers must inherit from. You need to implement:
 
@@ -10,7 +10,7 @@ This is the abstract base class that all samplers must inherit from. You need to
 
 - **{meth}`~annbatch.abc.Sampler.validate`**: Validates the sampler configuration against the given number of observations. Override this method to add custom validation for your sampler parameters. It should raise a `ValueError` if the configuration is invalid.
 
-### {class}`annbatch.types.LoadRequest`
+## {class}`annbatch.types.LoadRequest`
 
 This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifies how data should be loaded. Each `LoadRequest` contains:
 
