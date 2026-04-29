@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     InputInMemoryArray = InputInMemoryArray_T
 
 type concat_strategies = Literal["concat-shuffle", "shuffle-concat"]
+zarr_version = Version(version("zarr"))
 
 
 class CSRDatasetElems(NamedTuple):
@@ -592,15 +593,12 @@ class Loader[
 
     @_fetch_data.register
     async def _fetch_data_dense(self, dataset: ZarrArray, slices: list[slice]) -> np.ndarray:
-        print(Version(version("zarr")) <= Version("3.1.6"))
         indexer = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
                     (s, Ellipsis),
                     shape=dataset.metadata.shape,
-                    chunk_grid=dataset.metadata.chunk_grid
-                    if Version(version("zarr")) <= Version("3.1.6")
-                    else dataset._chunk_grid,
+                    chunk_grid=dataset.metadata.chunk_grid if zarr_version <= Version("3.1.6") else dataset._chunk_grid,
                 )
                 for s in slices
             ]
@@ -683,9 +681,7 @@ class Loader[
                 zarr.core.indexing.BasicIndexer(
                     (l,),
                     shape=data.metadata.shape,
-                    chunk_grid=data.metadata.chunk_grid
-                    if Version(version("zarr")) <= Version("3.1.6")
-                    else data._chunk_grid,
+                    chunk_grid=data.metadata.chunk_grid if zarr_version <= Version("3.1.6") else data._chunk_grid,
                 )
                 for l in indptr_limits
             ]
