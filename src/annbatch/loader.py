@@ -598,9 +598,7 @@ class Loader[
                 zarr.core.indexing.BasicIndexer(
                     (s, Ellipsis),
                     shape=dataset.metadata.shape,
-                    chunk_grid=dataset.metadata.chunk_grid
-                    if zarr_version <= Version("3.1.6")
-                    else dataset._chunk_grid,
+                    chunk_grid=dataset.metadata.chunk_grid if zarr_version <= Version("3.1.6") else dataset._chunk_grid,
                 )
                 for s in slices
             ]
@@ -683,9 +681,7 @@ class Loader[
                 zarr.core.indexing.BasicIndexer(
                     (l,),
                     shape=data.metadata.shape,
-                    chunk_grid=data.metadata.chunk_grid
-                    if zarr_version <= Version("3.1.6")
-                    else data._chunk_grid,
+                    chunk_grid=data.metadata.chunk_grid if zarr_version <= Version("3.1.6") else data._chunk_grid,
                 )
                 for l in indptr_limits
             ]
