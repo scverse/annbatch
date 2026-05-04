@@ -23,6 +23,7 @@ In the process, the data gets shuffled and is distributed across several anndata
 Shuffling is important to ensure model convergence, especially because of our contiguous data fetching scheme which is not perfectly random.
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
 See the [zarr docs on sharding][] for more information.
+For performance considerations, see our dedicated docs page: {doc}`preshuffling`.
 
 [zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
 
@@ -128,6 +129,7 @@ However, once you have too much data to fit into memory, for whatever reason, th
 
 api.md
 zarr-configuration.md
+preshuffling.md
 custom-sampler.md
 changelog.md
 contributing.md
