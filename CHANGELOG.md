@@ -10,16 +10,19 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.4]
 
-Features:
+### Performance
+- Preallocate buffers for in-memory handling.  `concat_strategy` argument no longer has any affect as the new strategy is as memory efficient and as fast as both strategies.
+
+### Features
 - Added `groupby` support to {meth}`annbatch.DatasetCollection.add_adatas` to group observations per dataset before writing collections. When appending to an existing on-disk collection, groupby columns must already exist and categorical categories must be identical to those on-disk.
 
 ## [0.1.3]
 
-Features:
+### Features
 - Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
 - Exposed {class}`annbatch.samplers.DistributedSampler` for distributed training.
 
-Breaking:
+### Breaking
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
 ## [0.1.2]
