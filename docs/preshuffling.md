@@ -5,7 +5,7 @@
 While the preshuffler can operate out-of-core in {func}`annbatch.Loader.add_adatas`, each individual shuffled dataset is read into memory before being written to disk.
 The amount of memory is configurable with the `dataset_size` parameter.
 Upstream of that is the `shuffle_chunk_size` parameter, which controls the (location-randomized) contiguous block size on-disk from your input data that is read into memory before an in-memory shuffle.
-This parameter's interaction with `dask` chunks is important - if you dask chunks are very large and `shuffle_chunk_size` considerably smaller, more memory is needed.
+This parameter's interaction with `dask` chunks is important - if your dask chunks are very large and `shuffle_chunk_size` considerably smaller, more memory is needed.
 For this reason, {func}`anndata.experimental.read_lazy` and {func}`anndata.experimental.read_elem_lazy`'s default chunk size of 1000 is very reasonable.
 
 ## Speed
