@@ -5,7 +5,6 @@ from collections import OrderedDict
 from functools import singledispatchmethod
 from importlib.metadata import version
 from importlib.util import find_spec
-from itertools import accumulate
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
 from warnings import warn
 
@@ -497,38 +496,17 @@ class Loader[
         -------
             A lookup between the dataset and its indexing slices, ordered by keys.
         """
-        # Cumulative boundaries: boundaries[i] = first row of dataset i.
-        boundaries = np.array(
-            [0, *accumulate(shape[0] for shape in self._shapes)],
-            dtype=np.intp,
-        )
-
-        starts = np.array([s.start for s in slices], dtype=np.intp)
-        stops = np.array([s.stop for s in slices], dtype=np.intp)
-        order = np.argsort(starts, kind="stable")
-        starts = starts[order]
-        stops = stops[order]
-
-        # Two-pointer merge: O(m + k) pointer moves, O(n) to build the aranges.
-        pieces: dict[int, list[np.ndarray]] = {}
-        ds = 0
-        n_ds = len(boundaries) - 1
-
-        for start, stop in zip(starts, stops, strict=False):
-            while ds + 1 < n_ds and boundaries[ds + 1] <= start:
-                ds += 1
-            curr = int(start)
-            while curr < stop:
-                end = min(int(stop), int(boundaries[ds + 1]))
-                offset = 0 if use_original_space else int(boundaries[ds])
-                pieces.setdefault(ds, []).append(np.arange(curr - offset, end - offset, dtype=np.intp))
-                curr = end
-                if curr < stop:
-                    ds += 1
-
-        return OrderedDict(
-            (ds_idx, np.concatenate(parts) if len(parts) > 1 else parts[0]) for ds_idx, parts in sorted(pieces.items())
-        )
+        global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
+        result: OrderedDict[int, np.ndarray] = OrderedDict()
+        b_start = 0
+        for ds, shape in enumerate(self._shapes):
+            b_end = b_start + shape[0]
+            mask = (global_index >= b_start) & (global_index < b_end)
+            if mask.any():
+                offset = 0 if use_original_space else b_start
+                result[ds] = global_index[mask] - offset
+            b_start = b_end
+        return result
 
     def _allocate_out(self, dataset_index_to_slices: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and slices.
@@ -588,7 +566,7 @@ class Loader[
         dataset
             The underlying store.
         rows
-            Sorted array of integer row indices within this dataset to fetch.
+            Array of integer row indices within this dataset to fetch.
         out
             Preallocated buffer to write into — a contiguous view of the full
             output buffer allocated by :meth:`_allocate_out`.
@@ -602,16 +580,16 @@ class Loader[
 
     @_fetch_data.register
     async def _fetch_data_dense(self, dataset: ZarrArray, rows: np.ndarray, out: np.ndarray) -> None:
-        mask = np.zeros(dataset.metadata.shape[0], dtype=bool)
-        mask[rows] = True
+        breaks = np.flatnonzero(np.diff(rows) != 1) + 1
+        row_runs = np.split(rows, breaks)
         indexer = MultiBasicIndexer(
             [
                 zarr.core.indexing.BasicIndexer(
-                    (s, Ellipsis),
+                    (slice(int(r[0]), int(r[-1]) + 1), Ellipsis),
                     shape=dataset.metadata.shape,
                     chunk_grid=dataset.metadata.chunk_grid if zarr_version <= Version("3.1.6") else dataset._chunk_grid,
                 )
-                for s in np.ma.extras._ezclump(mask)
+                for r in row_runs
             ]
         )
         buffer_prototype = zarr.core.buffer.default_buffer_prototype()
