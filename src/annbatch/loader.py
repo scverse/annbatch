@@ -497,34 +497,38 @@ class Loader[
         -------
             A lookup between the dataset and its indexing slices, ordered by keys.
         """
-        # Expand all input slices to a flat array of global row indices.
-        global_indices = np.concatenate([np.arange(s.start, s.stop) for s in slices])
-        if len(global_indices) == 0:
-            return OrderedDict()
-
         # Cumulative boundaries: boundaries[i] = first row of dataset i.
         boundaries = np.array(
             [0, *accumulate(shape[0] for shape in self._shapes)],
             dtype=np.intp,
         )
 
-        # Assign each index to its owning dataset.
-        dataset_indices = np.searchsorted(boundaries, global_indices, side="right") - 1
+        starts = np.array([s.start for s in slices], dtype=np.intp)
+        stops = np.array([s.stop for s in slices], dtype=np.intp)
+        order = np.argsort(starts, kind="stable")
+        starts = starts[order]
+        stops = stops[order]
 
-        # Sort by (dataset, global index) so indices within each dataset are contiguous and ordered.
-        order = np.lexsort((global_indices, dataset_indices))
-        dataset_indices_sorted = dataset_indices[order]
-        sorted_global = global_indices[order]
+        # Two-pointer merge: O(m + k) pointer moves, O(n) to build the aranges.
+        pieces: dict[int, list[np.ndarray]] = {}
+        ds = 0
+        n_ds = len(boundaries) - 1
 
-        out_indices = sorted_global if use_original_space else sorted_global - boundaries[dataset_indices_sorted]
+        for start, stop in zip(starts, stops, strict=False):
+            while ds + 1 < n_ds and boundaries[ds + 1] <= start:
+                ds += 1
+            curr = int(start)
+            while curr < stop:
+                end = min(int(stop), int(boundaries[ds + 1]))
+                offset = 0 if use_original_space else int(boundaries[ds])
+                pieces.setdefault(ds, []).append(np.arange(curr - offset, end - offset, dtype=np.intp))
+                curr = end
+                if curr < stop:
+                    ds += 1
 
-        # Group by dataset, returning the sorted integer index arrays directly.
-        result: OrderedDict[int, np.ndarray] = OrderedDict()
-        unique_ds, first_occurrences = np.unique(dataset_indices_sorted, return_index=True)
-        for group_start, group_end in zip(first_occurrences, [*first_occurrences[1:], len(order)], strict=False):
-            result[int(dataset_indices_sorted[group_start])] = out_indices[group_start:group_end]
-
-        return result
+        return OrderedDict(
+            (ds_idx, np.concatenate(parts) if len(parts) > 1 else parts[0]) for ds_idx, parts in sorted(pieces.items())
+        )
 
     def _allocate_out(self, dataset_index_to_slices: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and slices.
