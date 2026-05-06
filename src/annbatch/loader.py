@@ -497,9 +497,6 @@ class Loader[
         -------
             A lookup between the dataset and its indexing slices, ordered by keys.
         """
-        if self._dataset_intervals is None or len(slices) == 0:
-            return OrderedDict()
-
         # Expand all input slices to a flat array of global row indices.
         global_indices = np.concatenate([np.arange(s.start, s.stop) for s in slices])
         if len(global_indices) == 0:
