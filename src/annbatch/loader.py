@@ -716,26 +716,29 @@ class Loader[
         # for the inspiration of this function.
         indptr, indices, data = dataset
         indptr_limits = [slice(int(indptr[s.start]), int(indptr[s.stop])) for s in slices]
-        indexer = MultiBasicIndexer(
-            [
-                zarr.core.indexing.BasicIndexer(
-                    (l,),
-                    shape=data.metadata.shape,
-                    chunk_grid=data.metadata.chunk_grid if zarr_version <= Version("3.1.6") else data._chunk_grid,
-                )
-                for l in indptr_limits
-            ]
+        indexer_data, indexer_indices = (
+            MultiBasicIndexer(
+                [
+                    zarr.core.indexing.BasicIndexer(
+                        (l,),
+                        shape=arr.metadata.shape,
+                        chunk_grid=arr.metadata.chunk_grid if zarr_version <= Version("3.1.6") else arr._chunk_grid,
+                    )
+                    for l in indptr_limits
+                ]
+            )
+            for arr in [data, indices]
         )
 
         buffer_prototype = zarr.core.buffer.default_buffer_prototype()
         await asyncio.gather(
             data._get_selection(
-                indexer,
+                indexer_data,
                 prototype=buffer_prototype,
                 out=buffer_prototype.nd_buffer(out.elems[0]),
             ),
             indices._get_selection(
-                indexer,
+                indexer_indices,
                 prototype=buffer_prototype,
                 out=buffer_prototype.nd_buffer(out.elems[1]),
             ),
