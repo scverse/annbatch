@@ -78,9 +78,6 @@ urls.Documentation = "https://annbatch.readthedocs.io/"
 urls.Homepage = "https://github.com/scverse/annbatch"
 urls.Source = "https://github.com/scverse/annbatch"
 
-[tool.hatch.version]
-source = "vcs"
-
 [tool.hatch]
 envs.default.installer = "uv"
 envs.default.features = [ "dev" ]
@@ -110,6 +107,7 @@ envs.hatch-test.overrides.matrix.deps.python = [
 envs.hatch-test.overrides.matrix.deps.features = [
   { if = [ "torch" ], value = "torch" },
 ]
+version.source = "vcs"
 
 [tool.ruff]
 line-length = 120
