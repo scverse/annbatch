@@ -78,6 +78,9 @@ urls.Documentation = "https://annbatch.readthedocs.io/"
 urls.Homepage = "https://github.com/scverse/annbatch"
 urls.Source = "https://github.com/scverse/annbatch"
 
+[tool.hatch.version]
+source = "vcs"
+
 [tool.hatch]
 envs.default.installer = "uv"
 envs.default.features = [ "dev" ]
