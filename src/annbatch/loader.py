@@ -662,8 +662,11 @@ class Loader[
     ) -> None:
         # See https://github.com/scverse/anndata/blob/361325fc621887bf4f381e9412b150fcff599ff7/src/anndata/_core/sparse_dataset.py#L272-L295
         # for the inspiration of this function.
+        breaks = np.flatnonzero(np.diff(rows) != 1) + 1
+        row_runs = np.split(rows, breaks)
         indptr, indices, data = dataset
-        indptr_limits = [slice(*(indptr[i : i + 2])) for i in rows]
+        indptr_indices = [indptr[slice(s[0], s[-1] + 2)] for s in row_runs]
+        indptr_limits = [slice(i[0].item(), i[-1].item()) for i in indptr_indices]
         indexer_data, indexer_indices = (
             MultiBasicIndexer(
                 [
