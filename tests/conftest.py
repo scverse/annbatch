@@ -70,6 +70,7 @@ def adata_with_h5_path_different_var_space(
     params = getattr(request, "param", {})
     n_adatas = params.get("n_adatas", 6)
     all_adatas_have_raw = params.get("all_adatas_have_raw", True)
+    merge = params.get("merge", None)
 
     tmp_path = Path(tmpdir_factory.mktemp("raw_adatas"))
     tmp_path = tmp_path / "h5_files"
@@ -90,7 +91,14 @@ def adata_with_h5_path_different_var_space(
                 },
                 index=obs_idx,
             ),
-            var=pd.DataFrame(index=var_idx),
+            var=pd.DataFrame(
+                index=var_idx,
+                data={
+                    f"only_{i}": pd.array(range(n), dtype="int64"),
+                    f"partial_share_{i % 3}": pd.array(range(n), dtype="int64"),
+                    "same": pd.array(range(n), dtype="int64"),
+                },
+            ),
             obsm={"arr": np.random.randn(m, 10), "df": pd.DataFrame({"numeric": np.arange(m)}, index=obs_idx)},
             varm={"arr": np.random.randn(n, 10), "df": pd.DataFrame({"numeric": np.arange(n)}, index=var_idx)},
         )
@@ -103,6 +111,7 @@ def adata_with_h5_path_different_var_space(
     return ad.concat(
         [ad.read_h5ad(tmp_path / shard) for shard in sorted(tmp_path.iterdir()) if str(shard).endswith(".h5ad")],
         join="outer",
+        merge=merge,
     ), tmp_path
 
 

@@ -34,6 +34,16 @@ if TYPE_CHECKING:
 V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}
 
 
+def _ds_to_memory(ds: Dataset2D) -> pd.DataFrame:
+    ds.index = ds.true_index
+    df = ds.to_memory()
+    # TODO: This is a bug in anndata?
+    if "_index" in df.columns:
+        df.index = df["_index"]
+        del df["_index"]
+    return df
+
+
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
     adata = ad.experimental.read_lazy(x, load_annotation_index=False)
     if not isinstance(x, zarr.Group | h5py.Group):
@@ -46,14 +56,13 @@ def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) 
         group = x
     # -1 indicates that all of each `obs` column should just be loaded, but this is probably fine since it goes column by column and discards.
     # TODO: Bug with empty columns: https://github.com/scverse/anndata/pull/2307
-    for attr in ["obs", "var"]:
-        # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
-        if len(getattr(adata, attr).columns) > 0:
-            setattr(adata, attr, ad.experimental.read_elem_lazy(group[attr], chunks=(-1,), use_range_index=True))
-            for col in getattr(adata, attr).columns:
-                # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
-                if pd.api.types.is_extension_array_dtype(getattr(adata, attr)[col].dtype):
-                    getattr(adata, attr)[col] = getattr(adata, attr)[col].data
+    # Only one column at a time will be loaded so we will hopefully pick up the benefit of loading into memory by the cache without having memory pressure.
+    if len(adata.obs.columns) > 0:
+        adata.obs = ad.experimental.read_elem_lazy(group["obs"], chunks=(-1,), use_range_index=True)
+        for col in adata.obs.columns:
+            # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
+            if pd.api.types.is_extension_array_dtype(adata.obs[col].dtype):
+                adata.obs[col] = adata.obs[col].data
     return adata
 
 
@@ -347,11 +356,24 @@ def _validate_groupby_columns[T: zarr.Group | h5py.Group | PathLike[str] | str](
 def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
     paths: Iterable[T],
     load_adata: Callable[[T], ad.AnnData] = _default_load_adata,
+    var_subset: Iterable[str] | None = None,
+    merge: Literal["same", "unique", "first", "only"] | None = None,
 ):
     adatas = []
     categoricals_in_all_adatas: dict[str, pd.Index] = {}
     for i, path in tqdm(enumerate(paths), total=len(paths), desc="Lazy loading anndatas"):
         adata = load_adata(path)
+        # TODO: File bug/issue in anndata about merging var xarray objects
+        # Otherwise there is no respect for the merge argument
+        if isinstance(adata.var, Dataset2D):
+            adata.var = _ds_to_memory(adata.var)
+        if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):
+            adata_raw = adata.raw.to_adata()
+            adata_raw.var = _ds_to_memory(adata_raw.var)
+            del adata.raw
+            adata.raw = adata_raw
+        if var_subset is not None:
+            adata = adata[:, adata.var.index.isin(var_subset)]
         # Track the source file for this given anndata object
         adata.obs["src_path"] = pd.Categorical.from_codes(
             np.ones((adata.shape[0],), dtype="int") * i, categories=pd.Index([str(p) for p in paths])
@@ -371,16 +393,12 @@ def _lazy_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](
                     categoricals_in_all_adatas[k] = categoricals_in_all_adatas[k].union(
                         categorical_cols_in_this_adata[k]
                     )
-        # TODO: Probably bug in anndata, need the true index for proper outer joins (can't skirt this with fake indexes, at least not in the mixed-type regime).
-        # See: https://github.com/scverse/anndata/pull/2299
-        if isinstance(adata.var, Dataset2D):
-            adata.var.index = adata.var.true_index
-        if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):
-            adata.raw.var.index = adata.raw.var.true_index
+        if adata.raw is not None and isinstance(adata.raw.var, Dataset2D):  # pragma: no cover
+            raise RuntimeError("No Dataset 2D raw allowed")
         adatas.append(adata)
     if len(adatas) == 1:
         return adatas[0]
-    adata = ad.concat(adatas, join="outer")
+    adata = ad.concat(adatas, join="outer", merge=merge)
     if len(categoricals_in_all_adatas) > 0:
         adata.uns["dataset2d_categoricals_to_convert"] = categoricals_in_all_adatas
     return adata
@@ -464,25 +482,17 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
     if isinstance(adata.X, DaskArray):
         adata.X = _compute_blockwise(adata.X)
     if isinstance(adata.obs, Dataset2D):
-        adata.obs = adata.obs.to_memory()
-        # TODO: This is a bug in anndata?
-        if "_index" in adata.obs.columns:
-            adata.obs.index = adata.obs["_index"]
-            del adata.obs["_index"]
+        adata.obs = _ds_to_memory(adata.obs)
     adata = _to_categorical_obs(adata)
-    if isinstance(adata.var, Dataset2D):
-        adata.var = adata.var.to_memory()
-        if "_index" in adata.var.columns:
-            del adata.var["_index"]
+    if isinstance(adata.var, Dataset2D):  # pragma: no cover
+        raise RuntimeError("No Dataset2D var should be found")
 
     if adata.raw is not None:
         adata_raw = adata.raw.to_adata()
         if isinstance(adata_raw.X, DaskArray):
             adata_raw.X = _compute_blockwise(adata_raw.X)
-        if isinstance(adata_raw.var, Dataset2D):
-            adata_raw.var = adata_raw.var.to_memory()
-            if "_index" in adata_raw.var.columns:
-                del adata_raw.var["_index"]
+        if isinstance(adata_raw.var, Dataset2D):  # pragma: no cover
+            raise RuntimeError("No Dataset2D var should be found")
         if isinstance(adata_raw.obs, Dataset2D):
             adata_raw.obs = adata_raw.obs.to_memory()
         del adata.raw
@@ -498,8 +508,8 @@ def _persist_adata_in_memory(adata: ad.AnnData) -> ad.AnnData:
                 if "_index" in elem.columns:
                     del elem["_index"]
                 # TODO: Bug in anndata
-                if "obs" in axis_name:
-                    elem.index = adata.obs_names
+                if "obs" in axis_name or "var" in axis_name:
+                    elem.index = getattr(adata, f"{axis_name[:-1]}_names")
                 getattr(adata, axis_name)[k] = elem
 
     return adata.to_memory()
@@ -604,6 +614,7 @@ class DatasetCollection:
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
         rng: np.random.Generator | None = None,
+        merge: Literal["same", "unique", "first", "only"] | None = None,
     ) -> Self:
         """Take AnnData paths and create or add to an on-disk set of AnnData datasets with uniform var spaces at the desired path (with `dataset_size` rows per dataset if running for the first time).
 
@@ -657,6 +668,8 @@ class DatasetCollection:
                 `(shuffle_chunk_size // dataset_size)` slices will be loaded of size `shuffle_chunk_size`.
             rng
                 Random number generator for shuffling.
+            merge
+                var column merge strategy - see :func:`anndata.concat` for more information.
 
         Examples
         --------
@@ -695,6 +708,7 @@ class DatasetCollection:
             "shuffle_chunk_size": shuffle_chunk_size,
             "shuffle": shuffle,
             "rng": rng,
+            "merge": merge,
         }
         if self.is_empty:
             self._create_collection(**shared_kwargs, dataset_size=dataset_size, var_subset=var_subset)
@@ -716,6 +730,7 @@ class DatasetCollection:
         dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        merge: Literal["same", "unique", "first", "only"] | None = None,
         rng: np.random.Generator,
     ) -> None:
         """Take AnnData paths, create an on-disk set of AnnData datasets with uniform var spaces at the desired path with `dataset_size` rows per dataset.
@@ -762,6 +777,8 @@ class DatasetCollection:
             shuffle_chunk_size
                 How many contiguous rows to load into memory before shuffling at once.
                 `(shuffle_chunk_size // dataset_size)` slices will be loaded of size `shuffle_chunk_size`.
+            merge
+                var column merge strategy - see :func:`anndata.concat` for more information. This setting is applied when concatenating on-disk datasets together (with input datasets if adding as well).
             rng
                 Random number generator for shuffling.
         """
@@ -783,7 +800,7 @@ class DatasetCollection:
                 "Cannot have a larger slice size than observations per dataset. Reduce `shuffle_chunk_size` or increase `dataset_size`."
             )
 
-        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata, var_subset=var_subset, merge=merge)
         adata_concat.obs_names_make_unique()
         dataset_size = min(adata_concat.shape[0], dataset_size)
         chunks = _create_chunks_for_shuffling(
@@ -793,14 +810,10 @@ class DatasetCollection:
             shuffle=shuffle,
             shuffle_n_obs_per_dataset=dataset_size,
         )
-
-        if var_subset is None:
-            var_subset = adata_concat.var_names
         for i, chunk in enumerate(tqdm(chunks, desc="Creating dataset collection")):
-            var_mask = adata_concat.var_names.isin(var_subset)
             # np.sort: It's more efficient to access elements sequentially from dask arrays
             # The data will be shuffled later on, we just want the elements at this point
-            adata_chunk = adata_concat[np.sort(chunk), :][:, var_mask].copy()
+            adata_chunk = adata_concat[np.sort(chunk), :].copy()
             adata_chunk = _persist_adata_in_memory(adata_chunk)
             if shuffle:
                 # shuffle adata in memory to break up individual chunks
@@ -838,6 +851,7 @@ class DatasetCollection:
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
+        merge: Literal["same", "unique", "first", "only"] | None = None,
         rng: np.random.Generator,
     ) -> None:
         """Add anndata files to an existing collection of sharded anndata zarr datasets.
@@ -869,6 +883,8 @@ class DatasetCollection:
                 To save memory, the blocks of a dense on-disk store can be sparsified for in-memory processing.
             shuffle_chunk_size
                 How many contiguous rows to load into memory of the input data for pseudo-blockshuffling into the existing datasets.
+            merge
+                var column merge strategy - see :func:`anndata.concat` for more information.
             shuffle
                 Whether or not to shuffle when adding.  Otherwise, the incoming data will just be split up and appended.
         """
@@ -879,7 +895,7 @@ class DatasetCollection:
             _validate_groupby_columns(adata_paths, load_adata=load_adata, groupby=groupby)
         _validate_anndatas_and_maybe_get_bytes_per_row(adata_paths, load_adata=load_adata)
         # Check for mismatched keys among the inputs.
-        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata)
+        adata_concat = _lazy_load_adata(adata_paths, load_adata=load_adata, merge=merge)
         if math.ceil(adata_concat.shape[0] / shuffle_chunk_size) < len(self._dataset_keys):
             raise ValueError(
                 f"Use a shuffle size small enough to distribute the input data with {adata_concat.shape[0]} obs across {len(self._dataset_keys)} anndata stores."
@@ -917,7 +933,7 @@ class DatasetCollection:
             subset_adata = _to_categorical_obs(
                 adata_concat[chunk, :][:, adata_concat.var.index.isin(adata_dataset.var.index)]
             )
-            adata = ad.concat([adata_dataset, subset_adata], join="outer")
+            adata = ad.concat([adata_dataset, subset_adata], join="outer", merge=merge)
             if shuffle:
                 idxs = rng.permutation(adata.shape[0])
             else:
