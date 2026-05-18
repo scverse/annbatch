@@ -795,7 +795,7 @@ class Loader[
                 in_memory_data = self._np_module.asarray(raw_out)
 
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_rows)
-            in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(chunks_to_load)
+            in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
             for split in splits:
                 data = in_memory_data[split]
                 yield {
@@ -815,8 +815,9 @@ class Loader[
             return None
         return pd.concat([self._obs[idx].iloc[rows] for idx, rows in dataset_index_to_rows.items()])
 
-    def _maybe_accumulate_indices(self, slices: list[slice]) -> np.ndarray | None:
-        """Gather original indices for the loaded slices if possible."""
+    def _maybe_accumulate_indices(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> np.ndarray | None:
+        """Gather original indices for the loaded rows if possible."""
         if self._return_index is False:
             return None
-        return np.concatenate(list(self._slices_to_slices_with_array_index(slices, use_original_space=True).values()))
+        dataset_offsets = np.concatenate(([0], np.cumsum([shape[0] for shape in self._shapes])))
+        return np.concatenate([rows + dataset_offsets[idx] for idx, rows in dataset_index_to_rows.items()])
