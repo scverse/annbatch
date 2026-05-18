@@ -8,19 +8,27 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.1.5]
+
+### Fixed
+- Handle indexers for `indices` and `data` separately because their underlying chunking can differ
+
 ## [0.1.4]
 
-Features:
+### Performance
+- Preallocate buffers for in-memory handling.  `concat_strategy` argument no longer has any affect as the new strategy is as memory efficient and as fast as both strategies.
+
+### Features
 - Added `groupby` support to {meth}`annbatch.DatasetCollection.add_adatas` to group observations per dataset before writing collections. When appending to an existing on-disk collection, groupby columns must already exist and categorical categories must be identical to those on-disk.
 - Warn when building or extending a {class}`annbatch.DatasetCollection` if outer concatenation would introduce missing values into categorical `obs` columns because those columns are absent from some inputs.
 
 ## [0.1.3]
 
-Features:
+### Features
 - Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
 - Exposed {class}`annbatch.samplers.DistributedSampler` for distributed training.
 
-Breaking:
+### Breaking
 - Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
 ## [0.1.2]
