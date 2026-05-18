@@ -20,7 +20,7 @@ from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
 from humanfriendly import parse_size
 from tqdm.auto import tqdm
-from zarr.codecs import BloscCodec, BloscShuffle
+from zarr.codecs import BloscCodec
 
 from annbatch.utils import split_given_size
 
@@ -98,7 +98,7 @@ def write_sharded(
     *,
     n_obs_per_chunk: int = 64,
     shard_size: int | str = "1GB",
-    compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+    compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
     key: str | None = None,
 ):
     """Write a sharded zarr store from a single AnnData object.
@@ -598,7 +598,7 @@ class DatasetCollection:
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
@@ -711,7 +711,7 @@ class DatasetCollection:
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
@@ -834,7 +834,7 @@ class DatasetCollection:
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
