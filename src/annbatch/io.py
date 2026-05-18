@@ -122,7 +122,7 @@ def write_sharded(
         key
             The key to which this object should be written - by default the root, in which case the *entire* store (not just the group) is cleared first.
     """
-    with ad.settings.override(zarr_write_format=3, write_csr_csc_indices_with_min_possible_dtype=True):
+    with ad.settings.override(write_csr_csc_indices_with_min_possible_dtype=True):
 
         def callback(
             write_func: ad.experimental.Write,
@@ -511,7 +511,7 @@ DATASET_PREFIX = "dataset"
 def _with_settings(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
+        with ad.settings.override(remove_unused_categories=False):
             return func(*args, **kwargs)
 
     return wrapper
