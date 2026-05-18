@@ -20,7 +20,7 @@ from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
 from humanfriendly import parse_size
 from tqdm.auto import tqdm
-from zarr.codecs import BloscCodec, BloscShuffle
+from zarr.codecs import BloscCodec
 
 from annbatch.utils import split_given_size
 
@@ -98,7 +98,7 @@ def write_sharded(
     *,
     n_obs_per_chunk: int = 64,
     shard_size: int | str = "1GB",
-    compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+    compressors: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
     key: str | None = None,
 ):
     """Write a sharded zarr store from a single AnnData object.
@@ -122,7 +122,7 @@ def write_sharded(
         key
             The key to which this object should be written - by default the root, in which case the *entire* store (not just the group) is cleared first.
     """
-    with ad.settings.override(zarr_write_format=3, write_csr_csc_indices_with_min_possible_dtype=True):
+    with ad.settings.override(auto_shard_zarr_v3=True, write_csr_csc_indices_with_min_possible_dtype=True):
 
         def callback(
             write_func: ad.experimental.Write,
@@ -511,7 +511,7 @@ DATASET_PREFIX = "dataset"
 def _with_settings(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        with ad.settings.override(zarr_write_format=3, remove_unused_categories=False):
+        with ad.settings.override(remove_unused_categories=False):
             return func(*args, **kwargs)
 
     return wrapper
@@ -598,7 +598,7 @@ class DatasetCollection:
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
@@ -711,7 +711,7 @@ class DatasetCollection:
         var_subset: Iterable[str] | None = None,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         dataset_size: int | str = "20GB",
         shuffle_chunk_size: int = 1000,
@@ -834,7 +834,7 @@ class DatasetCollection:
         load_adata: Callable[[PathLike[str] | str], ad.AnnData] = ad.read_h5ad,
         n_obs_per_chunk: int = 64,
         shard_size: int | str = "1GB",
-        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle=BloscShuffle.shuffle),),
+        zarr_compressor: Iterable[BytesBytesCodec] = (BloscCodec(cname="lz4", clevel=3, shuffle="shuffle"),),
         h5ad_compressor: Literal["gzip", "lzf"] | None = "gzip",
         shuffle_chunk_size: int = 1000,
         shuffle: bool = True,
