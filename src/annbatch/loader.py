@@ -478,8 +478,8 @@ class Loader[
             )
         return self
 
-    def _slices_to_slices_with_array_index(self, slices: list[slice]) -> OrderedDict[int, list[slice]]:
-        """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
+    def _slices_to_dataset_rows(self, slices: list[slice]) -> OrderedDict[int, np.ndarray]:
+        """Given a list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
 
         In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
 
@@ -490,7 +490,7 @@ class Loader[
 
         Returns
         -------
-            A lookup between the dataset and its indexing slices, ordered by keys.
+            A lookup between the dataset and its row indices, ordered by keys.
         """
         global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
         result: OrderedDict[int, np.ndarray] = OrderedDict()
@@ -504,8 +504,8 @@ class Loader[
             b_start = b_end
         return result
 
-    def _allocate_out(self, dataset_index_to_slices: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
-        """Preallocate a single contiguous output buffer covering all datasets and slices.
+    def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
+        """Preallocate a single contiguous output buffer covering all datasets and rows.
 
         For sparse data the buffer is a :class:`~annbatch.utils.CSRContainer` whose ``data``
         and ``indices`` arrays span the total number of non-zeros (derived from the cached
@@ -515,7 +515,7 @@ class Loader[
 
         Must be called after :meth:`_ensure_sparse_cache` for sparse datasets.
         """
-        total_rows = sum(len(rows) for rows in dataset_index_to_slices.values())
+        total_rows = sum(len(rows) for rows in dataset_index_to_rows.values())
 
         def _alloc(shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
             if self._preload_to_gpu:
@@ -527,9 +527,9 @@ class Loader[
         if issubclass(self.dataset_type, ad.abc.CSRDataset):
             total_nnz = sum(
                 int((self._dataset_elem_cache[idx].indptr[rows + 1] - self._dataset_elem_cache[idx].indptr[rows]).sum())
-                for idx, rows in dataset_index_to_slices.items()
+                for idx, rows in dataset_index_to_rows.items()
             )
-            first_idx = next(iter(dataset_index_to_slices))
+            first_idx = next(iter(dataset_index_to_rows))
             data_dtype = self._dataset_elem_cache[first_idx].data.dtype
             indices_dtype = self._dataset_elem_cache[first_idx].indices.dtype
             indptr_dtype = self._dataset_elem_cache[first_idx].indptr.dtype
@@ -543,7 +543,7 @@ class Loader[
                 dtype=data_dtype,
             )
         else:
-            first_idx = next(iter(dataset_index_to_slices))
+            first_idx = next(iter(dataset_index_to_rows))
             dtype = self._train_datasets[first_idx].dtype
             shape_res = self._train_datasets[first_idx].shape[1:]
             return _alloc((total_rows, *shape_res), dtype)
@@ -777,7 +777,7 @@ class Loader[
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
-            dataset_index_to_rows = self._slices_to_slices_with_array_index(chunks_to_load)
+            dataset_index_to_rows = self._slices_to_dataset_rows(chunks_to_load)
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
