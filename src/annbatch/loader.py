@@ -751,7 +751,7 @@ class Loader[
                 dest = out.elems[2][row_pos + 1 : row_pos + len(rows) + 1]
                 np.cumsum(per_row_nnz, out=dest)
                 dest += running_nnz
-                running_nnz += int(per_row_nnz.sum())
+                running_nnz = dest[-1]
                 row_pos += len(rows)
 
         return out
