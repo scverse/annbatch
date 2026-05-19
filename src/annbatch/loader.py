@@ -478,9 +478,7 @@ class Loader[
             )
         return self
 
-    def _slices_to_slices_with_array_index(
-        self, slices: list[slice], *, use_original_space: bool = False
-    ) -> OrderedDict[int, list[slice]]:
+    def _slices_to_slices_with_array_index(self, slices: list[slice]) -> OrderedDict[int, list[slice]]:
         """Given a list of slices, give the lookup between on-disk datasets and slices relative to that dataset.
 
         In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
@@ -489,8 +487,6 @@ class Loader[
         ----------
             slices
                 Slices to relative to the on-disk datasets.
-            use_original_space
-                Whether the slices should be reindexed against the anndata objects.
 
         Returns
         -------
@@ -503,7 +499,7 @@ class Loader[
             b_end = b_start + shape[0]
             mask = (global_index >= b_start) & (global_index < b_end)
             if mask.any():
-                offset = 0 if use_original_space else b_start
+                offset = b_start
                 result[ds] = global_index[mask] - offset
             b_start = b_end
         return result
@@ -781,7 +777,7 @@ class Loader[
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
-            dataset_index_to_rows = self._slices_to_slices_with_array_index(chunks_to_load, use_original_space=False)
+            dataset_index_to_rows = self._slices_to_slices_with_array_index(chunks_to_load)
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
