@@ -716,17 +716,17 @@ class Loader[
             nrows = len(rows)
             if is_sparse:
                 cached_indptr = self._dataset_elem_cache[dataset_idx].indptr
-                nnnz = int((cached_indptr[rows + 1] - cached_indptr[rows]).sum())
+                nnz = int((cached_indptr[rows + 1] - cached_indptr[rows]).sum())
                 out_view: CSRContainer | np.ndarray = CSRContainer(
                     elems=(
-                        out.elems[0][nnz_offset : nnz_offset + nnnz],
-                        out.elems[1][nnz_offset : nnz_offset + nnnz],
+                        out.elems[0][nnz_offset : nnz_offset + nnz],
+                        out.elems[1][nnz_offset : nnz_offset + nnz],
                         out.elems[2][row_offset : row_offset + nrows + 1],
                     ),
                     shape=(nrows, self.n_var),
                     dtype=out.dtype,
                 )
-                nnz_offset += nnnz
+                nnz_offset += nnz
             else:
                 out_view = out[row_offset : row_offset + nrows]
 
