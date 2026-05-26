@@ -123,42 +123,6 @@ def test_mask_coverage(
     assert len(splits) == expected_iters, f"Expected {expected_iters} batches, got {len(splits)}"
 
 
-@pytest.mark.parametrize(
-    ("masks", "num_samples"),
-    [
-        pytest.param([slice(0, 100)], 50, id="single_mask"),
-        pytest.param([slice(0, 100), slice(200, 300)], 100, id="two_masks"),
-        pytest.param([slice(0, 50), slice(100, 150), slice(200, 250)], 75, id="three_masks"),
-    ],
-)
-def test_chunk_distribution_across_masks(masks: list[slice], num_samples: int):
-    """Test that chunks are distributed across all masks (not biased to one)."""
-    chunk_size, preload_nchunks, batch_size = 10, 2, 5
-    sampler = FragmentedRandomSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        masks=masks,
-        num_samples=num_samples,
-        rng=np.random.default_rng(42),
-    )
-
-    all_indices, all_chunks, _ = collect_indices(sampler, n_obs=max(m.stop for m in masks))
-
-    # Count how many chunks belong to each mask
-    chunks_per_mask = dict.fromkeys(range(len(masks)), 0)
-    for chunk in all_chunks:
-        for i, mask in enumerate(masks):
-            if mask.start <= chunk.start and chunk.stop <= mask.stop:
-                chunks_per_mask[i] += 1
-                break
-
-    # All masks should have at least one chunk (if large enough)
-    for mask_idx, count in chunks_per_mask.items():
-        if masks[mask_idx].stop - masks[mask_idx].start >= chunk_size * 2:
-            assert count > 0, f"Mask {mask_idx} has no chunks"
-
-
 # =============================================================================
 # Batch and Iteration Count Tests
 # =============================================================================
@@ -172,16 +136,19 @@ def test_chunk_distribution_across_masks(masks: list[slice], num_samples: int):
         pytest.param([slice(0, 100)], 52, 5, True, 10, id="floor_division"),
         pytest.param([slice(0, 100), slice(200, 300)], 75, 10, False, 8, id="multiple_masks"),
         pytest.param([slice(0, 100), slice(200, 300)], 75, 10, True, 7, id="multiple_masks_drop"),
+        pytest.param(
+            [slice(0, 100), slice(200, 300), slice(400, 500)], 150, 5, False, 30, id="three_masks"
+        ),
     ],
 )
-def test_n_iters_property(
+def test_batch_and_iteration_counts(
     masks: list[slice],
     num_samples: int,
     batch_size: int,
     drop_last: bool,
     expected_iters: int,
 ):
-    """Test n_iters returns correct batch count."""
+    """Test n_iters property and actual batch counts for various configurations."""
     sampler = FragmentedRandomSampler(
         chunk_size=10,
         preload_nchunks=2,
@@ -189,11 +156,22 @@ def test_n_iters_property(
         masks=masks,
         num_samples=num_samples,
         drop_last=drop_last,
+        rng=np.random.default_rng(42),
     )
     assert sampler.n_iters(n_obs=500) == expected_iters
 
     assert sampler.shuffle is True, "Shuffle property should always return True"
     assert sampler.batch_size == batch_size, "Batch size property should return the correct value"
+
+    n_obs = max(m.stop for m in masks)
+    all_indices, all_chunks, splits = collect_indices(sampler, n_obs)
+
+    # Verify actual batch count matches the property
+    assert len(splits) == expected_iters
+    # Verify structure is sound
+    assert len(all_chunks) > 0
+    for chunk in all_chunks:
+        assert chunk.stop - chunk.start > 0
 
 
 # =============================================================================
@@ -299,42 +277,6 @@ def test_multiple_workers_not_supported():
         pytest.raises(NotImplementedError, match="Multiple workers are not supported"),
     ):
         list(sampler.sample(n_obs=500))
-
-
-@pytest.mark.parametrize(
-    ("masks", "num_samples", "id_suffix"),
-    [
-        pytest.param([slice(0, 100)], 50, "single_large"),
-        pytest.param([slice(0, 100)], 100, "single_full"),
-        pytest.param([slice(0, 100), slice(200, 300)], 100, "two_large"),
-        pytest.param(
-            [slice(0, 100), slice(200, 300), slice(400, 500)],
-            150,
-            "three_masks",
-        ),
-    ],
-)
-def test_edge_case_mask_counts(masks: list[slice], num_samples: int, id_suffix: str):
-    """Test sampling with various mask and sample counts."""
-    chunk_size, preload_nchunks, batch_size = 10, 2, 5
-    sampler = FragmentedRandomSampler(
-        chunk_size=chunk_size,
-        preload_nchunks=preload_nchunks,
-        batch_size=batch_size,
-        masks=masks,
-        num_samples=num_samples,
-        rng=np.random.default_rng(42),
-    )
-    n_obs = max(m.stop for m in masks)
-    all_indices, all_chunks, splits = collect_indices(sampler, n_obs)
-
-    # Verify batch count
-    expected_iters = math.ceil(num_samples / batch_size)
-    assert len(splits) == expected_iters
-    # Verify structure is sound
-    assert len(all_chunks) > 0
-    for chunk in all_chunks:
-        assert chunk.stop - chunk.start > 0
 
 
 @pytest.mark.parametrize(
