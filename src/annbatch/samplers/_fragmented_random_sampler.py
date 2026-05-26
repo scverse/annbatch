@@ -146,18 +146,7 @@ class FragmentedRandomSampler(Sampler):
         )
 
     def validate(self, n_obs: int) -> None:
-        """Validate the sampler configuration against the loader's n_obs.
-
-        Parameters
-        ----------
-        n_obs
-            The total number of observations in the loader.
-
-        Raises
-        ------
-        ValueError
-            If the sampler configuration is invalid for the given n_obs.
-        """
+        """Validate if there are any masks that exceed the loader's n_obs."""
         if np.any(self._stops > n_obs):
             raise ValueError(
                 f"Sampler has a mask from masks such that mask.stop exceeds loader n_obs ({n_obs}). "
