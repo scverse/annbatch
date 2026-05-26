@@ -24,7 +24,38 @@ if TYPE_CHECKING:
 
 
 class FragmentedRandomSampler(Sampler):
-    """Chunk-based sampler implementation for batched data access."""
+    """Random sampler for multiple non-overlapping data ranges.
+
+    This sampler generates random chunks across multiple disjoint regions (masks) of a dataset,
+    enabling efficient random sampling from fragmented data regions.
+
+    Adjacent masks are automatically merged internally.
+    For example, if masks=[slice(0, 10), slice(10, 20)], they will be merged into a single mask slice(0, 20).
+    After this merging step, the sampler will ensure that each mask from the merged list of masks
+    covers at least one full chunk and is within the dataset bounds.
+
+    Multiple workers are not supported with this sampler.
+
+    Parameters
+    ----------
+    batch_size
+        Number of observations per batch.
+    chunk_size
+        Size of each chunk i.e. the range of each chunk yielded.
+    masks
+        List of non-overlapping slices defining the data regions to sample from.
+        Each slice must have start >= 0, stop > start, and step is 1 or None.
+    preload_nchunks
+        Number of chunks to load per iteration.
+    drop_last
+        Whether to drop the last incomplete batch.
+    rng
+        Random number generator for shuffling. Note that :func:`torch.manual_seed`
+        has no effect on reproducibility here; pass a seeded
+        :class:`numpy.random.Generator` to control randomness.
+    num_samples
+        Total number of observations to draw.
+    """
 
     _batch_size: int
     _chunk_size: int
