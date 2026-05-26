@@ -91,7 +91,7 @@ class FragmentedRandomSampler(Sampler):
         starts = np.array([m.start for m in sorted_masks], dtype=np.int64)
         stops = np.array([m.stop for m in sorted_masks], dtype=np.int64)
         if len(sorted_masks) > 1 and not np.all(stops[:-1] <= starts[1:]):
-            raise ValueError("Masks must be non-overlapping for FragmentedRandomSampler.")
+            raise ValueError("Masks must be non-overlapping.")
 
         # now we will merge any two masks that are adjacent
         is_adj = starts[1:] == stops[:-1]
