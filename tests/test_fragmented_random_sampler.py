@@ -136,9 +136,7 @@ def test_mask_coverage(
         pytest.param([slice(0, 100)], 52, 5, True, 10, id="floor_division"),
         pytest.param([slice(0, 100), slice(200, 300)], 75, 10, False, 8, id="multiple_masks"),
         pytest.param([slice(0, 100), slice(200, 300)], 75, 10, True, 7, id="multiple_masks_drop"),
-        pytest.param(
-            [slice(0, 100), slice(200, 300), slice(400, 500)], 150, 5, False, 30, id="three_masks"
-        ),
+        pytest.param([slice(0, 100), slice(200, 300), slice(400, 500)], 150, 5, False, 30, id="three_masks"),
     ],
 )
 def test_batch_and_iteration_counts(
