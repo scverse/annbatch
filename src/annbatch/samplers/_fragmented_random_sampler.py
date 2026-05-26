@@ -104,7 +104,7 @@ class FragmentedRandomSampler(Sampler):
             raise ValueError("Each mask must cover at least one chunk (mask.stop - mask.start >= chunk_size).")
 
         # precompute and save cumulative sums to avoid recomputing them every time in _compute_chunks
-        cumsum_centered = np.concatenate([np.array([0]), np.cumsum(stops - starts - self._chunk_size)])
+        cumsum_centered = np.concatenate([np.array([0]), np.cumsum(stops - starts - chunk_size)])
         chunk_start_offsets = np.concatenate([np.array([0]), cumsum_centered[1:] - cumsum_centered[:-1]])
         self._cumsum_centered, self._chunk_start_offsets = cumsum_centered, chunk_start_offsets
         self._starts, self._stops = starts, stops
