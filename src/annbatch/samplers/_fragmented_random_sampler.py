@@ -108,9 +108,7 @@ class FragmentedRandomSampler(Sampler):
         chunk_start_offsets = np.concatenate([np.array([0]), cumsum_centered[1:] - cumsum_centered[:-1]])
 
         self._rng = rng or np.random.default_rng()
-        self._in_memory_size = chunk_size * preload_nchunks
 
-        # self._masks = sorted_masks
         self._cumsum_centered, self._chunk_start_offsets = cumsum_centered, chunk_start_offsets
         self._starts, self._stops = starts, stops
         self._num_samples = num_samples
