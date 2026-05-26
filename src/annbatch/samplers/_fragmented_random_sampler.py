@@ -176,8 +176,8 @@ class FragmentedRandomSampler(Sampler):
             n_chunks += 1
 
         num_possible_chunk_starts = self._cumsum_centered[-1]
-
         offsets = self._rng.integers(num_possible_chunk_starts, size=n_chunks)
+        # frag_idx will tell us for each draw which mask it belongs to
         frag_idx = np.searchsorted(self._cumsum_centered, offsets, side="left")
 
         # there is two layer of remapping here:
