@@ -1,4 +1,4 @@
-"""SequentialSampler -- ordered chunk-based sampler."""
+"""FragmentedRandomSampler"""
 
 from __future__ import annotations
 
