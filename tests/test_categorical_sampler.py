@@ -53,7 +53,7 @@ def test_codes_must_be_1d():
         )
 
 
-def test_no_category_large_enough_raises():
+def test_all_runs_shorter_than_chunk_size_raises():
     # every run is shorter than chunk_size
     codes = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
     with pytest.raises(ValueError, match="at least chunk_size"):
@@ -101,16 +101,11 @@ def test_multiple_workers_not_supported():
         list(sampler.sample(len(codes)))
 
 
-def test_runs_shorter_than_chunk_size_are_dropped():
-    # cat 0 has one good run (>= chunk_size) and one tiny run; cat 1 only a good run.
+def test_any_run_shorter_than_chunk_size_raises():
+    # run-length rule: cat 0 has a good run AND a tiny 3-row run -> must raise, naming cat 0.
     codes = np.array([0] * 30 + [1] * 30 + [0] * 3, dtype=np.int64)
-    sampler = CategoricalSampler(
-        chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=200, rng=np.random.default_rng(0)
-    )
-    # both categories are still sampleable; the 3-row tail of cat 0 is never a chunk start
-    assert set(sampler.categories.tolist()) == {0, 1}
-    chunks = _collect_chunks(sampler, len(codes))
-    assert all(c.stop <= 60 for c in chunks), "no chunk should reach into the dropped 3-row run"
+    with pytest.raises(ValueError, match=r"at least chunk_size.*\[0\]"):
+        CategoricalSampler(chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=200)
 
 
 # =============================================================================
@@ -163,6 +158,113 @@ def test_categories_drawn_uniformly():
     _, counts = np.unique(cats, return_counts=True)
     shares = counts / counts.sum()
     assert np.allclose(shares, 0.25, atol=0.02), f"expected ~uniform 0.25 per category, got {shares}"
+
+
+def test_select_subset_of_categories():
+    codes = np.array([0] * 50 + [1] * 50 + [2] * 50 + [3] * 50, dtype=np.int64)
+    sampler = CategoricalSampler(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=10,
+        codes=codes,
+        num_samples=2000,
+        categories=np.array([0, 2]),
+        rng=np.random.default_rng(0),
+    )
+    assert list(sampler.categories) == [0, 2]
+    chunks = _collect_chunks(sampler, len(codes))
+    drawn = {int(np.unique(codes[c])[0]) for c in chunks}
+    assert drawn == {0, 2}, f"only selected categories should be sampled, got {drawn}"
+
+
+def test_select_missing_category_raises():
+    codes = np.repeat([0, 1], 50)
+    with pytest.raises(ValueError, match=r"\[5\].*not present in codes"):
+        CategoricalSampler(
+            chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=50, categories=np.array([0, 5])
+        )
+
+
+def test_subset_ignores_short_runs_of_unselected_categories():
+    # cat 1 has a too-short run, but we only sample cats 0 and 2 -> must NOT raise.
+    codes = np.array([0] * 30 + [1] * 3 + [2] * 30, dtype=np.int64)
+    sampler = CategoricalSampler(
+        chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=100, categories=np.array([0, 2])
+    )
+    assert list(sampler.categories) == [0, 2]
+    # but selecting the offending category surfaces the run-length rule
+    with pytest.raises(ValueError, match="at least chunk_size"):
+        CategoricalSampler(
+            chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=100, categories=np.array([1])
+        )
+
+
+def test_weights_align_with_selected_subset():
+    codes = np.array([0] * 50 + [1] * 50 + [2] * 50, dtype=np.int64)
+    sampler = CategoricalSampler(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=10,
+        codes=codes,
+        num_samples=40_000,
+        categories=np.array([0, 2]),
+        category_weights=np.array([3.0, 1.0]),  # aligned with [0, 2] -> 0.75 / 0.25
+        rng=np.random.default_rng(0),
+    )
+    assert np.allclose(_chunk_shares(sampler, codes), [0.75, 0.25], atol=0.02)
+
+
+def _chunk_shares(sampler: CategoricalSampler, codes: np.ndarray) -> np.ndarray:
+    chunks = _collect_chunks(sampler, len(codes))
+    cats = np.array(_chunk_categories(chunks, codes))
+    _, counts = np.unique(cats, return_counts=True)
+    return counts / counts.sum()
+
+
+def test_proportional_sampling_via_weights():
+    # "proportional" is just weights == per-category observation counts.
+    codes = np.array([0] * 300 + [1] * 100, dtype=np.int64)  # 75% / 25%
+    sampler = CategoricalSampler(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=10,
+        codes=codes,
+        num_samples=40_000,
+        category_weights=np.bincount(codes),  # [300, 100] -> 0.75 / 0.25
+        rng=np.random.default_rng(0),
+    )
+    assert np.allclose(_chunk_shares(sampler, codes), [0.75, 0.25], atol=0.02)
+
+
+def test_explicit_category_weights():
+    codes = np.array([0] * 100 + [1] * 100 + [2] * 100, dtype=np.int64)
+    sampler = CategoricalSampler(
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=10,
+        codes=codes,
+        num_samples=40_000,
+        category_weights=np.array([6.0, 3.0, 1.0]),  # -> 0.6 / 0.3 / 0.1
+        rng=np.random.default_rng(0),
+    )
+    assert list(sampler.categories) == [0, 1, 2]
+    assert np.allclose(_chunk_shares(sampler, codes), [0.6, 0.3, 0.1], atol=0.02)
+
+
+@pytest.mark.parametrize(
+    ("weights", "match"),
+    [
+        pytest.param(np.array([1.0, 1.0, 1.0]), "must align with categories", id="wrong_shape"),
+        pytest.param(np.array([1.0, -1.0]), "non-negative", id="negative"),
+        pytest.param(np.array([0.0, 0.0]), "not all zero", id="all_zero"),
+    ],
+)
+def test_invalid_category_weights(weights: np.ndarray, match: str):
+    codes = np.repeat([0, 1], 50)
+    with pytest.raises(ValueError, match=match):
+        CategoricalSampler(
+            chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=50, category_weights=weights
+        )
 
 
 @pytest.mark.parametrize(

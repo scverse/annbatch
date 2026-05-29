@@ -11,9 +11,6 @@ A whole epoch's chunks are then drawn in one vectorized numpy pass -- no python
 loop over categories, no per-category :class:`numpy.random.Generator`, and memory
 that scales with the number of *runs* (``<= n_obs / chunk_size``) rather than with
 ``n_categories * n_obs``.
-
-Only uniform balancing (each category drawn equally often) is implemented for now,
-to keep the comparison with :class:`~annbatch.samplers.FragmentedRandomSampler` simple.
 """
 
 from __future__ import annotations
@@ -38,8 +35,16 @@ class CategoricalSampler(Sampler):
 
     Every chunk that is yielded lies entirely within a single category, so each
     on-disk read stays contiguous *and* its category label is known for free.
-    Categories are drawn uniformly (each equally often, regardless of size); the
-    distribution *within* a category is uniform over its valid chunk-start positions.
+    The distribution *within* a category is uniform over its valid chunk-start
+    positions; the distribution *over* categories is uniform by default and can
+    be reshaped with ``category_weights`` (e.g. pass per-category observation
+    counts for proportional sampling).
+
+    **Run-length rule.** Every contiguous run of a category must be at least
+    ``chunk_size`` observations long. Otherwise no chunk-size read could ever
+    land inside it, so rather than silently ignoring such a run the sampler
+    raises at construction and names the offending categories. Re-chunk the data
+    (so each category's fragments are large enough) or lower ``chunk_size``.
 
     Sampling is with replacement (chunks are drawn independently), mirroring
     :class:`~annbatch.samplers.FragmentedRandomSampler`. ``num_samples`` controls
@@ -59,9 +64,20 @@ class CategoricalSampler(Sampler):
         Integer category code per observation, e.g. ``df["cell_type"].cat.codes``
         from the input dataframe. Length must equal the loader's ``n_obs``.
         Codes do not need to be contiguous on the obs axis -- a category may be
-        spread across many runs (fragments).
+        spread across many runs (fragments) -- but every run must be at least
+        ``chunk_size`` long (see the run-length rule above).
     num_samples
         Total number of observations to draw per epoch.
+    categories
+        Optional subset of category codes to sample from. When ``None`` (the
+        default) every category present in ``codes`` is sampled. Requested codes
+        must exist in ``codes``, and the run-length rule is only enforced for the
+        selected categories (a short run in a category you do not sample is fine).
+    category_weights
+        Optional unnormalized weights aligned with :attr:`categories` controlling
+        how often each category is drawn. When ``None`` (the default) categories
+        are drawn uniformly. For proportional (≈ plain global random) sampling,
+        pass each category's observation count, e.g. ``np.bincount(codes)[sampler.categories]``.
     drop_last
         Whether to drop the last incomplete batch.
     rng
@@ -82,6 +98,8 @@ class CategoricalSampler(Sampler):
         *,
         codes: np.ndarray,
         num_samples: int,
+        categories: np.ndarray | None = None,
+        category_weights: np.ndarray | None = None,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
@@ -97,9 +115,10 @@ class CategoricalSampler(Sampler):
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
 
-        self._build_runs(codes, chunk_size)
+        self._build_runs(codes, chunk_size, categories)
+        self._build_category_probs(category_weights)
 
-    def _build_runs(self, codes: np.ndarray, chunk_size: int) -> None:
+    def _build_runs(self, codes: np.ndarray, chunk_size: int, categories: np.ndarray | None) -> None:
         """RLE the codes and precompute the per-category prefix-sum of chunk positions."""
         # contiguous runs of identical category code
         boundaries = np.flatnonzero(np.diff(codes)) + 1
@@ -107,32 +126,59 @@ class CategoricalSampler(Sampler):
         run_len = np.concatenate([boundaries, np.array([codes.shape[0]])]).astype(np.int64) - run_start
         run_cat = codes[run_start]
 
-        # only runs that can host a full chunk contribute (the >= chunk_size invariant).
-        # runs shorter than chunk_size are dropped -- see the design note in the PR thread.
-        keep = run_len >= chunk_size
-        run_start, run_len, run_cat = run_start[keep], run_len[keep], run_cat[keep]
+        # restrict to the requested subset of categories, if any
+        if categories is not None:
+            categories = np.asarray(categories)
+            missing = np.setdiff1d(categories, np.unique(codes))
+            if missing.size:
+                raise ValueError(f"Requested categories {missing.tolist()} are not present in codes.")
+            keep = np.isin(run_cat, categories)
+            run_start, run_len, run_cat = run_start[keep], run_len[keep], run_cat[keep]
+        if run_cat.size == 0:
+            raise ValueError("No categories to sample from.")
+
+        # run-length rule: every (selected) run must hold at least one full chunk.
+        too_short = run_len < chunk_size
+        if np.any(too_short):
+            bad = np.unique(run_cat[too_short])
+            raise ValueError(
+                f"Every contiguous run must be at least chunk_size ({chunk_size}) observations long, "
+                f"but {int(too_short.sum())} run(s) are shorter (categories {bad.tolist()}). "
+                "Re-chunk the data so each category's fragments are large enough, or lower chunk_size."
+            )
         n_pos = run_len - chunk_size + 1  # number of valid chunk-start positions in the run
 
         # group runs by category so each category owns a contiguous span of `cum`
         order = np.argsort(run_cat, kind="stable")
-        run_start, run_cat, n_pos = run_start[order], run_cat[order], n_pos[order]
+        run_start, run_cat, run_len, n_pos = run_start[order], run_cat[order], run_len[order], n_pos[order]
 
         cum = np.concatenate([np.array([0], dtype=np.int64), np.cumsum(n_pos)])
         cat_ids, first = np.unique(run_cat, return_index=True)
         last = np.append(first[1:], len(run_cat))
 
-        if cat_ids.size == 0:
-            raise ValueError(f"No category has a run of at least chunk_size ({chunk_size}) observations.")
-
         self._run_start = run_start
         self._cum = cum
-        self._cat_ids = cat_ids  # category codes that have at least one full-chunk run
+        self._cat_ids = cat_ids
         self._cat_base = cum[first]  # offset into `cum` where each category begins
         self._cat_total = cum[last] - cum[first]  # # of valid chunk positions per category
 
+    def _build_category_probs(self, category_weights: np.ndarray | None) -> None:
+        if category_weights is None:
+            weights = np.ones(self._cat_ids.shape, dtype=float)
+        else:
+            weights = np.asarray(category_weights, dtype=float)
+            if weights.shape != self._cat_ids.shape:
+                raise ValueError(
+                    f"category_weights must align with categories (expected shape {self._cat_ids.shape}, "
+                    f"got {weights.shape}). See the `categories` property for the expected order."
+                )
+        if np.any(weights < 0) or weights.sum() == 0:
+            raise ValueError("category_weights must be non-negative and not all zero.")
+        self._probs = weights / weights.sum()
+
     @property
     def categories(self) -> np.ndarray:
-        """Category codes this sampler draws from."""
+        """Category codes this sampler draws from, in the order ``category_weights`` expects."""
         return self._cat_ids
 
     @property
@@ -192,8 +238,8 @@ class CategoricalSampler(Sampler):
         if remainder > 0 and not self._drop_last:
             n_chunks += 1
 
-        # 1) pick a category for each chunk uniformly
-        cat_of_draw = self._rng.integers(len(self._cat_ids), size=n_chunks)
+        # 1) pick a category for each chunk according to the sampling policy
+        cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_chunks, p=self._probs)
 
         # 2) one uniform draw within each chosen category's flat span of valid positions
         local_off = (self._rng.random(n_chunks) * self._cat_total[cat_of_draw]).astype(np.int64)
