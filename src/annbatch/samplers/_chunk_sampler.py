@@ -82,7 +82,7 @@ class _ChunkSampler(Sampler):
         return self._num_samples or self._resolve_mask_size(n_obs)
 
     def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
-        return self._mask.start or 0, self._mask.stop or n_obs
+        return validate_mask_n_obs_and_resolve(self._mask, n_obs)
 
     def _resolve_mask_size(self, n_obs: int) -> int:
         s, e = self._resolve_start_stop(n_obs)
