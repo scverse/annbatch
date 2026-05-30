@@ -123,9 +123,6 @@ class CategoricalSampler(Sampler):
         rng: np.random.Generator | None = None,
     ):
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        if mask is None:
-            mask = slice(0, None)
-        start, stop = validate_mask_n_obs_and_resolve(mask, self._n_obs)
         codes = np.asarray(codes)
         if codes.ndim != 1:
             raise ValueError("codes must be a 1D array of category codes (one per observation).")
@@ -136,6 +133,10 @@ class CategoricalSampler(Sampler):
         self._num_samples = num_samples
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
+
+        if mask is None:
+            mask = slice(0, None)
+        start, stop = validate_mask_n_obs_and_resolve(mask, self._n_obs)
         self._mask = slice(start, stop)
 
         # the active categories and their weights are mask-independent, validated once here
