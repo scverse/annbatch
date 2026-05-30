@@ -79,13 +79,46 @@ def test_validate_rejects_n_obs_mismatch():
         sampler.validate(n_obs=999)
 
 
-def test_mask_property_not_supported():
-    codes = np.repeat([0, 1], 50)
-    sampler = CategoricalSampler(chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=50)
-    with pytest.raises(NotImplementedError, match="mask property"):
-        _ = sampler.mask
-    with pytest.raises(NotImplementedError, match="mask property"):
-        sampler.mask = slice(0, 10)
+def test_mask_restricts_range():
+    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
+    sampler = CategoricalSampler(
+        chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=500, mask=slice(0, 100)
+    )
+    chunks = _collect_chunks(sampler, len(codes))
+    assert all(0 <= c.start and c.stop <= 100 for c in chunks), "chunks must stay within the mask range"
+    assert {int(np.unique(codes[c])[0]) for c in chunks} == {0}
+
+
+def test_mask_settable_after_construction_and_cached(monkeypatch):
+    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
+    sampler = CategoricalSampler(chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=500)
+
+    # count how often the RLE is actually rebuilt
+    builds = {"n": 0}
+    original = sampler._ensure_runs.__func__
+
+    def counting_ensure(self, n_obs):
+        before = self._built_range
+        original(self, n_obs)
+        if self._built_range != before:
+            builds["n"] += 1
+
+    monkeypatch.setattr(type(sampler), "_ensure_runs", counting_ensure)
+
+    sampler.mask = slice(0, 100)
+    drawn_first = {int(np.unique(codes[c])[0]) for c in _collect_chunks(sampler, len(codes))}
+    assert drawn_first == {0}
+    rebuilds_after_first = builds["n"]
+
+    # re-sampling the same mask must not rebuild
+    _collect_chunks(sampler, len(codes))
+    assert builds["n"] == rebuilds_after_first, "same mask range must hit the cache"
+
+    # a new mask range rebuilds exactly once and changes what is sampled
+    sampler.mask = slice(100, 200)
+    drawn_second = {int(np.unique(codes[c])[0]) for c in _collect_chunks(sampler, len(codes))}
+    assert drawn_second == {1}
+    assert builds["n"] == rebuilds_after_first + 1, "a new mask range must rebuild exactly once"
 
 
 def test_multiple_workers_not_supported():
