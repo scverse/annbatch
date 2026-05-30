@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._utils import get_torch_worker_info, iter_from_chunks
+from annbatch.samplers._utils import (
+    get_torch_worker_info,
+    iter_from_chunks,
+    validate_chunk_batch_preload_sizes,
+    validate_mask_and_resolve,
+    validate_mask_n_obs_and_resolve,
+)
 from annbatch.utils import _spawn_worker_rng, check_lt_1
 
 if TYPE_CHECKING:
