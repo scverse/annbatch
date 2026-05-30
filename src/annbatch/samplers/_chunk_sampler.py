@@ -47,17 +47,10 @@ class _ChunkSampler(Sampler):
     ):
         if num_samples is not None:
             check_lt_1([num_samples], ["num_samples"])
-
         if mask is None:
             mask = slice(0, None)
-        if mask.step is not None and mask.step != 1:
-            raise ValueError(f"mask.step must be 1, but got {mask.step}")
-        start, stop = mask.start or 0, mask.stop
-        if start < 0:
-            raise ValueError("mask.start must be >= 0")
-        if stop is not None and start >= stop:
-            raise ValueError("mask.start must be < mask.stop when mask.stop is specified")
 
+        start, stop = validate_mask_and_resolve(mask)
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
         self._rng = rng or np.random.default_rng()
         self._replacement = replacement
@@ -106,14 +99,7 @@ class _ChunkSampler(Sampler):
         ValueError
             If the sampler configuration is invalid for the given n_obs.
         """
-        start, stop = self._resolve_start_stop(n_obs)
-        if stop > n_obs:
-            raise ValueError(
-                f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
-                "The sampler range must be within the loader's observations."
-            )
-        if start >= stop:
-            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+        _ = validate_mask_n_obs_and_resolve(self._mask, n_obs)
         num_samples = self._resolve_num_samples(n_obs)
         mask_size = self._resolve_mask_size(n_obs)
         if not self._replacement and num_samples > mask_size:
@@ -346,3 +332,30 @@ def validate_chunk_batch_preload_sizes(
             "chunk_size * preload_nchunks must be divisible by batch_size. "
             f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
         )
+
+
+def validate_mask_and_resolve(mask: slice) -> tuple[int, int]:
+    """Validate a sampler mask against basic criteria. Does not check mask.stop against n_obs."""
+    if mask.step is not None and mask.step != 1:
+        raise ValueError(f"mask.step must be 1, but got {mask.step}")
+    start, stop = mask.start or 0, mask.stop
+    if start < 0:
+        raise ValueError("mask.start must be >= 0")
+    if stop is not None and start >= stop:
+        raise ValueError("mask.start must be < mask.stop when mask.stop is specified")
+    return start, stop
+
+
+def validate_mask_n_obs_and_resolve(mask: slice, n_obs: int) -> tuple[int, int]:
+    """Validate a sampler mask against n_obs and basic criteria."""
+    start, stop = validate_mask_and_resolve(mask)
+    if stop is None:
+        stop = n_obs
+    if stop > n_obs:
+        raise ValueError(
+            f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
+            "The sampler range must be within the loader's observations."
+        )
+    if start >= stop:
+        raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+    return start, stop

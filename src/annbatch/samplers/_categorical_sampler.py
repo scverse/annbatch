@@ -21,7 +21,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._chunk_sampler import iter_from_chunks, validate_chunk_batch_preload_sizes
+from annbatch.samplers._chunk_sampler import (
+    iter_from_chunks,
+    validate_chunk_batch_preload_sizes,
+    validate_mask_n_obs_and_resolve,
+)
 from annbatch.samplers._utils import get_torch_worker_info
 
 if TYPE_CHECKING:
@@ -119,7 +123,9 @@ class CategoricalSampler(Sampler):
         rng: np.random.Generator | None = None,
     ):
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-
+        if mask is None:
+            mask = slice(0, None)
+        start, stop = validate_mask_n_obs_and_resolve(mask, self._n_obs)
         codes = np.asarray(codes)
         if codes.ndim != 1:
             raise ValueError("codes must be a 1D array of category codes (one per observation).")
@@ -130,8 +136,7 @@ class CategoricalSampler(Sampler):
         self._num_samples = num_samples
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
-        if mask is not None:
-            self.mask = mask
+        self._mask = slice(start, stop)
 
         # the active categories and their weights are mask-independent, validated once here
         self._build_active_categories(codes, selected_categories, category_weights)
@@ -172,12 +177,9 @@ class CategoricalSampler(Sampler):
         self._active_weights = weights
         self._active_probs = weights / weights.sum()  # used directly when no mask hides categories
 
-    def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
-        return self._mask.start or 0, self._mask.stop or n_obs
-
     def _ensure_runs(self, n_obs: int) -> None:
         """Build (or reuse) the RLE for the current mask range, cached on ``(start, stop)``."""
-        start, stop = self._resolve_start_stop(n_obs)
+        start, stop = validate_mask_n_obs_and_resolve(self.mask, n_obs)
         if self._built_range == (start, stop):
             return
 
