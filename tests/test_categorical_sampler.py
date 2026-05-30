@@ -201,10 +201,9 @@ def test_select_subset_of_categories():
         batch_size=10,
         codes=codes,
         num_samples=2000,
-        categories=np.array([0, 2]),
+        selected_categories=np.array([0, 2]),
         rng=np.random.default_rng(0),
     )
-    assert list(sampler.categories) == [0, 2]
     chunks = _collect_chunks(sampler, len(codes))
     drawn = {int(np.unique(codes[c])[0]) for c in chunks}
     assert drawn == {0, 2}, f"only selected categories should be sampled, got {drawn}"
@@ -214,21 +213,36 @@ def test_select_missing_category_raises():
     codes = np.repeat([0, 1], 50)
     with pytest.raises(ValueError, match=r"\[5\].*not present in codes"):
         CategoricalSampler(
-            chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=50, categories=np.array([0, 5])
+            chunk_size=10,
+            preload_nchunks=2,
+            batch_size=10,
+            codes=codes,
+            num_samples=50,
+            selected_categories=np.array([0, 5]),
         )
 
 
 def test_subset_ignores_short_runs_of_unselected_categories():
     # cat 1 has a too-short run, but we only sample cats 0 and 2 -> must NOT raise.
     codes = np.array([0] * 30 + [1] * 3 + [2] * 30, dtype=np.int64)
-    sampler = CategoricalSampler(
-        chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=100, categories=np.array([0, 2])
+    # selecting only 0 and 2 must NOT raise even though category 1 has a short run
+    CategoricalSampler(
+        chunk_size=10,
+        preload_nchunks=2,
+        batch_size=10,
+        codes=codes,
+        num_samples=100,
+        selected_categories=np.array([0, 2]),
     )
-    assert list(sampler.categories) == [0, 2]
     # but selecting the offending category surfaces the run-length rule
     with pytest.raises(ValueError, match="at least chunk_size"):
         CategoricalSampler(
-            chunk_size=10, preload_nchunks=2, batch_size=10, codes=codes, num_samples=100, categories=np.array([1])
+            chunk_size=10,
+            preload_nchunks=2,
+            batch_size=10,
+            codes=codes,
+            num_samples=100,
+            selected_categories=np.array([1]),
         )
 
 
@@ -240,7 +254,7 @@ def test_weights_align_with_selected_subset():
         batch_size=10,
         codes=codes,
         num_samples=40_000,
-        categories=np.array([0, 2]),
+        selected_categories=np.array([0, 2]),
         category_weights=np.array([3.0, 1.0]),  # aligned with [0, 2] -> 0.75 / 0.25
         rng=np.random.default_rng(0),
     )
@@ -280,7 +294,7 @@ def test_explicit_category_weights():
         category_weights=np.array([6.0, 3.0, 1.0]),  # -> 0.6 / 0.3 / 0.1
         rng=np.random.default_rng(0),
     )
-    assert list(sampler.categories) == [0, 1, 2]
+    # weights align with the sorted unique categories [0, 1, 2] -> 0.6 / 0.3 / 0.1
     assert np.allclose(_chunk_shares(sampler, codes), [0.6, 0.3, 0.1], atol=0.02)
 
 

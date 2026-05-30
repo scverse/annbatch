@@ -76,16 +76,18 @@ class CategoricalSampler(Sampler):
         ``chunk_size`` long (see the run-length rule above).
     num_samples
         Total number of observations to draw per epoch.
-    categories
-        Optional subset of category codes to sample from. When ``None`` (the
-        default) every category present in ``codes`` is sampled. Requested codes
-        must exist in ``codes``.
+    selected_categories
+        Optional subset of categories to sample from. When ``None`` (the default)
+        every category present in ``codes`` is sampled. Selected categories must
+        exist in ``codes``.
     category_weights
-        Optional unnormalized weights aligned with :attr:`categories` controlling
-        how often each category is drawn. When ``None`` (the default) categories
-        are drawn uniformly. For proportional (≈ plain global random) sampling,
-        pass each category's observation count, e.g. ``np.bincount(codes)[sampler.categories]``.
-        Weights are defined over the active categories; when a mask hides some of
+        Optional unnormalized weights controlling how often each category is drawn,
+        aligned with the sorted unique selected categories
+        (``np.unique(selected_categories)``, or ``np.unique(codes)`` when
+        ``selected_categories`` is ``None``). When ``None`` (the default) categories
+        are drawn uniformly. For proportional (≈ plain global random) sampling pass
+        each category's observation count, e.g. ``np.bincount(codes)[np.unique(codes)]``.
+        Weights are defined over the selected categories; when a mask hides some of
         them, the remaining weights are renormalized.
     mask
         Optional contiguous observation range to restrict sampling to. Defaults to
@@ -110,7 +112,7 @@ class CategoricalSampler(Sampler):
         *,
         codes: np.ndarray,
         num_samples: int,
-        categories: np.ndarray | None = None,
+        selected_categories: np.ndarray | None = None,
         category_weights: np.ndarray | None = None,
         mask: slice | None = None,
         drop_last: bool = False,
@@ -132,25 +134,25 @@ class CategoricalSampler(Sampler):
             self.mask = mask
 
         # the active categories and their weights are mask-independent, validated once here
-        self._build_active_categories(codes, categories, category_weights)
+        self._build_active_categories(codes, selected_categories, category_weights)
 
         # eager build for the (default or constructor) range so run-length errors surface early
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
     def _build_active_categories(
-        self, codes: np.ndarray, categories: np.ndarray | None, category_weights: np.ndarray | None
+        self, codes: np.ndarray, selected_categories: np.ndarray | None, category_weights: np.ndarray | None
     ) -> None:
         """Resolve the set of sampleable categories and their (mask-independent) weights."""
         present = np.unique(codes)
-        if categories is None:
+        if selected_categories is None:
             active = present
         else:
-            categories = np.asarray(categories)
-            missing = np.setdiff1d(categories, present)
+            selected_categories = np.asarray(selected_categories)
+            missing = np.setdiff1d(selected_categories, present)
             if missing.size:
-                raise ValueError(f"Requested categories {missing.tolist()} are not present in codes.")
-            active = np.unique(categories)
+                raise ValueError(f"Selected categories {missing.tolist()} are not present in codes.")
+            active = np.unique(selected_categories)
         if active.size == 0:
             raise ValueError("No categories to sample from.")
 
@@ -226,11 +228,6 @@ class CategoricalSampler(Sampler):
         """Weights for the categories present in the current range, renormalized."""
         weights = self._active_weights[np.searchsorted(self._active_categories, cat_ids)]
         return weights / weights.sum()
-
-    @property
-    def categories(self) -> np.ndarray:
-        """Active categories this sampler draws from, in the order ``category_weights`` expects."""
-        return self._active_categories
 
     @property
     def batch_size(self) -> int:
