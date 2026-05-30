@@ -23,28 +23,19 @@ if TYPE_CHECKING:
 
 
 class CategoricalSampler(Sampler):
-    """Category-coherent random sampler over a fragmented categorical column.
+    """Categorical chunk sampler.
 
-    Every chunk that is yielded lies entirely within a single category, so each
-    on-disk read stays contiguous *and* its category label is known for free.
-    The distribution *within* a category is uniform over its valid chunk-start
-    positions; the distribution *over* categories is uniform by default and can
-    be reshaped with ``category_weights`` (e.g. pass per-category observation
-    counts for proportional sampling).
+    Upon initialization, the sampler is provided with an integer category code for each
+    observation, e.g. from a categorical column in the input dataframe. A Run-length encoding (RLE) of the codes
+    is built initially for the range specified by the ``mask`` (the whole dataset by default) and
+    cached for reuse on subsequent calls to ``_sample`` with the same or narrower mask.
+    The RLE is used to efficiently draw valid chunk start positions.
 
     **Run-length rule.** Every contiguous run of a category must be at least
-    ``chunk_size`` observations long. Otherwise no chunk-size read could ever
-    land inside it, so rather than silently ignoring such a run the sampler
-    raises and names the offending categories. Re-chunk the data (so each
-    category's fragments are large enough) or lower ``chunk_size``.
+    ``chunk_size`` observations long.
 
-    **Mask.** The inherited :attr:`mask` restricts sampling to a contiguous
-    observation range ``[start, stop)``; the run-length encoding is rebuilt over
-    ``codes[start:stop]`` (with chunk starts still in global coordinates). The mask
-    may be reassigned after construction -- e.g. by
-    :class:`~annbatch.samplers.DistributedSampler` -- and the encoding is cached on
-    the resolved range, so reassigning the same mask costs nothing and a genuinely
-    new range triggers exactly one rebuild.
+    **Mask.** Whenever the range specified by the ``mask`` has been updated,
+
 
     Sampling is with replacement (chunks are drawn independently), mirroring
     :class:`~annbatch.samplers.FragmentedRandomSampler`. ``num_samples`` controls
