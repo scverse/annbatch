@@ -21,12 +21,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._chunk_sampler import (
+from annbatch.samplers._utils import (
+    check_lt_1,
+    get_torch_worker_info,
     iter_from_chunks,
     validate_chunk_batch_preload_sizes,
     validate_mask_n_obs_and_resolve,
 )
-from annbatch.samplers._utils import get_torch_worker_info
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -122,21 +123,22 @@ class CategoricalSampler(Sampler):
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
-        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        codes = np.asarray(codes)
+        check_lt_1([num_samples], ["num_samples"])
         if codes.ndim != 1:
             raise ValueError("codes must be a 1D array of category codes (one per observation).")
+        n_obs = codes.shape[0]
+
+        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
+        if mask is None:
+            mask = slice(0, None)
+        start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
 
         self._codes = codes
-        self._n_obs = int(codes.shape[0])
+        self._n_obs = n_obs
         self._rng = rng or np.random.default_rng()
         self._num_samples = num_samples
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
-
-        if mask is None:
-            mask = slice(0, None)
-        start, stop = validate_mask_n_obs_and_resolve(mask, self._n_obs)
         self._mask = slice(start, stop)
 
         # the active categories and their weights are mask-independent, validated once here
