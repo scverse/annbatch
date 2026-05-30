@@ -1,17 +1,4 @@
-"""CategoricalSampler -- single-pass, vectorized categorical chunk sampler.
-
-This is the "one sampler, not N composed samplers" alternative to wrapping a
-:class:`~annbatch.samplers.FragmentedRandomSampler` per category. Instead of
-holding a list of slices (or a per-category sampler object) it keeps only:
-
-* the run-length encoding (RLE) of contiguous category runs as numpy int arrays, and
-* per-category offsets into a single flat prefix-sum of valid chunk-start positions.
-
-A whole epoch's chunks are then drawn in one vectorized numpy pass -- no python
-loop over categories, no per-category :class:`numpy.random.Generator`, and memory
-that scales with the number of *runs* (``<= n_obs / chunk_size``) rather than with
-``n_categories * n_obs``.
-"""
+"""CategoricalSampler -- categorical chunk sampler."""
 
 from __future__ import annotations
 
