@@ -25,21 +25,35 @@ if TYPE_CHECKING:
 class CategoricalSampler(Sampler):
     """Categorical chunk sampler.
 
-    Upon initialization, the sampler is provided with an integer category code for each
-    observation, e.g. from a categorical column in the input dataframe. A Run-length encoding (RLE) of the codes
-    is built initially for the range specified by the ``mask`` (the whole dataset by default) and
-    cached for reuse on subsequent calls to ``_sample`` with the same or narrower mask.
-    The RLE is used to efficiently draw valid chunk start positions.
+    The sampler is given an integer category code per observation (e.g. from a
+    categorical column). Every chunk it yields lies entirely within a single
+    category, so each on-disk read stays contiguous and the chunk's category is
+    known for free. A run-length encoding (RLE) of the codes is built for the
+    range selected by :attr:`mask` (the whole dataset by default) and a full
+    epoch of chunks is drawn in one vectorized pass, so memory scales with the
+    number of runs (``<= n_obs / chunk_size``), not the number of categories.
 
-    **Run-length rule.** Every contiguous run of a category must be at least
-    ``chunk_size`` observations long.
+    The distribution *within* a category is uniform over its valid chunk-start
+    positions; the distribution *over* categories is uniform by default and is
+    reshaped by ``category_weights``.
 
-    **Mask.** Whenever the range specified by the ``mask`` has been updated,
+    **Category selection.** A category with weight ``0`` is excluded: it is never
+    sampled and is exempt from the run-length rule. There is no separate
+    selection argument -- set a weight to ``0`` to drop a category.
 
+    **Run-length rule.** Every contiguous run of a *non-excluded* category must be
+    at least ``chunk_size`` observations long; otherwise no chunk could fit inside
+    it and the sampler raises, naming the offending categories.
 
-    Sampling is with replacement (chunks are drawn independently), mirroring
-    :class:`~annbatch.samplers.FragmentedRandomSampler`. ``num_samples`` controls
-    the total number of observations drawn per epoch.
+    **Mask.** Assigning :attr:`mask` restricts sampling to a contiguous range
+    ``[start, stop)``. The RLE is rebuilt over ``codes[start:stop]`` (chunk starts
+    stay in global coordinates) and the build is cached on the resolved range, so
+    reassigning the same mask is free and a new range rebuilds exactly once. The
+    weights of the categories still present in the range are renormalized; if no
+    category with positive weight remains in the range, assigning the mask raises.
+
+    Sampling is with replacement (chunks are drawn independently). ``num_samples``
+    controls the total number of observations drawn per epoch.
 
     Multiple workers are not supported with this sampler.
 
@@ -55,23 +69,19 @@ class CategoricalSampler(Sampler):
         Integer category code per observation, e.g. ``df["cell_type"].cat.codes``
         from the input dataframe. Length must equal the loader's ``n_obs``.
         Codes do not need to be contiguous on the obs axis -- a category may be
-        spread across many runs (fragments) -- but every run must be at least
-        ``chunk_size`` long (see the run-length rule above).
+        spread across many runs -- but every run of a non-excluded category must
+        be at least ``chunk_size`` long (see the run-length rule above).
     num_samples
         Total number of observations to draw per epoch.
-    selected_categories
-        Optional subset of categories to sample from. When ``None`` (the default)
-        every category present in ``codes`` is sampled. Selected categories must
-        exist in ``codes``.
     category_weights
-        Optional unnormalized weights controlling how often each category is drawn,
-        aligned with the sorted unique selected categories
-        (``np.unique(selected_categories)``, or ``np.unique(codes)`` when
-        ``selected_categories`` is ``None``). When ``None`` (the default) categories
-        are drawn uniformly. For proportional (≈ plain global random) sampling pass
-        each category's observation count, e.g. ``np.bincount(codes)[np.unique(codes)]``.
-        Weights are defined over the selected categories; when a mask hides some of
-        them, the remaining weights are renormalized.
+        Optional weights, one per category in ``np.unique(codes)``
+        (so ``len(category_weights) == n_categories``), controlling how often each
+        category is drawn. A non-positive weight excludes that category entirely.
+        When ``None`` (the default) every category is drawn uniformly. For proportional
+        (≈ plain global random) sampling pass each category's observation count,
+        e.g. ``np.bincount(codes)[np.unique(codes)]``. The weights are kept and,
+        whenever a mask narrows the range, the weights of the categories still
+        present are renormalized.
     mask
         Optional contiguous observation range to restrict sampling to. Defaults to
         the whole dataset.
@@ -95,16 +105,16 @@ class CategoricalSampler(Sampler):
         *,
         codes: np.ndarray,
         num_samples: int,
-        selected_categories: np.ndarray | None = None,
         category_weights: np.ndarray | None = None,
         mask: slice | None = None,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
         check_lt_1([num_samples], ["num_samples"])
+        codes = np.asarray(codes)
         if codes.ndim != 1:
             raise ValueError("codes must be a 1D array of category codes (one per observation).")
-        n_obs = codes.shape[0]
+        n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
         if mask is None:
@@ -119,44 +129,43 @@ class CategoricalSampler(Sampler):
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
         self._mask = slice(start, stop)
 
-        # the active categories and their weights are mask-independent, validated once here
-        self._build_active_categories(codes, selected_categories, category_weights)
+        # categories and their weights are mask-independent; kept so any mask can renormalize from them
+        self._build_categories(codes, category_weights)
 
         # eager build for the (default or constructor) range so run-length errors surface early
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
-    def _build_active_categories(
-        self, codes: np.ndarray, selected_categories: np.ndarray | None, category_weights: np.ndarray | None
-    ) -> None:
-        """Resolve the set of sampleable categories and their (mask-independent) weights."""
-        present = np.unique(codes)
-        if selected_categories is None:
-            active = present
-        else:
-            selected_categories = np.asarray(selected_categories)
-            missing = np.setdiff1d(selected_categories, present)
-            if missing.size:
-                raise ValueError(f"Selected categories {missing.tolist()} are not present in codes.")
-            active = np.unique(selected_categories)
-        if active.size == 0:
-            raise ValueError("No categories to sample from.")
-
+    def _build_categories(self, codes: np.ndarray, category_weights: np.ndarray | None) -> None:
+        """Resolve the (non-excluded) categories and their renormalizable weights."""
+        categories = np.unique(codes)  # one entry per category, sorted -- the weight alignment order
         if category_weights is None:
-            weights = np.ones(active.shape, dtype=float)
+            weights = np.ones(categories.shape, dtype=float)
         else:
             weights = np.asarray(category_weights, dtype=float)
-            if weights.shape != active.shape:
+            if weights.shape != categories.shape:
                 raise ValueError(
-                    f"category_weights must align with categories (expected shape {active.shape}, "
-                    f"got {weights.shape}). See the `categories` property for the expected order."
+                    f"category_weights must have one weight per category in np.unique(codes) "
+                    f"(expected shape {categories.shape}, got {weights.shape})."
                 )
-        if np.any(weights < 0) or weights.sum() == 0:
-            raise ValueError("category_weights must be non-negative and not all zero.")
+        active = weights > 0  # a non-positive weight excludes a category entirely
+        if not active.any():
+            raise ValueError("category_weights must have at least one positive weight.")
 
-        self._active_categories = active  # sorted unique category codes
-        self._active_weights = weights
-        self._active_probs = weights / weights.sum()  # used directly when no mask hides categories
+        self._active_categories = categories[active]  # sorted category codes that can be sampled
+        self._active_weights = weights[active]  # kept unnormalized so masked ranges renormalize from them
+        self._active_probs = self._active_weights / self._active_weights.sum()  # used as-is over the full range
+
+    @property
+    def mask(self) -> slice:
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        # resolve + eagerly rebuild so range errors (run-length, no active category) surface on assignment
+        start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
+        self._mask = slice(start, stop)
+        self._ensure_runs(self._n_obs)
 
     def _ensure_runs(self, n_obs: int) -> None:
         """Build (or reuse) the RLE for the current mask range, cached on ``(start, stop)``."""
@@ -171,20 +180,24 @@ class CategoricalSampler(Sampler):
         run_len = np.diff(edges)
         run_cat = masked[edges[:-1]]
 
-        # keep only runs of the active categories
+        # keep only runs of non-excluded categories; excluded (weight 0) runs are exempt from every check
         keep = np.isin(run_cat, self._active_categories)
         run_start, run_len, run_cat = run_start[keep], run_len[keep], run_cat[keep]
         if run_cat.size == 0:
-            raise ValueError("No categories to sample from in the current mask range.")
+            raise ValueError(
+                "No category with positive weight is present in the current mask range "
+                f"[{start}, {stop}); its renormalized weights would sum to zero."
+            )
 
-        # run-length rule: every (selected) run must hold at least one full chunk
+        # run-length rule: every kept run must hold at least one full chunk
         too_short = run_len < self._chunk_size
         if np.any(too_short):
             bad = np.unique(run_cat[too_short])
             raise ValueError(
                 f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
                 f"but {int(too_short.sum())} run(s) are shorter (categories {bad.tolist()}). "
-                "Re-chunk the data so each category's fragments are large enough, or lower chunk_size."
+                "Re-chunk the data so each category's runs are large enough, lower chunk_size, "
+                "or exclude these categories with a zero weight."
             )
         n_pos = run_len - self._chunk_size + 1  # number of valid chunk-start positions in the run
 
@@ -202,13 +215,13 @@ class CategoricalSampler(Sampler):
         self._cat_base = cum[first]  # offset into `cum` where each category begins
         self._cat_total = cum[last] - cum[first]  # # of valid chunk positions per category
         # over the full dataset every active category is present, so the precomputed probs apply;
-        # only a real mask (a narrower range) can hide categories and require renormalization
+        # only a narrower mask can hide categories and require renormalization
         is_full_range = start == 0 and stop == n_obs
         self._probs = self._active_probs if is_full_range else self._probs_for(cat_ids)
         self._built_range = (start, stop)
 
     def _probs_for(self, cat_ids: np.ndarray) -> np.ndarray:
-        """Weights for the categories present in the current range, renormalized."""
+        """Renormalized draw probabilities for the categories present in the current range."""
         weights = self._active_weights[np.searchsorted(self._active_categories, cat_ids)]
         return weights / weights.sum()
 
