@@ -69,7 +69,7 @@ def test_store_creation_no_warnings_with_custom_load(tmp_path: Path):
         shuffle_chunk_size=5,
         load_adata=lambda x: ad.AnnData(X=ad.io.read_elem(h5py.File(x)["X"])),
     )
-    assert len(k for k in ad.read_zarr(next(iter(collection))).layers.keys() if k is not None) == 0
+    assert len([k for k in ad.read_zarr(next(iter(collection))).layers.keys() if k is not None]) == 0
 
 
 def test_store_creation_path_added_to_obs(tmp_path: Path):
