@@ -192,7 +192,8 @@ def _estimate_bytes_per_obs_row(
     if adata.X is not None:
         elem_paths.append("X")
     for k in adata.layers.keys():
-        elem_paths.append(f"layers/{k}")
+        if k is not None:
+            elem_paths.append(f"layers/{k}")
     for k in adata.obsm.keys():
         elem_paths.append(f"obsm/{k}")
     elem_paths.append("obs")
