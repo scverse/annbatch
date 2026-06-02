@@ -78,20 +78,6 @@ sampler = ChunkSampler(..., rng=rng)
 Using `annbatch` with {class}`torch.utils.data.DataLoader` is neither explicitly supported nor guaranteed to behave as expected with respect to seeding and worker behavior.
 :::
 
-### Speed comparison to other dataloaders
-
-We provide a speed comparison to other comparable dataloaders below:
-
-<img src="_static/speed_comparision.png" alt="speed_comparison" width="400">
-
-We've run the above benchmark on an AWS `ml.m5.8xlarge` instance.
-The code to reproduce the above results can be found on LaminHub:
-
-* [Benchmark results](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/e6Ry7noc4Y0d)
-* [annbatch code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/yl0iTPhJjkqW)
-* [MappedCollection code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/YfzHfoomTkfu)
-* [scDataset code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/L6CAf9w0qdQj)
-
 ### Why data loading speed matters?
 
 Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer vision or natural language processing.
