@@ -1,138 +1,112 @@
-```{include} ../README.md
-:end-before: <!--FOOTER-->
+# annbatch
+
+A data loader and io utilities for mini-batched data loading of on-disk {mod}`anndata` files,
+co-developed by [Lamin Labs](https://lamin.ai/) and [scverse](https://scverse.org/).
+
+`annbatch` lets you train models on terabyte-scale collections of `AnnData` files that do not fit
+into memory, while keeping your GPU fed with high-throughput, shuffled mini-batches.
+
+```{image} _static/speed_comparision.png
+:alt: annbatch data-loading speed compared to other dataloaders
+:class: annbatch-hero
 ```
 
-## In Depth
+::::{grid} 1 2 2 3
+:gutter: 3
 
-Let's go through the above example:
+:::{grid-item-card} {octicon}`desktop-download;1.5em;sd-mr-1` Installation
+:link: installation
+:link-type: doc
 
-### Preprocessing
-
-```python
-colleciton = DatasetCollection("path/to/output/store.zarr").add_adatas(
-    adata_paths=[
-        "path/to/your/file1.h5ad",
-        "path/to/your/file2.h5ad"
-    ],
-    shuffle=True,  # shuffling is needed if you want to use chunked access
-)
-```
-
-First, you converted your existing `.h5ad` files into a zarr-backed anndata format.
-In the process, the data gets shuffled and is distributed across several anndata files.
-Shuffling is important to ensure model convergence, especially because of our contiguous data fetching scheme which is not perfectly random.
-The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
-See the [zarr docs on sharding][] for more information.
-For performance considerations, see our dedicated docs page: {doc}`preshuffling`.
-
-[zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
-
-
-### Data loading
-
-#### Chunked access
-
-```python
-# `use_collection` will automatically get everything in `X` and `obs` and yield it.
-ds = Loader(
-    batch_size=4096,
-    chunk_size=32,
-    preload_nchunks=256,
-).use_collection(collection)
-
-# Iterate over dataloader (plugin replacement for torch.utils.DataLoader)
-for batch in ds:
-    x, df, index = batch["X"], batch["obs"], batch["index"]
-```
-
-The data loader implements a chunked fetching strategy where `preload_nchunks` number of continguous-chunks of size `chunk_size` are loaded.
-`chunk_size` corresponds the number of rows of `anndata` store to load sequentially.
-
-For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader`.
-Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
-
-In order to take advantage of the sharded zarr files performance, though, locally, you *must* set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
-Using {mod}`zarr` on its own will not yield high performance for local filesystems.
-We have not tested remote data (i.e., using {func}`zarr.open` with a {class}`zarr.storage.ObjectStore`) but because we use {mod}`zarr`, this data loader should also work over cloud connections via relevant zarr stores.
-Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of non-local stores.
-
-#### User configurable sampling strategy
-
-We support user-configurable sampling strategies like weighting or sampling by implementing the abstract {class}`annbatch.abc.Sampler`.
-
-Please open an issue if you want to contribute a new sampler to this repo.
-
-:::{warning}
-Provided implementations of {class}`~annbatch.abc.Sampler`s use NumPy's random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
-
-
-To control reproducibility, pass a seeded {class}`numpy.random.Generator` via the `rng` parameter:
-
-```python
-import numpy as np
-
-rng = np.random.default_rng(42)
-sampler = ChunkSampler(..., rng=rng)
-```
-
-Using `annbatch` with {class}`torch.utils.data.DataLoader` is neither explicitly supported nor guaranteed to behave as expected with respect to seeding and worker behavior.
+New to *annbatch*? Check out the installation guide and pick the right extras.
 :::
 
-### Speed comparison to other dataloaders
+:::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Quickstart
+:link: notebooks/example
+:link-type: doc
 
-We provide a speed comparison to other comparable dataloaders below:
+A hands-on notebook: convert your `.h5ad` files and stream shuffled mini-batches.
+:::
 
-<img src="_static/speed_comparision.png" alt="speed_comparison" width="400">
+:::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` Usage guide
+:link: usage
+:link-type: doc
 
-We've run the above benchmark on an AWS `ml.m5.8xlarge` instance.
-The code to reproduce the above results can be found on LaminHub:
+An in-depth tour of preprocessing, chunked loading, sampling and benchmarks.
+:::
 
-* [Benchmark results](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/e6Ry7noc4Y0d)
-* [annbatch code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/yl0iTPhJjkqW)
-* [MappedCollection code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/YfzHfoomTkfu)
-* [scDataset code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/L6CAf9w0qdQj)
+:::{grid-item-card} {octicon}`code-square;1.5em;sd-mr-1` API reference
+:link: api
+:link-type: doc
 
-### Why data loading speed matters?
+The API reference contains a detailed description of the *annbatch* API.
+:::
 
-Most models for scRNA-seq data are pretty small in terms of model size compared to models in other domains like computer vision or natural language processing.
-This size differential puts significantly more pressure on the data loading pipeline to fully utilize a modern GPU.
-Intuitively, if the model is small, doing the actual computation is relatively fast.
-Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster.
+:::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Discussion
+:link: https://discourse.scverse.org/
 
-As an illustrative, example let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
-Our example model has 20.000 input features and 100 output classes.
-We can now look how the total fit time changes with data loading speed:
+Need help? Reach out on the scverse forum to get your questions answered.
+:::
 
-<img src="_static/fit_time_vs_loading_speed.png" alt="fit_time_vs_loading_speed" width="400">
+:::{grid-item-card} {octicon}`mark-github;1.5em;sd-mr-1` GitHub
+:link: https://github.com/scverse/annbatch
 
-From the graph we can see that the fit time can be decreased substantially with faster data loading speeds (several orders of magnitude).
-E.g. we are able to reduce the fit time from ~280s for a data loading speed of ~1000 samples/sec to ~1.5s for a data loading speed of ~1.000.000 samples/sec.
-This speedup is more than 100x and shows the significant impact data loading has on total training time.
+Found a bug? Interested in contributing? Check out the source on GitHub.
+:::
 
-### When would you use this data laoder?
+::::
 
-As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a " foundation model").
-But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
-Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
-To accelerate reading the data into memory, you may still find {doc}`zarrs-python <zarrs:index>` in conjunction with sharding still helpful in the same way it accelerates io here.
-To this end, please have a look at [this gist](https://gist.github.com/ilan-gold/c73383def3798df2724405aa64e40c3d) comparing file loading speeds between {func}`anndata.io.read_zarr` and {func}`anndata.io.read_h5ad`.
-It highlights how {doc}`zarrs-python <zarrs:index>` and sharding can help there as well.
-However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
+## Citation
 
-```{include} ../README.md
-:start-after: <!--FOOTER-->
+If you use `annbatch` in your work, please cite the `annbatch` publication as follows:
+
+> **annbatch unlocks terabyte-scale training of biological data in anndata**
+>
+> Gold, I., Fischer, F., Arnoldt, L., Wolf, F. A., & Theis, F. J. (2026b). annbatch unlocks terabyte-scale training of biological data in anndata. arXiv (Cornell University). <https://doi.org/10.48550/arxiv.2604.01949>
+
+```{toctree}
+:caption: Getting started
+:hidden:
+:maxdepth: 1
+
+installation
+usage
 ```
 
 ```{toctree}
-:hidden: true
+:caption: Tutorials
+:hidden:
 :maxdepth: 1
 
-api.md
-zarr-configuration.md
-preshuffling.md
-custom-sampler.md
-changelog.md
-contributing.md
-references.md
-notebooks/index
+notebooks/example
+```
+
+```{toctree}
+:caption: Guide
+:hidden:
+:maxdepth: 1
+
+zarr-configuration
+preshuffling
+custom-sampler
+```
+
+```{toctree}
+:caption: API
+:hidden:
+:maxdepth: 2
+
+api
+```
+
+```{toctree}
+:caption: About
+:hidden:
+:maxdepth: 1
+
+changelog
+contributing
+references
+GitHub <https://github.com/scverse/annbatch>
+Discourse <https://discourse.scverse.org/>
 ```
