@@ -68,6 +68,14 @@ pip install "annbatch[zarrs,torch,cupy-cuda13]"
 ```
 (Note: Replace `cupy-cuda13` with the extra matching your local CUDA version)
 
+### Performance
+
+We provide a speed comparison to other comparable dataloaders below:
+
+<img src="https://raw.githubusercontent.com/scverse/anndata/main/docs/_static/speed_comparision.png" alt="speed_comparison" width="400">
+
+A more in-depth comparison and performance analysis is available in our paper (from which the above figure originates, see {ref}`our paper <citation>`).
+
 ## Detailed tutorial
 
 For a detailed tutorial, please see the [in-depth section of our docs][]
@@ -164,7 +172,7 @@ See the [changelog][].
 For questions and help requests, you can reach out in the [scverse discourse][].
 If you found a bug, please use the [issue tracker][].
 
-
+(citation)=
 ## Citation
 
 If you use `annbatch` in your work, please cite the `annbatch` publication as follows:
