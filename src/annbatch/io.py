@@ -5,6 +5,7 @@ import re
 import warnings
 from collections import defaultdict
 from functools import wraps
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
@@ -19,6 +20,7 @@ from anndata._core.sparse_dataset import BaseCompressedSparseDataset
 from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
 from humanfriendly import parse_size
+from packaging.version import Version
 from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec
 
@@ -35,7 +37,8 @@ V1_ENCODING = {"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1
 
 
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
-    adata = ad.experimental.read_lazy(x, load_annotation_index=False)
+    # https://github.com/scverse/anndata/issues/2475 for load_annotation_index
+    adata = ad.experimental.read_lazy(x, load_annotation_index=Version(version("pandas")) >= Version("3"))
     if not isinstance(x, zarr.Group | h5py.Group):
         group = (
             h5py.File(adata.file.filename, mode="r")
