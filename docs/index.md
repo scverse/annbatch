@@ -100,6 +100,8 @@ notebooks/example
 :hidden:
 :maxdepth: 1
 
+about/background
+about/cite
 GitHub <https://github.com/scverse/annbatch>
 Discourse <https://discourse.scverse.org/>
 ```
