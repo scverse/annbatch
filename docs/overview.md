@@ -1,6 +1,6 @@
-# Usage guide
+# Overview
 
-This guide walks through how `annbatch` works in depth.
+This page walks through how `annbatch` works in depth.
 For a hands-on, runnable version, see the {doc}`quickstart notebook <notebooks/example>`.
 
 ## Preprocessing

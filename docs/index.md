@@ -28,8 +28,8 @@ New to *annbatch*? Check out the installation guide and pick the right extras.
 A hands-on notebook: convert your `.h5ad` files and stream shuffled mini-batches.
 :::
 
-:::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` Usage guide
-:link: usage
+:::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` User guide
+:link: overview
 :link-type: doc
 
 An in-depth tour of preprocessing, chunked loading, sampling and benchmarks.
@@ -65,12 +65,26 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 > Gold, I., Fischer, F., Arnoldt, L., Wolf, F. A., & Theis, F. J. (2026b). annbatch unlocks terabyte-scale training of biological data in anndata. arXiv (Cornell University). <https://doi.org/10.48550/arxiv.2604.01949>
 
 ```{toctree}
-:caption: Getting started
+:caption: General
 :hidden:
 :maxdepth: 1
 
 installation
-usage
+api
+changelog
+contributing
+references
+```
+
+```{toctree}
+:caption: User guide
+:hidden:
+:maxdepth: 1
+
+overview
+zarr-configuration
+preshuffling
+custom-sampler
 ```
 
 ```{toctree}
@@ -82,31 +96,10 @@ notebooks/example
 ```
 
 ```{toctree}
-:caption: Guide
-:hidden:
-:maxdepth: 1
-
-zarr-configuration
-preshuffling
-custom-sampler
-```
-
-```{toctree}
-:caption: API
-:hidden:
-:maxdepth: 2
-
-api
-```
-
-```{toctree}
 :caption: About
 :hidden:
 :maxdepth: 1
 
-changelog
-contributing
-references
 GitHub <https://github.com/scverse/annbatch>
 Discourse <https://discourse.scverse.org/>
 ```
