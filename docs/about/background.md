@@ -34,6 +34,15 @@ consider making a tax-deductible [donation](https://numfocus.org/donate-to-scver
 project pay for developer time, professional services, travel, workshops, and a variety of other
 needs.
 
+<div align="center">
+<a href="https://numfocus.org/project/scverse">
+  <img
+    src="https://raw.githubusercontent.com/numfocus/templates/master/images/numfocus-logo.png"
+    width="200"
+  >
+</a>
+</div>
+
 ## Citing annbatch
 
 If you use annbatch in your work, please cite it — see {doc}`cite`.
