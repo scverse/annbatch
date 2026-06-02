@@ -34,6 +34,7 @@
 [![PyPI](https://img.shields.io/pypi/v/annbatch.svg)](https://pypi.org/project/annbatch)
 [![Downloads](https://static.pepy.tech/badge/annbatch/month)](https://pepy.tech/project/annbatch)
 [![Downloads](https://static.pepy.tech/badge/annbatch)](https://pepy.tech/project/annbatch)
+[![CZI's Essential Open Source Software for Science](https://img.shields.io/badge/funded%20by-EOSS-FF414B)](https://czi.co/EOSS)
 
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 
@@ -106,7 +107,7 @@ Data loading:
 ```python
 from pathlib import Path
 
-from annbatch import Loader
+from annbatch import DatasetCollection, Loader
 import anndata as ad
 import zarr
 
@@ -116,12 +117,14 @@ zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
 )
 
+
 # WARNING: Without custom loading *all* obs columns will be loaded and yielded potentially degrading performance.
 def custom_load_func(g: zarr.Group) -> ad.AnnData:
     return ad.AnnData(
         X=ad.io.sparse_dataset(g["layers"]["counts"]),
         obs=ad.io.read_elem(g["obs"])[some_subset_of_columns_useful_for_training]
     )
+
 
 # A non empty collection
 collection = DatasetCollection("path/to/output/collection.zarr")

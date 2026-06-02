@@ -47,7 +47,7 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
             obsm={"3d": np.random.default_rng().random((n_cells_per_shard, 2, 32, 32))},
         )
         adata_lst += [adata]
-        f = zarr.open_group(tmp_path / f"chunk_{shard}.zarr", mode="w", zarr_format=3)
+        f = zarr.open_group(tmp_path / f"chunk_{shard}.zarr", mode="w")
         write_sharded(
             f,
             adata,
