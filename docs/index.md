@@ -77,6 +77,14 @@ references
 ```
 
 ```{toctree}
+:caption: Tutorials
+:hidden:
+:maxdepth: 1
+
+notebooks/example
+```
+
+```{toctree}
 :caption: User guide
 :hidden:
 :maxdepth: 1
@@ -85,14 +93,6 @@ overview
 zarr-configuration
 preshuffling
 custom-sampler
-```
-
-```{toctree}
-:caption: Tutorials
-:hidden:
-:maxdepth: 1
-
-notebooks/example
 ```
 
 ```{toctree}
