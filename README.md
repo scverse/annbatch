@@ -72,7 +72,7 @@ pip install "annbatch[zarrs,torch,cupy-cuda13]"
 
 We provide a speed comparison to other comparable dataloaders below:
 
-<img src="https://raw.githubusercontent.com/scverse/anndata/main/docs/_static/speed_comparision.png" alt="speed_comparison" width="400">
+<img src="https://raw.githubusercontent.com/scverse/annbatch/main/docs/_static/speed_comparision.png" alt="speed_comparison" width="400">
 
 A more in-depth comparison and performance analysis is available in our paper (from which the above figure originates, see {ref}`our paper <citation>`).
 
