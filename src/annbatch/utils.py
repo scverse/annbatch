@@ -207,8 +207,9 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
 
 def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
     """Load X as a sparse array or dense zarr array and obs from a group"""
+    var = g["var"]
     return ad.AnnData(
         X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
         obs=ad.io.read_elem(g["obs"]),
-        var=pd.DataFrame(index=pd.Index(g[f"var/{g['var'].attrs.get('_index')}"][:])),
+        var=pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
     )
