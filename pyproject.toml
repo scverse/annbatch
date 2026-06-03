@@ -161,17 +161,14 @@ ini_options.xfail_strict = true
 #   "--import-mode=importlib", # allow using test files with same name
 # ]
 ini_options.filterwarnings = [
-  # AnnData
-  "default:(Observation|Variable) names are not unique. To make them unique:UserWarning",
-  "default:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
-  # Zarr
-  "default:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
-  "default::anndata._warnings.ImplicitModificationWarning",
-  # scipy
-  "default::scipy.sparse.SparseEfficiencyWarning",
-  "default:Consolidated metadata is:UserWarning",
-  "default:Only some AnnData objects have `.raw` attribute:UserWarning",
   "error",
+  "ignore:(Observation|Variable) names are not unique. To make them unique:UserWarning",
+  "ignore:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "ignore:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "ignore::anndata._warnings.ImplicitModificationWarning",
+  "ignore::scipy.sparse.SparseEfficiencyWarning",
+  "ignore:Consolidated metadata is:UserWarning",
+  "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
 ]
 
 [tool.coverage]
