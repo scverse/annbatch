@@ -48,25 +48,11 @@ Please refer to the [documentation][], in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.12 or newer installed on your system.
-If you don't have Python installed, we recommend installing [uv][].
-
-To install the latest release of `annbatch` from [PyPI][]:
-
-```bash
-pip install "annbatch[zarrs]"
+```
+pip install annbatch
 ```
 
-We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
-`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
-> [!IMPORTANT]
-> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
-
-To install all optional dependencies:
-```bash
-pip install "annbatch[zarrs,torch,cupy-cuda13]"
-```
-(Note: Replace `cupy-cuda13` with the extra matching your local CUDA version)
+Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones.
 
 ### Performance
 

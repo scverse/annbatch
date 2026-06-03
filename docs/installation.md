@@ -14,7 +14,8 @@ pip install "annbatch[zarrs]"
 :::{important}
 [zarrs-python](https://zarrs-python.readthedocs.io/) gives the necessary performance boost for the
 sharded data produced by our preprocessing functions to be useful when loading data off a local
-filesystem, so we recommend always installing the `zarrs` extra.
+filesystem, so we recommend installing the `zarrs` extra and using it when working with local filesystems.
+Otherwise, be sure to install the `[remote]` extra for `zarr-python` to be able to use {class}`zarr.storage.ObjectStore` for top remote performance.
 :::
 
 ## Optional dependencies
@@ -24,12 +25,13 @@ filesystem, so we recommend always installing the `zarrs` extra.
 | Extra | What it adds |
 | --- | --- |
 | `zarrs` | High-performance zarr codec pipeline via [zarrs-python](https://zarrs-python.readthedocs.io/) for local filesystems — strongly recommended. |
-| `torch` | Yields batches as {class}`torch.Tensor`s. |
-| `cupy-cuda12` | GPU acceleration via `cupy` for CUDA 12. |
-| `cupy-cuda13` | GPU acceleration via `cupy` for CUDA 13. |
+| `torch` | Yields batches as 0-copy {class}`torch.Tensor`s. |
+| `cupy-cuda12` | GPU acceleration via `cupy` for CUDA 12, highly recommended for CUDA systems. |
+| `cupy-cuda13` | GPU acceleration via `cupy` for CUDA 13, highly recommended for CUDA systems. |
 
-`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off
-disk, and does not need to be used in conjunction with `torch`.
+`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk, and does not need to be used in conjunction with `torch`.
+`cupy` is also compatible with `rocm` (AMD) devices, although we do not provide an extra for installing.
+
 
 To install several extras at once:
 
