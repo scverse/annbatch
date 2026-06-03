@@ -31,7 +31,7 @@ pip install annbatch
 
 Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones.
 
-### Performance
+## Performance
 
 We provide a speed comparison to other comparable dataloaders below:
 
@@ -123,6 +123,7 @@ for batch in ds:
 > [!IMPORTANT]
 > For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/detailed-walkthrough.html#user-configurable-sampling-strategy) for more info.
 > At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `torch.utils.data.DataLoader` class.
+> However, we strongly discourage using `torch.utils.data.DataLoader` and if you must, you should not use workers as `annbatch` is already multi-threaded.
 
 ## Release notes
 
