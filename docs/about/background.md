@@ -12,7 +12,7 @@ processing, which shifts the bottleneck from compute onto the data-loading pipel
 GPU busy, data loading has to be fast. annbatch combines a chunked, block-shuffled fetching
 strategy with sharded, zarr-backed `AnnData` stores — accelerated locally by
 [zarrs-python](https://zarrs-python.readthedocs.io/) — to deliver order-of-magnitude faster loading
-than other out-of-core dataloaders. See the {doc}`Overview </overview>` for benchmarks and details.
+than other out-of-core dataloaders. See the {doc}`Detailed Walkthrough </detailed-walkthrough>` for benchmarks and details.
 
 ## Ecosystem
 

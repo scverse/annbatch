@@ -1,4 +1,4 @@
-# Overview
+# Detailed Walkthrough
 
 This page walks through how `annbatch` works in depth.
 For a hands-on, runnable version, see the {doc}`quickstart notebook <notebooks/example>`.

@@ -29,7 +29,7 @@ A hands-on notebook: convert your `.h5ad` files and stream shuffled mini-batches
 :::
 
 :::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` User guide
-:link: overview
+:link: detailed-walkthrough
 :link-type: doc
 
 An in-depth tour of preprocessing, chunked loading, sampling and benchmarks.
@@ -89,7 +89,7 @@ notebooks/example
 :hidden:
 :maxdepth: 1
 
-overview
+detailed-walkthrough
 zarr-configuration
 preshuffling
 custom-sampler
