@@ -26,6 +26,11 @@
 
 # annbatch
 
+<picture>
+  <source srcset="docs/_static/annbatch-logo-dark.svg" media="(prefers-color-scheme: dark)">
+  <img src="docs/_static/annbatch-logo.svg">
+</picture>
+
 > [!IMPORTANT]
 > This package will now only make breaking changes on the minor version release until its major release.
 
