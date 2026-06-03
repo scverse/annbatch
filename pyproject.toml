@@ -79,35 +79,35 @@ urls.Homepage = "https://github.com/scverse/annbatch"
 urls.Source = "https://github.com/scverse/annbatch"
 
 [tool.hatch]
+version.source = "vcs"
 envs.default.installer = "uv"
 envs.default.features = [ "dev" ]
 envs.docs.features = [ "doc" ]
 envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
-envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
-envs.hatch-test.features = [ "test" ]
+envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 envs.hatch-test.python = "3.14"
+envs.hatch-test.features = [ "test" ]
 envs.hatch-test.matrix = [
   { deps = [ "min-low", "pre", "torch", "min-high" ] },
 ]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
 envs.hatch-test.overrides.matrix.deps.env-vars = [
-  { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
-  { if = [ "pre" ], key = "UV_CONSTRAINT", value = "pre-deps.txt" }
-]
-envs.hatch-test.overrides.matrix.deps.pre-install-commands = [
-  { if = [
-    "pre",
-  ], value = "echo 'zarr @ git+https://github.com/zarr-developers/zarr-python.git' > pre-deps.txt" }
-]
-envs.hatch-test.overrides.matrix.deps.python = [
-  { if = [ "min-low" ], value = "3.12" },
+  { value = "allow", key = "UV_PRERELEASE", if = [ "pre" ] },
+  { value = "pre-deps.txt", if = [ "pre" ], key = "UV_CONSTRAINT" }
 ]
 envs.hatch-test.overrides.matrix.deps.features = [
-  { if = [ "torch" ], value = "torch" },
+  { value = "torch", if = [ "torch" ] },
 ]
-version.source = "vcs"
+envs.hatch-test.overrides.matrix.deps.pre-install-commands = [
+  { value = "echo 'zarr @ git+https://github.com/zarr-developers/zarr-python.git' > pre-deps.txt", if = [
+    "pre",
+  ] }
+]
+envs.hatch-test.overrides.matrix.deps.python = [
+  { value = "3.12", if = [ "min-low" ] },
+]
 
 [tool.ruff]
 line-length = 120
@@ -150,11 +150,11 @@ lint.pydocstyle.convention = "numpy"
 
 [tool.mypy]
 [[tool.mypy.overrides]]
-overrides = [ { module = [ "anndata.*", "cupyx.*", "cupy.*", "torch.*", "h5py.*" ], ignore_missing_imports = true } ]
+overrides = [ { module = [ "anndata.*", "cupy.*", "cupyx.*", "h5py.*", "torch.*" ], ignore_missing_imports = true } ]
 
 [tool.pytest]
-ini_options.markers = [ "gpu: mark test to run on GPU" ]
 ini_options.testpaths = [ "tests" ]
+ini_options.markers = [ "gpu: mark test to run on GPU" ]
 ini_options.xfail_strict = true
 # https://github.com/pytest-dev/pytest/issues/10965
 # addopts = [
@@ -162,16 +162,13 @@ ini_options.xfail_strict = true
 # ]
 ini_options.filterwarnings = [
   "error",
-  # AnnData
-  "default:(Observation|Variable) names are not unique. To make them unique:UserWarning",
-  "default:Consolidated metadata is:UserWarning",
-  "default::anndata._warnings.ImplicitModificationWarning",
-  "default:Only some AnnData objects have `.raw` attribute:UserWarning",
-  # Zarr
-  "default:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
-  "default:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
-  # scipy
-  "default::scipy.sparse.SparseEfficiencyWarning",
+  "ignore:(Observation|Variable) names are not unique. To make them unique:UserWarning",
+  "ignore:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "ignore:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
+  "ignore::anndata._warnings.ImplicitModificationWarning",
+  "ignore::scipy.sparse.SparseEfficiencyWarning",
+  "ignore:Consolidated metadata is:UserWarning",
+  "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
 ]
 
 [tool.coverage]
