@@ -1,29 +1,3 @@
-<!--Links at the top because this document is split for docs home page-->
-
-[uv]: https://github.com/astral-sh/uv
-
-[scverse discourse]: https://discourse.scverse.org/
-
-[issue tracker]: https://github.com/scverse/annbatch/issues
-
-[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
-
-[documentation]: https://annbatch.readthedocs.io
-
-[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
-
-[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
-
-[pypi]: https://pypi.org/project/annbatch
-
-[zarrs-python]: https://zarrs-python.readthedocs.io/
-
-[Lamin Labs]: https://lamin.ai/
-
-[scverse]: https://scverse.org/
-
-[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/notebooks/example.html
-
 <picture>
   <source srcset="docs/_static/annbatch-logo-dark.svg" media="(prefers-color-scheme: dark)">
   <img src="docs/_static/annbatch-logo.svg">
@@ -166,3 +140,30 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 > **annbatch unlocks terabyte-scale training of biological data in anndata**
 >
 > Gold, I., Fischer, F., Arnoldt, L., Wolf, F. A., & Theis, F. J. (2026b). annbatch unlocks terabyte-scale training of biological data in anndata. arXiv (Cornell University). https://doi.org/10.48550/arxiv.2604.01949
+
+
+[uv]: https://github.com/astral-sh/uv
+
+[scverse discourse]: https://discourse.scverse.org/
+
+[issue tracker]: https://github.com/scverse/annbatch/issues
+
+[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
+
+[documentation]: https://annbatch.readthedocs.io
+
+[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
+
+[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
+
+[pypi]: https://pypi.org/project/annbatch
+
+[`zarrs-python`]: https://zarrs-python.readthedocs.io/
+
+[Lamin Labs]: https://lamin.ai/
+
+[scverse]: https://scverse.org/
+
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/stable/notebooks/example.html
+
+[installation]: https://annbatch.readthedocs.io/en/stable/installation.html
