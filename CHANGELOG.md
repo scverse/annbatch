@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.1.5]
 
+### Performance
+- New internal use of {class}`numpy.ndarray` for indexing means the small chunk sizes (i.e., perfect random sampling) is much more performant.
+
+### Docs
+- New docs including a logo!
+
+## [0.1.5]
+
 ### Fixed
 - Handle indexers for `indices` and `data` separately because their underlying chunking can differ
 
