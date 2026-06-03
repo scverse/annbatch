@@ -628,7 +628,7 @@ class DatasetCollection:
             load_adata
                 Function to customize (lazy-)loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used with categoricals/nullables read into memory and `(-1)` chunks for `obs`.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
-                Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
+                Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from :class:`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
             groupby
                 Optional `obs` columns to sort by within each output dataset before writing.
             var_subset
