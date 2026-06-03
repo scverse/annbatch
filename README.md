@@ -74,7 +74,7 @@ We provide a speed comparison to other comparable dataloaders below:
 
 <img src="https://raw.githubusercontent.com/scverse/annbatch/main/docs/_static/speed_comparision.png" alt="speed_comparison" width="400">
 
-A more in-depth comparison and performance analysis is available in our paper (from which the above figure originates, see {ref}`our paper <citation>`).
+A more in-depth comparison and performance analysis is available in our paper (from which the above figure originates, see [our citation](#Citation)).
 
 ## Detailed tutorial
 
@@ -110,7 +110,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via {meth}`annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) {class}`pandas.DataFrame` will be loaded and yielded potentially degrading performance.
+> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path
@@ -119,7 +119,7 @@ from annbatch import DatasetCollection, Loader
 import anndata as ad
 import zarr
 
-# Using zarrs is necessary for local filesystem performance.
+# Using zarrs is necessary for local filesystem performance, but should not be used for remote file systems.
 # Ensure you installed it using our `[zarrs]` extra i.e., `pip install "annbatch[zarrs]"` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
@@ -161,8 +161,6 @@ for batch in ds:
 > For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/overview.html#user-configurable-sampling-strategy) for more info.
 > At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `torch.utils.data.DataLoader` class.
 
-<!--FOOTER-->
-
 ## Release notes
 
 See the [changelog][].
@@ -172,7 +170,6 @@ See the [changelog][].
 For questions and help requests, you can reach out in the [scverse discourse][].
 If you found a bug, please use the [issue tracker][].
 
-(citation)=
 ## Citation
 
 If you use `annbatch` in your work, please cite the `annbatch` publication as follows:
