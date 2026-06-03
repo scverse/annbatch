@@ -24,8 +24,6 @@
 
 [in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/notebooks/example.html
 
-# annbatch
-
 <picture>
   <source srcset="docs/_static/annbatch-logo-dark.svg" media="(prefers-color-scheme: dark)">
   <img src="docs/_static/annbatch-logo.svg">
