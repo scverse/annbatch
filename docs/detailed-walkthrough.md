@@ -81,13 +81,7 @@ We provide a speed comparison to other comparable dataloaders below:
 
 <img src="_static/speed_comparision.png" alt="speed_comparison" width="400">
 
-We've run the above benchmark on an AWS `ml.m5.8xlarge` instance.
-The code to reproduce the above results can be found on LaminHub:
-
-* [Benchmark results](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/e6Ry7noc4Y0d)
-* [annbatch code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/yl0iTPhJjkqW)
-* [MappedCollection code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/YfzHfoomTkfu)
-* [scDataset code](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/L6CAf9w0qdQj)
+Please see our paper {cite:p}`Gold_2026` for a more detailed comparison.
 
 ## Why does data loading speed matter?
 
