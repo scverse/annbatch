@@ -784,6 +784,11 @@ class Loader[
             ["Number of datasets", "Number of observations"],
         )
         is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        # ``inv`` (chunk-order position -> buffer position) and the identity ``positions`` are
+        # reused across requests: every window has the same size except possibly the last (smaller)
+        # one, so we allocate once and take truncated views, growing only if a window is ever larger.
+        inv_buffer = np.empty(0, dtype=np.intp)
+        positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
@@ -792,8 +797,14 @@ class Loader[
             # The buffer below is filled in dataset order, but ``splits`` are expressed in the
             # sampler's chunk order. ``inv`` maps a chunk-order position to its buffer position so
             # the split semantics are independent of how chunks were regrouped across datasets.
-            inv = np.empty_like(order)
-            inv[order] = np.arange(order.size)
+            # ``order`` is a permutation of ``range(n)``, so every used slot is overwritten -- the
+            # reused buffer never carries stale values from a previous request.
+            n = order.size
+            if n > inv_buffer.size:
+                inv_buffer = np.empty(n, dtype=np.intp)
+                positions = np.arange(n, dtype=np.intp)
+            inv = inv_buffer[:n]
+            inv[order] = positions[:n]
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
