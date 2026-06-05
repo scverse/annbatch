@@ -594,7 +594,7 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
         def __init__(self):
             self._validate_count = 0
 
-        def n_iters(self, n_obs: int) -> int:
+        def n_batches(self, n_obs: int) -> int:
             return math.ceil(n_obs / self.batch_size)
 
         def validate(self, n_obs: int) -> None:

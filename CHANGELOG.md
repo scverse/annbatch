@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.2.0]
+
+### Breaking
+- Deprecated `n_iters` method of {class}`~annbatch.abc.Sampler` in favor of `n_batches` to match the actual semantics of the returned value.
+
+### Added
+- Added `n_batches` method to {class}`~annbatch.abc.Sampler` and all sampler implementations.
+
 ## [0.1.6]
 
 ### Performance

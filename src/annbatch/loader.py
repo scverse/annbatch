@@ -224,7 +224,7 @@ class Loader[
         self._dataset_elem_cache = {}
 
     def __len__(self) -> int:
-        return self._batch_sampler.n_iters(self.n_obs)
+        return self._batch_sampler.n_batches(self.n_obs)
 
     @property
     def _sp_module(self) -> ModuleType:
