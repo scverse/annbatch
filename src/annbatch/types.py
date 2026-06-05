@@ -27,22 +27,12 @@ class LoadRequest(TypedDict):
     chunks
         Chunks to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
     splits
-        How the in-memory data should be split into batches after it is read off disk.
+        How the in-memory data should be split into batches after it is read off disk and after all the chunks are loaded and concatenated in the order requested.
         A list of splits, last one may be partial but not empty i.e. 1 <= len(last_split) <= batch_size.
         If not provided, the sampler's batch_size property will be used to automatically generate splits.
 
     Notes
     -----
-    **Split index space**: ``splits`` index into the data in **chunk order** -- i.e. position ``j`` is
-    the ``j``-th observation when the chunks are concatenated in the order they appear in ``chunks``.
-    The sampler does not need to know how the loader lays out memory. Internally the loader fetches
-    chunks grouped by dataset index for efficiency (so the physical buffer is ordered by dataset, not
-    by chunk order), but it remaps each split back to chunk order before yielding, so this regrouping
-    is invisible to the sampler.
-
-    For example, given two datasets (dataset 0: rows 0-99, dataset 1: rows 100-199) and chunks
-    ``[slice(100, 110), slice(0, 10), slice(110, 120)]``, chunk-order position 0 is row 100, position
-    10 is row 0, position 20 is row 110 -- regardless of the dataset-grouped physical layout.
 
     .. warning::
         This is a **behaviour change in 0.2.0**. Before 0.2.0, ``splits`` had to index into the
