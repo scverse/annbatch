@@ -478,7 +478,7 @@ class Loader[
             )
         return self
 
-    def _slices_to_dataset_rows(self, slices: list[slice]) -> OrderedDict[int, np.ndarray]:
+    def _slices_to_dataset_rows(self, slices: list[slice]) -> tuple[OrderedDict[int, np.ndarray], np.ndarray]:
         """Given a list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
 
         In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
@@ -490,7 +490,9 @@ class Loader[
 
         Returns
         -------
-            A lookup between the dataset and its row indices, ordered by keys.
+            A lookup between the dataset and its row indices, ordered by keys, and the permutation
+            ``order`` mapping each in-memory buffer position to its index in the original chunk order
+            (the buffer is filled in dataset order, so ``order`` is what undoes that reordering).
         """
         global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
 
@@ -510,7 +512,7 @@ class Loader[
         for gs, ge in zip(group_start, group_end, strict=True):
             ds = int(grouped[gs])
             result[ds] = global_index[order[gs:ge]] - starts[ds]
-        return result
+        return result, order
 
     def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and rows.
@@ -785,7 +787,13 @@ class Loader[
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
-            dataset_index_to_rows = self._slices_to_dataset_rows(chunks_to_load)
+            dataset_index_to_rows, order = self._slices_to_dataset_rows(chunks_to_load)
+
+            # The buffer below is filled in dataset order, but ``splits`` are expressed in the
+            # sampler's chunk order. ``inv`` maps a chunk-order position to its buffer position so
+            # the split semantics are independent of how chunks were regrouped across datasets.
+            inv = np.empty_like(order)
+            inv[order] = np.arange(order.size)
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
@@ -801,12 +809,13 @@ class Loader[
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_rows)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
             for split in splits:
-                data = in_memory_data[split]
+                sel = inv[split]
+                data = in_memory_data[sel]
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
-                    "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
+                    "obs": concatenated_obs.iloc[sel] if concatenated_obs is not None else None,
                     "var": self._var,
-                    "index": in_memory_indices[split] if in_memory_indices is not None else None,
+                    "index": in_memory_indices[sel] if in_memory_indices is not None else None,
                 }
 
             # https://github.com/cupy/cupy/issues/9625
