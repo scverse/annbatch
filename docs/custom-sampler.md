@@ -193,7 +193,7 @@ Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
 
 Each random read may:
 - Require loading an entire chunk just to extract one element (whereas sequential reads will use most if not all elements from every chunk)
-- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`annbatch.ChunkSampler`)
+- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`annbatch.RandomSampler`)
 
 ### The Randomness Trade-off
 

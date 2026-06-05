@@ -1,4 +1,4 @@
-"""Tests for RandomSampler, SequentialSampler, ChunkSampler, and DistributedSampler."""
+"""Tests for RandomSampler, SequentialSampler, and DistributedSampler."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from annbatch.abc import Sampler
-from annbatch.samplers import ChunkSampler, DistributedSampler, RandomSampler, SequentialSampler
+from annbatch.samplers import DistributedSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
 
 if TYPE_CHECKING:
@@ -128,7 +128,7 @@ def test_mask_coverage(
     sampler.validate(n_obs)
 
 
-def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler]):
+def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[Sampler]):
     """Test that batch sizes match expected pattern."""
     n_obs, chunk_size, preload_nchunks, batch_size = 103, 10, 2, 5
     # last chunk is incomplete and is also the last batch in the load request
@@ -607,17 +607,6 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
         assert all_indices != list(range(n_obs)), "Indices should be shuffled"
     else:
         assert all_indices == list(range(n_obs)), "Indices should be sequential"
-
-
-# =============================================================================
-# ChunkSampler deprecation warning
-# =============================================================================
-
-
-def test_chunk_sampler_deprecation_warning():
-    """Test that ChunkSampler emits a DeprecationWarning."""
-    with pytest.deprecated_call(match="ChunkSampler is deprecated"):
-        ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
 
 
 @pytest.mark.parametrize(

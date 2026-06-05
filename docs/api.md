@@ -31,16 +31,6 @@
     DistributedSampler
 ```
 
-```{eval-rst}
-.. module:: annbatch
-   :no-index:
-
-.. autosummary::
-   :toctree: generated/
-
-    ChunkSampler
-```
-
 (io-helpers)=
 
 ## io helpers
