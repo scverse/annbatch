@@ -44,9 +44,9 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   **Important:** The number of samples that get loaded into memory at once, must be devisible by the batch size.
   Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
 
-- **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk.
+- **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
   - If not supplied: batches are randomly created based on the loaded chunks.
-  - If supplied: you can control how batches are created from the loaded chunks. Each array contains indices in **chunk order** -- position `j` is the `j`-th observation when the chunks are concatenated in the order listed in `chunks` (exactly as drawn below).
+  - If supplied: you can control how batches are created from the in-memory chunks. Each array contains indices in **chunk order** -- position `j` is the `j`-th observation when the chunks are concatenated in the order listed in `chunks` (exactly as drawn below).
 ```{note}
 The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This capability is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
 ```
