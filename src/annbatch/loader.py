@@ -493,15 +493,23 @@ class Loader[
             A lookup between the dataset and its row indices, ordered by keys.
         """
         global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
+
+        # Locate each requested row in its dataset by binary-searching the dataset boundaries,
+        sizes = np.fromiter((shape[0] for shape in self._shapes), dtype=np.int64, count=len(self._shapes))
+        ends = np.cumsum(sizes)
+        starts = ends - sizes
+        dataset_of_row = np.searchsorted(ends, global_index, side="right")
+
+        # Group rows by dataset: a stable sort keeps the within-dataset order
+        order = np.argsort(dataset_of_row, kind="stable")
+        grouped = dataset_of_row[order]
+        group_start = np.concatenate([[0], np.flatnonzero(np.diff(grouped)) + 1])
+        group_end = np.append(group_start[1:], grouped.size)
+
         result: OrderedDict[int, np.ndarray] = OrderedDict()
-        b_start = 0
-        for ds, shape in enumerate(self._shapes):
-            b_end = b_start + shape[0]
-            mask = (global_index >= b_start) & (global_index < b_end)
-            if mask.any():
-                offset = b_start
-                result[ds] = global_index[mask] - offset
-            b_start = b_end
+        for gs, ge in zip(group_start, group_end, strict=True):
+            ds = int(grouped[gs])
+            result[ds] = global_index[order[gs:ge]] - starts[ds]
         return result
 
     def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
