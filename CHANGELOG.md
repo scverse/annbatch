@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.2.0]
+
+### Breaking
+- {attr}`annbatch.types.LoadRequest.splits` now index in **chunk order** -- position `j` is the `j`-th observation when the request's `chunks` are concatenated in the order given. Previously, `splits` had to index into the loader's internal dataset-grouped memory layout. The {class}`~annbatch.Loader` now remaps splits to that layout itself, so custom samplers must produce chunk-order splits and stop compensating for the dataset reordering. The built-in {class}`~annbatch.samplers.RandomSampler` and {class}`~annbatch.samplers.SequentialSampler` are unaffected.
+
+
 ## [0.1.6]
 
 ### Performance
