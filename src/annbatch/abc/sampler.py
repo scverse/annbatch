@@ -98,7 +98,7 @@ class Sampler(ABC):
 
         warnings.warn(
             "n_iters is deprecated, use n_batches instead.",
-            FutureWarning,
+            DeprecationWarning,
             stacklevel=2,
         )
         return self.n_batches(n_obs)

@@ -421,7 +421,7 @@ def test_drop_last_false_with_multiple_workers_raises():
 def test_n_batches_property(sampler: Sampler, n_obs: int, expected: int):
     """Test that n_batches() returns the correct value for different configurations."""
     assert sampler.n_batches(n_obs) == expected
-    with pytest.warns(FutureWarning, match="n_iters is deprecated"):
+    with pytest.warns(DeprecationWarning, match="n_iters is deprecated"):
         assert sampler.n_iters(n_obs) == expected
 
 
