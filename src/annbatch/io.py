@@ -5,6 +5,7 @@ import re
 import warnings
 from collections import defaultdict
 from functools import wraps
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
@@ -19,6 +20,7 @@ from anndata._core.sparse_dataset import BaseCompressedSparseDataset
 from anndata.experimental.backed import Dataset2D
 from dask.array.core import Array as DaskArray
 from humanfriendly import parse_size
+from packaging.version import Version
 from tqdm.auto import tqdm
 from zarr.codecs import BloscCodec
 
@@ -45,7 +47,8 @@ def _ds_to_memory(ds: Dataset2D) -> pd.DataFrame:
 
 
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
-    adata = ad.experimental.read_lazy(x, load_annotation_index=False)
+    # https://github.com/scverse/anndata/issues/2475 for load_annotation_index
+    adata = ad.experimental.read_lazy(x, load_annotation_index=Version(version("pandas")) >= Version("3"))
     if not isinstance(x, zarr.Group | h5py.Group):
         group = (
             h5py.File(adata.file.filename, mode="r")
@@ -201,7 +204,8 @@ def _estimate_bytes_per_obs_row(
     if adata.X is not None:
         elem_paths.append("X")
     for k in adata.layers.keys():
-        elem_paths.append(f"layers/{k}")
+        if k is not None:
+            elem_paths.append(f"layers/{k}")
     for k in adata.obsm.keys():
         elem_paths.append(f"obsm/{k}")
     elem_paths.append("obs")
@@ -635,7 +639,7 @@ class DatasetCollection:
             load_adata
                 Function to customize (lazy-)loading the invidiual input anndata files. By default, :func:`anndata.experimental.read_lazy` is used with categoricals/nullables read into memory and `(-1)` chunks for `obs`.
                 If you only need a subset of the input anndata files' elems (e.g., only `X` and certain `obs` columns), you can provide a custom function here to speed up loading and harmonize your data.
-                Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from {class}`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
+                Beware that concatenating nullables/categoricals (i.e., what happens if `len(adata_paths) > 1` internally in this function) from :class:`anndata.experimental.backed.Dataset2D` `obs` is very time consuming - consider loading these into memory if you use this argument.
             groupby
                 Optional `obs` columns to sort by within each output dataset before writing.
             var_subset

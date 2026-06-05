@@ -1,30 +1,7 @@
-<!--Links at the top because this document is split for docs home page-->
-
-[uv]: https://github.com/astral-sh/uv
-
-[scverse discourse]: https://discourse.scverse.org/
-
-[issue tracker]: https://github.com/scverse/annbatch/issues
-
-[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
-
-[documentation]: https://annbatch.readthedocs.io
-
-[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
-
-[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
-
-[pypi]: https://pypi.org/project/annbatch
-
-[zarrs-python]: https://zarrs-python.readthedocs.io/
-
-[Lamin Labs]: https://lamin.ai/
-
-[scverse]: https://scverse.org/
-
-[in-depth section of our docs]: https://annbatch.readthedocs.io/en/latest/notebooks/example.html
-
-# annbatch
+<picture>
+  <source srcset="docs/_static/annbatch-logo-dark.svg" media="(prefers-color-scheme: dark)">
+  <img src="docs/_static/annbatch-logo.svg">
+</picture>
 
 > [!IMPORTANT]
 > This package will now only make breaking changes on the minor version release until its major release.
@@ -48,25 +25,19 @@ Please refer to the [documentation][], in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.12 or newer installed on your system.
-If you don't have Python installed, we recommend installing [uv][].
-
-To install the latest release of `annbatch` from [PyPI][]:
-
-```bash
-pip install "annbatch[zarrs]"
+```
+pip install annbatch
 ```
 
-We provide extras for `torch`, `cupy-cuda12`, `cupy-cuda13`, and [zarrs-python][].
-`cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk and does not need to be used in conjunction with `torch`.
-> [!IMPORTANT]
-> [zarrs-python][] gives the necessary performance boost for the sharded data produced by our preprocessing functions to be useful when loading data off a local filesystem.
+Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones.
 
-To install all optional dependencies::
-```bash
-pip install "annbatch[zarrs,torch,cupy-cuda13]"
-```
-(Note: Replace `cupy-cuda13` with the extra matching your local CUDA version)
+## Performance
+
+We provide a speed comparison to other comparable dataloaders below:
+
+<img src="https://raw.githubusercontent.com/scverse/annbatch/main/docs/_static/speed_comparision.png" alt="speed_comparison" width="400">
+
+A more in-depth comparison and performance analysis is available in our paper (from which the above figure originates, see [our citation](#Citation)).
 
 ## Detailed tutorial
 
@@ -102,7 +73,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via {meth}`annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) {class}`pandas.DataFrame` will be loaded and yielded potentially degrading performance.
+> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path
@@ -111,7 +82,7 @@ from annbatch import DatasetCollection, Loader
 import anndata as ad
 import zarr
 
-# Using zarrs is necessary for local filesystem performance.
+# Using zarrs is necessary for local filesystem performance, but should not be used for remote file systems.
 # Ensure you installed it using our `[zarrs]` extra i.e., `pip install "annbatch[zarrs]"` to get the right version.
 zarr.config.set(
     {"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"}
@@ -150,10 +121,9 @@ for batch in ds:
 ```
 
 > [!IMPORTANT]
-> For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/#user-configurable-sampling-strategy) for more info.
+> For usage of our loader inside of `torch`, please see [this note](https://annbatch.readthedocs.io/en/latest/detailed-walkthrough.html#user-configurable-sampling-strategy) for more info.
 > At the minimum, be aware that deadlocking will occur on linux unless you pass `multiprocessing_context="spawn"` to the `torch.utils.data.DataLoader` class.
-
-<!--FOOTER-->
+> However, we strongly discourage using `torch.utils.data.DataLoader` and if you must, you should not use workers as `annbatch` is already multi-threaded.
 
 ## Release notes
 
@@ -164,7 +134,6 @@ See the [changelog][].
 For questions and help requests, you can reach out in the [scverse discourse][].
 If you found a bug, please use the [issue tracker][].
 
-
 ## Citation
 
 If you use `annbatch` in your work, please cite the `annbatch` publication as follows:
@@ -172,3 +141,30 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 > **annbatch unlocks terabyte-scale training of biological data in anndata**
 >
 > Gold, I., Fischer, F., Arnoldt, L., Wolf, F. A., & Theis, F. J. (2026b). annbatch unlocks terabyte-scale training of biological data in anndata. arXiv (Cornell University). https://doi.org/10.48550/arxiv.2604.01949
+
+
+[uv]: https://github.com/astral-sh/uv
+
+[scverse discourse]: https://discourse.scverse.org/
+
+[issue tracker]: https://github.com/scverse/annbatch/issues
+
+[tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
+
+[documentation]: https://annbatch.readthedocs.io
+
+[changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
+
+[api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
+
+[pypi]: https://pypi.org/project/annbatch
+
+[`zarrs-python`]: https://zarrs-python.readthedocs.io/
+
+[Lamin Labs]: https://lamin.ai/
+
+[scverse]: https://scverse.org/
+
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/stable/notebooks/example.html
+
+[installation]: https://annbatch.readthedocs.io/en/stable/installation.html
