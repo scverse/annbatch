@@ -27,7 +27,7 @@ class LoadRequest(TypedDict):
     chunks
         Chunks to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
     splits
-        How the in-memory data should be split into batches after it is read off disk and after all the chunks are loaded and concatenated in the order requested.
+        How the in-memory data should be split into batches after it is read off disk and after all the chunks are loaded and concatenated in the order requested by `chunks`.
         A list of splits, last one may be partial but not empty i.e. 1 <= len(last_split) <= batch_size.
         If not provided, the sampler's batch_size property will be used to automatically generate splits.
 
