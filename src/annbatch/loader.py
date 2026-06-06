@@ -800,11 +800,11 @@ class Loader[
             # ``order`` is a permutation of ``range(n)``, so every used slot is overwritten -- the
             # reused buffer never carries stale values from a previous request.
             n = order.size
-            if n > inv_buffer.size:
-                inv_buffer = np.empty(n, dtype=np.intp)
+            inv_buffer = np.empty(n, dtype=np.intp)
+            if n > positions.size:
                 positions = np.arange(n, dtype=np.intp)
             inv = inv_buffer[:n]
-            inv[order] = positions[:n]
+            inv = positions[order]
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
