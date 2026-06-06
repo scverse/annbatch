@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning][].
 ## [0.2.0]
 
 ### Breaking
-- Renamed {attr}`annbatch.types.LoadRequest.chunks` to {attr}`annbatch.types.LoadRequest.requests`.
+- Renamed `annbatch.types.LoadRequest.chunks` to {attr}`annbatch.types.LoadRequest.requests`.
 
 ## [0.1.6]
 
