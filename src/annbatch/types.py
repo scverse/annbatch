@@ -51,7 +51,7 @@ class LoadRequest(TypedDict):
 
     """
 
-    requests: list[slice]
+    requests: list[slice] | np.ndarray
     splits: NotRequired[list[np.ndarray]]
 
 
