@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning][].
 ### Breaking
 - Renamed `annbatch.types.LoadRequest.chunks` to {attr}`annbatch.types.LoadRequest.requests`.
 
+## Feature
+- Now {attr}`annbatch.types.LoadRequest.requests` can also be a numpy array of integers.
+
 ## [0.1.6]
 
 ### Performance
