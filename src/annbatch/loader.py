@@ -795,7 +795,7 @@ class Loader[
             dataset_index_to_rows, order = self._slices_to_dataset_rows(chunks_to_load)
 
             # The buffer below is filled in dataset order, but ``splits`` are expressed in the
-            # sampler's chunk order. ``inv`` maps a chunk-order position to its buffer position so
+            # sampler's `LoadRequest.request` order. ``inv`` maps a request-order position to its buffer position so
             # the split semantics are independent of how chunks were regrouped across datasets.
             # ``order`` is a permutation of ``range(n)``, so every used slot is overwritten -- the
             # reused buffer never carries stale values from a previous request.
