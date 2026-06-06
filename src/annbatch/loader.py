@@ -786,7 +786,7 @@ class Loader[
         is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
-for load_request in self._batch_sampler.sample(self.n_obs):
+        for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
             dataset_index_to_rows, order = self._slices_to_dataset_rows(chunks_to_load)
