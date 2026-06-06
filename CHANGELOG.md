@@ -38,11 +38,11 @@ and this project adheres to [Semantic Versioning][].
 ## [0.1.3]
 
 ### Features
-- Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for {class}`annbatch.ChunkSampler`.
+- Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for `annbatch.ChunkSampler`.
 - Exposed {class}`annbatch.samplers.DistributedSampler` for distributed training.
 
 ### Breaking
-- Deprecated {class}`annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
+- Deprecated `annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
 ## [0.1.2]
 
@@ -94,7 +94,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 - Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
-- Exposed the older default sampling scheme as {class}`annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
+- Exposed the older default sampling scheme as `annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
 
 ## [0.0.4]
 
