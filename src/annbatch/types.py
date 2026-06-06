@@ -38,11 +38,11 @@ class LoadRequest(TypedDict):
     Notes
     -----
     **In-memory data ordering**: When slices span multiple datasets, the loader groups and fetches
-    chunks by dataset index for efficiency. The resulting in-memory data is ordered by dataset index,
-    not by the original order of slices in the `requests` list. Within each dataset, chunks maintain
+    slices by dataset index for efficiency. The resulting in-memory data is ordered by dataset index,
+    not by the original order of slices in the `requests` list. Within each dataset, slices maintain
     their relative order from the original list.
 
-    For example, given two datasets (dataset 0: rows 0-99, dataset 1: rows 100-199) and chunks
+    For example, given two datasets (dataset 0: rows 0-99, dataset 1: rows 100-199) and slices as requests
     ``[slice(100, 110), slice(0, 10), slice(110, 120)]``, the in-memory data will be ordered as:
     ``[rows 0-10 from ds0, rows 100-110 from ds1, rows 110-120 from ds1]`` i.e., sorted by dataset index.
 
