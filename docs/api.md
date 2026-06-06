@@ -36,6 +36,9 @@
 ## io helpers
 
 ```{eval-rst}
+.. module:: annbatch
+   :no-index:
+
 .. autosummary::
    :toctree: generated/
 
