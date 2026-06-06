@@ -47,7 +47,7 @@ class LoadRequest(TypedDict):
     ``[rows 0-10 from ds0, rows 100-110 from ds1, rows 110-120 from ds1]`` i.e., sorted by dataset index.
 
     The `splits` indices must account for this ordering. For a single dataset, the in-memory order
-    naturally matches the chunk order since there's only one dataset to fetch from.
+    naturally matches the request order since there's only one dataset to fetch from.
 
     """
 

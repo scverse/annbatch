@@ -481,8 +481,6 @@ class Loader[
     def _requests_to_dataset_rows(self, requests: list[slice] | np.ndarray) -> OrderedDict[int, np.ndarray]:
         """Given a ndarray or list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
 
-        In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
-
         Parameters
         ----------
             requests

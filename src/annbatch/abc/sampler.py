@@ -1,4 +1,4 @@
-"""Sampler classes for efficient chunk-based data access."""
+"""Sampler classes for efficient data access."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ class Sampler(ABC):
                 if shuffle is None:
                     raise ValueError("shuffle must be set when splits are not provided in LoadRequest")
 
-                # Calculate total observations from chunks
+                # Calculate total observations from requests
                 total_obs = sum(chunk.stop - chunk.start for chunk in load_request["requests"])
 
                 # Generate indices with optional shuffling and split into batches

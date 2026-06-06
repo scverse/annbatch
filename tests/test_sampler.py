@@ -131,8 +131,8 @@ def test_mask_coverage(
 def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler]):
     """Test that batch sizes match expected pattern."""
     n_obs, chunk_size, preload_nchunks, batch_size = 103, 10, 2, 5
-    # last chunk is incomplete and is also the last batch in the load request
-    expected_last_chunk_size = 3
+    # last slice is incomplete and is also the last batch in the load request
+    expected_last_slice_size = 3
     expected_last_batch_size = 3
     expected_last_num_splits = 1
     expected_num_load_requests = 6
@@ -147,7 +147,7 @@ def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler
     assert len(all_requests) == expected_num_load_requests
     for req_idx, load_request in enumerate(all_requests[:-1]):
         assert all(chunk.stop - chunk.start == chunk_size for chunk in load_request["requests"]), (
-            f"chunk size mismatch at request {req_idx}:",
+            f"slice size mismatch at request {req_idx}:",
             f"requests: {load_request['requests']}",
         )
         assert all(len(split) == batch_size for split in load_request["splits"]), (
@@ -155,8 +155,8 @@ def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler
         )
     last_request = all_requests[-1]
     assert len(last_request["splits"]) == expected_last_num_splits, "last request num splits mismatch"
-    assert all(chunk.stop - chunk.start == expected_last_chunk_size for chunk in last_request["requests"]), (
-        "last request chunk size mismatch",
+    assert all(chunk.stop - chunk.start == expected_last_slice_size for chunk in last_request["requests"]), (
+        "last request slice size mismatch",
         f"requests: {last_request['requests']}",
     )
     assert all(len(split) == expected_last_batch_size for split in last_request["splits"]), (
@@ -208,7 +208,7 @@ def test_workers_cover_full_dataset_without_overlap(
             worker_indices, _, _ = collect_indices(sampler, n_obs)
             all_worker_indices.append(worker_indices)
 
-    # All workers should have disjoint chunks
+    # All workers should have disjoint slices
     for i in range(num_workers):
         for j in range(i + 1, num_workers):
             assert set(all_worker_indices[i]).isdisjoint(all_worker_indices[j])
@@ -544,20 +544,20 @@ class SimpleSampler(Sampler):
 
     def _sample(self, n_obs: int):
         """Yield LoadRequests with or without splits."""
-        chunk_size = 10
-        chunks = []
-        for start in range(0, n_obs, chunk_size):
-            stop = min(start + chunk_size, n_obs)
+        slice_size = 10
+        slices = []
+        for start in range(0, n_obs, slice_size):
+            stop = min(start + slice_size, n_obs)
             if self._provide_splits:
-                # Yield one LoadRequest per chunk with splits
+                # Yield one LoadRequest per slice with splits
                 yield {"requests": [slice(start, stop)], "splits": [np.arange(stop - start)]}
             else:
-                # Accumulate chunks
-                chunks.append(slice(start, stop))
+                # Accumulate slices
+                slices.append(slice(start, stop))
 
-        # Yield accumulated chunks without splits
+        # Yield accumulated slices without splits
         if not self._provide_splits:
-            yield {"requests": chunks}
+            yield {"requests": slices}
 
 
 @pytest.mark.parametrize(
