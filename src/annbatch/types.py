@@ -25,7 +25,8 @@ class LoadRequest(TypedDict):
     Attributes
     ----------
     requests
-        Slices to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
+        Either an array of indices to load that must be the same size as the sum of the split sizes,
+        or a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
 
         .. versionchanged:: 0.2.0
             Renamed from ``chunks`` to ``requests``.
@@ -36,9 +37,9 @@ class LoadRequest(TypedDict):
 
     Notes
     -----
-    **In-memory data ordering**: When chunks span multiple datasets, the loader groups and fetches
+    **In-memory data ordering**: When slices span multiple datasets, the loader groups and fetches
     chunks by dataset index for efficiency. The resulting in-memory data is ordered by dataset index,
-    not by the original order of chunks in the `chunks` list. Within each dataset, chunks maintain
+    not by the original order of slices in the `requests` list. Within each dataset, chunks maintain
     their relative order from the original list.
 
     For example, given two datasets (dataset 0: rows 0-99, dataset 1: rows 100-199) and chunks
