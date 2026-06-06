@@ -490,8 +490,9 @@ class Loader[
         -------
             A lookup between the dataset and its row indices, ordered by keys.
         """
-        global_index = requests
-        if isinstance(requests, list):
+        if isinstance(requests, np.ndarray) and np.issubdtype(requests.dtype, np.integer):
+            global_index = requests
+        else:
             global_index = np.concatenate([np.arange(s.start, s.stop) for s in requests])
         result: OrderedDict[int, np.ndarray] = OrderedDict()
         b_start = 0
