@@ -212,7 +212,7 @@ class CategoricalSampler(Sampler):
         self._run_start = run_start
         self._cum = cum
         self._cat_ids = cat_ids
-        self._cat_base = cum[first]  # offset into `cum` where each category begins
+        self._cat_base = cum[first]  # the value in `cum` where each category begins
         self._cat_total = cum[last] - cum[first]  # # of valid chunk positions per category
         # over the full dataset every active category is present, so the precomputed probs apply;
         # only a narrower mask can hide categories and require renormalization
