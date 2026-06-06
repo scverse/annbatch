@@ -784,12 +784,9 @@ class Loader[
             ["Number of datasets", "Number of observations"],
         )
         is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
-        # ``inv`` (chunk-order position -> buffer position) and the identity ``positions`` are
-        # reused across requests: every window has the same size except possibly the last (smaller)
-        # one, so we allocate once and take truncated views, growing only if a window is ever larger.
-        inv_buffer = np.empty(0, dtype=np.intp)
+        # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
-        for load_request in self._batch_sampler.sample(self.n_obs):
+for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
             dataset_index_to_rows, order = self._slices_to_dataset_rows(chunks_to_load)
