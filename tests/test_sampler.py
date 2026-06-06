@@ -22,9 +22,9 @@ if TYPE_CHECKING:
 
 
 def collect_indices(sampler: Sampler, n_obs: int) -> tuple[list[int], list[slice], list[np.ndarray]]:
-    """Helper to collect loaded indices, chunks, and splits from sampler."""
+    """Helper to collect loaded indices, requests, and splits from sampler."""
     indices: list[int] = []
-    chunks: list[slice] = []
+    requests: list[slice] = []
     splits: list[np.ndarray] = []
     for load_request in sampler.sample(n_obs):
         assert len(load_request["splits"]) > 0, "splits must be non-empty"
@@ -34,10 +34,10 @@ def collect_indices(sampler: Sampler, n_obs: int) -> tuple[list[int], list[slice
         splits.extend(load_request["splits"])
 
         for c in load_request["requests"]:
-            chunks.append(c)
+            requests.append(c)
             indices.extend(range(c.start, c.stop))
 
-    return indices, chunks, splits
+    return indices, requests, splits
 
 
 @pytest.fixture(params=[RandomSampler, SequentialSampler])
@@ -479,10 +479,10 @@ def test_num_samples_invariants(
         return
 
     expected_batches = math.ceil(num_samples / batch_size)
-    _, all_chunks, splits = collect_indices(sampler, n_obs)
+    _, all_requests, splits = collect_indices(sampler, n_obs)
     assert len(splits) == expected_batches, f"Expected {expected_batches} batches, got {len(splits)}"
 
-    for chunk in all_chunks:
+    for chunk in all_requests:
         assert chunk.stop - chunk.start <= chunk_size, f"Oversized chunk: {chunk}"
         assert chunk.start >= start, f"Chunk start {chunk.start} < mask start {start}"
         assert chunk.stop <= stop, f"Chunk stop {chunk.stop} > mask stop {stop}"
