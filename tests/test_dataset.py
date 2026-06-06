@@ -752,8 +752,8 @@ def test_splits_are_chunk_order_across_datasets(adata_with_zarr_path_same_var_sp
 
     batches = list(loader)
     # split 0 -> chunk A -> dataset 1's first 10 rows ; split 1 -> chunk B -> dataset 0's first 10 rows
-    assert np.array_equal(batches[0]["index"], np.arange(n0, n0 + 10))
-    assert np.array_equal(batches[1]["index"], np.arange(0, 10))
+    assert np.array_equal(batches[0]["index"], np.arange(chunk_from_data1.start, chunk_from_data1.stop))
+    assert np.array_equal(batches[1]["index"], np.arange(chunk_from_data0.start, chunk_from_data0.stop))
     # data follows the index: each batch is exactly the requested chunk's rows read off disk
     np.testing.assert_array_equal(np.asarray(batches[0]["X"]), np.asarray(data1["dataset"][0:10]))
     np.testing.assert_array_equal(np.asarray(batches[1]["X"]), np.asarray(data0["dataset"][0:10]))
