@@ -478,21 +478,23 @@ class Loader[
             )
         return self
 
-    def _slices_to_dataset_rows(self, slices: list[slice]) -> OrderedDict[int, np.ndarray]:
-        """Given a list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
+    def _requests_to_dataset_rows(self, requests: list[slice] | np.ndarray) -> OrderedDict[int, np.ndarray]:
+        """Given a ndarray or list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
 
         In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
 
         Parameters
         ----------
-            slices
-                Slices to relative to the on-disk datasets.
+            requests
+                Slices or array of integers relative to the on-disk datasets.
 
         Returns
         -------
             A lookup between the dataset and its row indices, ordered by keys.
         """
-        global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
+        global_index = requests
+        if isinstance(requests, list):
+            global_index = np.concatenate([np.arange(s.start, s.stop) for s in requests])
         result: OrderedDict[int, np.ndarray] = OrderedDict()
         b_start = 0
         for ds, shape in enumerate(self._shapes):
@@ -777,7 +779,7 @@ class Loader[
         for load_request in self._batch_sampler.sample(self.n_obs):
             requests_to_load = load_request["requests"]
             splits = load_request["splits"]
-            dataset_index_to_rows = self._slices_to_dataset_rows(requests_to_load)
+            dataset_index_to_rows = self._requests_to_dataset_rows(requests_to_load)
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
