@@ -45,19 +45,19 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
 
 - **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
-  - If not supplied: batches are randomly created based on the loaded chunks.
-  - If supplied: you can control how batches are created from the in-memory chunks. Each array contains indices that map into the concatenated in-memory data.
+  - If not supplied: batches are randomly created based on the loaded requests.
+  - If supplied: you can control how batches are created from the in-memory requests. Each array contains indices that map into the concatenated in-memory data.
 ```{note}
-The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This capability is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
+The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded requests. This capability is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
 ```
 
   ```
 
-  Concatenated in-memory data (top row) from chunks (bottom row) of 400 observations:
+  Concatenated in-memory data (top row) from slices (bottom row) of 400 observations:
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  0   1   2   3  ...  99 100 101  ...  199 200  ...  299 300  ...  399   │
   │                                                                         │
-  │  [Chunk 200-299]    [Chunk 700-799]   [Chunk 0-99]   [Chunk 500-599]    │
+  │  [Slice 200-299]    [Slice 700-799]   [Slice 0-99]   [Slice 500-599]    │
   └─────────────────────────────────────────────────────────────────────────┘
 
   `LoadRequest` with splits for batch size of 4 = [np.array([0,50,150,250]),
@@ -95,7 +95,7 @@ The `splits` parameter gives you fine-grained control over how individual batche
 
 ## Example 1: Implementing a `InOrderSampler` class
 
-This example demonstrates creating a simple sampler that only loads sequential, non-random chunks of data from disk and yields them in-order:
+This example demonstrates creating a simple sampler that only loads sequential, non-random requests of data from disk and yields them in-order:
 
 ```python
 from annbatch.abc import Sampler
@@ -111,7 +111,7 @@ class InOrderSampler(Sampler):
         self.chunk_size = chunk_size
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        """Generate load requests for chunks."""
+        """Generate load requests."""
         # Create all chunk boundaries
         chunk_starts = list(range(0, n_obs, self.chunk_size))
         # Shuffle the chunks
@@ -169,7 +169,7 @@ Recommended pattern:
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │  1. Read contiguous chunk(s) from disk       →      2. Shuffle in memory         │
 │                                                                                  │
-│     Disk (sequential reads per chunk)                Memory (shuffled together)  │
+│     Disk (sequential reads per slice)                Memory (shuffled together)  │
 │  ┌───────────────┐                                ┌──────────────────────┐       │
 │  │ Chunk 0: 0-3  │  ═══════════╗                  │  8  2 11  0  5  9    │       │
 │  └───────────────┘             ║                  │ 10  1  4  7  3  6    │       │
@@ -206,5 +206,5 @@ This means:
 
 That is why `annbatch` provides tools to:
 1. **Preshuffle your data** during dataset creation to break up correlations via {class}`~annbatch.DatasetCollection`
-2. **Load multiple random chunks** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.ChunkSampler`)
+2. **Load multiple random slices** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.ChunkSampler`)
 3. **Use larger in-memory buffers** to shuffle across more blocks (accelerated via `preload_to_gpu` argument to {class}`~annbatch.Loader`)
