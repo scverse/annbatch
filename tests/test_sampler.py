@@ -29,11 +29,11 @@ def collect_indices(sampler: Sampler, n_obs: int) -> tuple[list[int], list[slice
     for load_request in sampler.sample(n_obs):
         assert len(load_request["splits"]) > 0, "splits must be non-empty"
         assert all(len(s) > 0 for s in load_request["splits"]), "splits must be non-empty"
-        assert len(load_request["chunks"]) > 0, "chunks must be non-empty"
-        assert all(c.stop - c.start > 0 for c in load_request["chunks"]), "chunks must be non-empty"
+        assert len(load_request["requests"]) > 0, "requests must be non-empty"
+        assert all(c.stop - c.start > 0 for c in load_request["requests"]), "requests must be non-empty"
         splits.extend(load_request["splits"])
 
-        for c in load_request["chunks"]:
+        for c in load_request["requests"]:
             chunks.append(c)
             indices.extend(range(c.start, c.stop))
 
@@ -146,18 +146,18 @@ def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler
     all_requests: list[LoadRequest] = list(sampler.sample(n_obs))
     assert len(all_requests) == expected_num_load_requests
     for req_idx, load_request in enumerate(all_requests[:-1]):
-        assert all(chunk.stop - chunk.start == chunk_size for chunk in load_request["chunks"]), (
+        assert all(chunk.stop - chunk.start == chunk_size for chunk in load_request["requests"]), (
             f"chunk size mismatch at request {req_idx}:",
-            f"chunks: {load_request['chunks']}",
+            f"requests: {load_request['requests']}",
         )
         assert all(len(split) == batch_size for split in load_request["splits"]), (
             f"batch size mismatch at request {req_idx}:splits: {load_request['splits']}"
         )
     last_request = all_requests[-1]
     assert len(last_request["splits"]) == expected_last_num_splits, "last request num splits mismatch"
-    assert all(chunk.stop - chunk.start == expected_last_chunk_size for chunk in last_request["chunks"]), (
+    assert all(chunk.stop - chunk.start == expected_last_chunk_size for chunk in last_request["requests"]), (
         "last request chunk size mismatch",
-        f"chunks: {last_request['chunks']}",
+        f"requests: {last_request['requests']}",
     )
     assert all(len(split) == expected_last_batch_size for split in last_request["splits"]), (
         "last request batch size mismatch",
@@ -550,14 +550,14 @@ class SimpleSampler(Sampler):
             stop = min(start + chunk_size, n_obs)
             if self._provide_splits:
                 # Yield one LoadRequest per chunk with splits
-                yield {"chunks": [slice(start, stop)], "splits": [np.arange(stop - start)]}
+                yield {"requests": [slice(start, stop)], "splits": [np.arange(stop - start)]}
             else:
                 # Accumulate chunks
                 chunks.append(slice(start, stop))
 
         # Yield accumulated chunks without splits
         if not self._provide_splits:
-            yield {"chunks": chunks}
+            yield {"requests": chunks}
 
 
 @pytest.mark.parametrize(

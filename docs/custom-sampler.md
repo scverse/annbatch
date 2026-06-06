@@ -14,7 +14,7 @@ This is the abstract base class that all samplers must inherit from. You need to
 
 This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifies how data should be loaded. Each `LoadRequest` contains:
 
-- **{attr}`~annbatch.types.LoadRequest.chunks`**: A list of slices that define which contiguous chunks of memory to load from disk. Each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
+- **{attr}`~annbatch.types.LoadRequest.requests`**: A list of slices that define which contiguous chunks of memory to load from disk. Each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
 
   ```
 
@@ -24,7 +24,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   │  0-99   │ 100-199 │ 200-299 │ 300-399 │ 400-499 │ 500-599 │ 600-699 │ 700-799 │ 800-899 │ 900-999 │
   └─────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘
 
-  LoadRequest with chunks = [slice(200,300), slice(700,800), slice(0,100), slice(500,600)]:
+  LoadRequest with requests = [slice(200,300), slice(700,800), slice(0,100), slice(500,600)]:
   ┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
   │    ✓    │         │    ✓    │         │         │    ✓    │         │    ✓    │         │         │
   │ Chunk 0 │         │ Chunk 2 │         │         │ Chunk 5 │         │ Chunk 7 │         │         │
@@ -38,7 +38,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   │ 200-299 │ 700-799 │  0-99   │ 500-599 │
   └─────────┴─────────┴─────────┴─────────┘
   ```
-  Note: The chunks are purely virtual and are defined by the user through the `chunks` argument.
+  Note: The slices are purely virtual and are defined by the user through the `requests` argument.
   They don't necessarily need to with the underlying zarr chunks.
 
   **Important:** The number of samples that get loaded into memory at once, must be devisible by the batch size.
@@ -127,7 +127,7 @@ class InOrderSampler(Sampler):
                 np.arange(i, min(i + self.batch_size, chunk_size_actual))
                 for i in range(0, chunk_size_actual, self.batch_size)
             ]
-            yield {"chunks": [chunk], "splits": batch_indices}
+            yield {"requests": [chunk], "splits": batch_indices}
 ```
 
 
@@ -149,7 +149,7 @@ class RandomSampler(Sampler):
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         for i in np.array_split(np.random.default_rng().permutation(self.n_obs), self.n_obs // self.batch_size):
-            yield {"splits": [np.arange(self.batch_size)], "chunks": [slice(idx, idx + 1) for idx in i]}
+            yield {"splits": [np.arange(self.batch_size)], "requests": [slice(idx, idx + 1) for idx in i]}
 
 ```
 

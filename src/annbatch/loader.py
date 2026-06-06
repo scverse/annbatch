@@ -775,9 +775,9 @@ class Loader[
         )
         is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
         for load_request in self._batch_sampler.sample(self.n_obs):
-            chunks_to_load = load_request["chunks"]
+            requests_to_load = load_request["requests"]
             splits = load_request["splits"]
-            dataset_index_to_rows = self._slices_to_dataset_rows(chunks_to_load)
+            dataset_index_to_rows = self._slices_to_dataset_rows(requests_to_load)
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 

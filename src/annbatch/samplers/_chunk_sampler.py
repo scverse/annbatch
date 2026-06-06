@@ -177,7 +177,7 @@ class _ChunkSampler(Sampler):
         if tail > 0:
             load_request = next(base)
             yield {
-                "chunks": load_request["chunks"],
+                "requests": load_request["requests"],
                 "splits": load_request["splits"][:tail],
             }
 
@@ -199,7 +199,7 @@ class _ChunkSampler(Sampler):
                 # Avoid copies using in-place shuffling since `self.shuffle` should not change mid-training
                 batch_rng.shuffle(batch_indices)
                 split_batch_indices = split_given_size(batch_indices, self.batch_size)
-            yield {"chunks": request_chunks, "splits": split_batch_indices}
+            yield {"requests": request_chunks, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nslices * slice_size
         final_chunks = chunks_per_request[-1]
         total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_chunks))
@@ -211,7 +211,7 @@ class _ChunkSampler(Sampler):
             total_obs_in_last_batch -= total_obs_in_last_batch % self.batch_size
         indices = batch_rng.permutation(total_obs_in_last_batch) if self.shuffle else np.arange(total_obs_in_last_batch)
         batch_indices = split_given_size(indices, self.batch_size)
-        yield {"chunks": final_chunks, "splits": batch_indices}
+        yield {"requests": final_chunks, "splits": batch_indices}
 
     def _compute_chunks(self, n_obs: int, rng: np.random.Generator) -> list[slice]:
         """Compute chunks from start and stop indices.

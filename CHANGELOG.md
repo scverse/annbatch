@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.2.0]
+
+### Breaking
+- Renamed {attr}`annbatch.types.LoadRequest.chunks` to {attr}`annbatch.types.LoadRequest.requests`.
+
 ## [0.1.6]
 
 ### Performance

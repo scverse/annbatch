@@ -24,8 +24,11 @@ class LoadRequest(TypedDict):
 
     Attributes
     ----------
-    chunks
-        Chunks to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
+    requests
+        Slices to load - a list of slices with a range of chunk_size except the last one which may be smaller but not empty.
+
+        .. versionchanged:: 0.2.0
+            Renamed from ``chunks`` to ``requests``.
     splits
         How the in-memory data should be split into batches after it is read off disk and concatenated in-memory.
         A list of splits, last one may be partial but not empty i.e. 1 <= len(last_split) <= batch_size.
@@ -47,7 +50,7 @@ class LoadRequest(TypedDict):
 
     """
 
-    chunks: list[slice]
+    requests: list[slice]
     splits: NotRequired[list[np.ndarray]]
 
 

@@ -65,7 +65,7 @@ class Sampler(ABC):
 
         If `batch_size` is provided and :attr:`annbatch.types.LoadRequest.splits` is not, in-memory loaded data will be shuffled or not based on this param.
 
-        Shuffling of on-disk data is up to the user (controlled by `chunks` parameter in :class:`annbatch.types.LoadRequest`).
+        Shuffling of on-disk data is up to the user (controlled by `requests` parameter in :class:`annbatch.types.LoadRequest`).
 
         Returns
         -------
@@ -115,7 +115,7 @@ class Sampler(ABC):
                     raise ValueError("shuffle must be set when splits are not provided in LoadRequest")
 
                 # Calculate total observations from chunks
-                total_obs = sum(chunk.stop - chunk.start for chunk in load_request["chunks"])
+                total_obs = sum(chunk.stop - chunk.start for chunk in load_request["requests"])
 
                 # Generate indices with optional shuffling and split into batches
                 indices = np.random.permutation(total_obs) if shuffle else np.arange(total_obs)
