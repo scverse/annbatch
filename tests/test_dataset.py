@@ -738,13 +738,17 @@ def test_splits_are_chunk_order_across_datasets(adata_with_zarr_path_same_var_sp
     data0, data1 = open_dense(paths[0]), open_dense(paths[1])
     n0 = data0["dataset"].shape[0]  # dataset 0 -> global [0, n0) ; dataset 1 -> global [n0, ...)
 
-    # chunk A = dataset 1 rows [n0, n0 + 10); chunk B = dataset 0 rows [0, 10)  -> out of dataset order
+    chunk_from_data1 = slice(n0, n0 + 10)
+    chunk_from_data0 = slice(0, 10)
+    split_from_data1 = np.arange(0, 10)
+    split_from_data0 = np.arange(10, 20)
     sampler = _FixedRequestSampler(
         batch_size=10,
         preload_nchunks=2,
         chunk_size=10,
-        chunks=[slice(n0, n0 + 10), slice(0, 10)],
-        splits=[np.arange(0, 10), np.arange(10, 20)],  # split 0 = chunk A, split 1 = chunk B (chunk order)
+        # split 0 from data1, split 1 from data0
+        chunks=[chunk_from_data1, chunk_from_data0],
+        splits=[split_from_data1, split_from_data0],
     )
     loader = Loader(batch_sampler=sampler, return_index=True, preload_to_gpu=False, to_torch=False)
     loader.add_dataset(**data0)
