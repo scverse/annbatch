@@ -272,7 +272,7 @@ class CategoricalSampler(Sampler):
         cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_chunks, p=self._probs)
 
         # 2) one uniform draw within each chosen category's flat span of valid positions
-        local_off = (self._rng.random(n_chunks) * self._cat_total[cat_of_draw]).astype(np.int64)
+        local_off = (self._rng.random(n_chunks) * self._cat_total[cat_of_draw])
         global_off = self._cat_base[cat_of_draw] + local_off
 
         # 3) map the flat offset -> run -> absolute chunk start (the searchsorted trick,
