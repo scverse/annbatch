@@ -156,8 +156,6 @@ class CategoricalSampler(Sampler):
             raise ValueError("category_weights must have at least one positive weight.")
 
         self._weights = weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
-        active_w = weights[weights > 0]
-        self._active_probs = active_w / active_w.sum()  # used as-is over the full range
 
     @property
     def mask(self) -> slice:
@@ -218,13 +216,8 @@ class CategoricalSampler(Sampler):
         self._cat_ids = cat_ids
         self._cat_base = self._cum[first]  # the value in `cum` where each category begins
         self._cat_total = self._cum[last] - self._cum[first]  # # of valid chunk positions per category
-        # over the full dataset every active category is present, so the precomputed probs apply;
-        # only a narrower mask can hide categories and require renormalization
-        if start == 0 and stop == n_obs:
-            self._probs = self._active_probs
-        else:
-            w = self._weights[self._cat_ids]
-            self._probs = w / w.sum()
+        w = self._weights[cat_ids]
+        self._probs = w / w.sum()
         self._built_range = (start, stop)
 
     @property
