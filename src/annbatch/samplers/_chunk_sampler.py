@@ -100,7 +100,7 @@ class _ChunkSampler(Sampler):
         s, e = self._resolve_start_stop(n_obs)
         return e - s
 
-    def n_iters(self, n_obs: int) -> int:
+    def n_batches(self, n_obs: int) -> int:
         total = self._resolve_num_samples(n_obs)
         return total // self.batch_size if self._drop_last else math.ceil(total / self.batch_size)
 
@@ -171,7 +171,7 @@ class _ChunkSampler(Sampler):
         if not self._replacement and self._num_samples is None:
             yield from base
             return
-        n_full, tail = divmod(self.n_iters(n_obs), self._in_memory_size // self.batch_size)
+        n_full, tail = divmod(self.n_batches(n_obs), self._in_memory_size // self.batch_size)
         yield from itertools.islice(base, n_full)
         if tail > 0:
             load_request = next(base)
