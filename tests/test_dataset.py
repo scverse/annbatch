@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from importlib.util import find_spec
 from types import NoneType
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import anndata as ad
 import h5py
@@ -594,7 +594,7 @@ def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_sam
         def __init__(self):
             self._validate_count = 0
 
-        def n_iters(self, n_obs: int) -> int:
+        def n_batches(self, n_obs: int) -> int:
             return math.ceil(n_obs / self.batch_size)
 
         def validate(self, n_obs: int) -> None:
@@ -699,19 +699,6 @@ def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     )
     for batch1, batch2 in zip(ds1, ds2, strict=True):
         np.testing.assert_equal(batch1["X"], batch2["X"])
-
-
-@pytest.mark.parametrize("concat_strategy", ["concat-shuffle", "shuffle-concat"])
-def test_warn_concat_strategy(concat_strategy: Literal["concat-shuffle", "shuffle-concat"]):
-    with pytest.warns(DeprecationWarning, match=r"concat_strategy has no effect"):
-        Loader(
-            chunk_size=10,
-            preload_nchunks=4,
-            batch_size=20,
-            shuffle=True,
-            rng=np.random.default_rng(0),
-            concat_strategy=concat_strategy,
-        )
 
 
 class _FixedRequestSampler(SequentialSampler):

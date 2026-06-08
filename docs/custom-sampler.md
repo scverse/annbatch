@@ -198,7 +198,7 @@ Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
 
 Each random read may:
 - Require loading an entire chunk just to extract one element (whereas sequential reads will use most if not all elements from every chunk)
-- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`annbatch.ChunkSampler`)
+- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`~annbatch.samplers.RandomSampler`)
 
 ### The Randomness Trade-off
 
@@ -211,5 +211,5 @@ This means:
 
 That is why `annbatch` provides tools to:
 1. **Preshuffle your data** during dataset creation to break up correlations via {class}`~annbatch.DatasetCollection`
-2. **Load multiple random chunks** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.ChunkSampler`)
+2. **Load multiple random chunks** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.samplers.RandomSampler`)
 3. **Use larger in-memory buffers** to shuffle across more blocks (accelerated via `preload_to_gpu` argument to {class}`~annbatch.Loader`)
