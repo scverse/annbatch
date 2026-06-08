@@ -145,7 +145,7 @@ class CategoricalSampler(Sampler):
         if category_weights is None:
             weights = np.ones(n_cats, dtype=float)
         else:
-            weights = np.asarray(category_weights, dtype=float)
+            weights = np.array(category_weights, dtype=float)
             if weights.shape != (n_cats,):
                 raise ValueError(
                     f"category_weights must have one weight per category in categorical.categories "
@@ -213,7 +213,7 @@ class CategoricalSampler(Sampler):
         self._run_start = run_start
         self._run_pos_cumsum = run_pos_cumsum
         self._cat_ids = cat_ids
-        self._cat_base = self._run_pos_cumsum[first]  # the value in `cum` where each category begins
+        self._cat_base = self._run_pos_cumsum[first]  # value in `run_pos_cumsum` where each category's span begins
         self._cat_total = (
             self._run_pos_cumsum[last] - self._run_pos_cumsum[first]
         )  # num of valid chunk positions per category
@@ -239,7 +239,7 @@ class CategoricalSampler(Sampler):
         """Validate that the codes describe exactly the loader's observations."""
         if n_obs != self._n_obs:
             raise ValueError(
-                f"codes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
+                f"categorical length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
                 "The categorical column must describe exactly the loader's observations."
             )
         self._ensure_runs(n_obs)
