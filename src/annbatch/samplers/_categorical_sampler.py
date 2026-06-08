@@ -6,6 +6,7 @@ import math
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
@@ -65,23 +66,23 @@ class CategoricalSampler(Sampler):
         Number of chunks to load per iteration.
     batch_size
         Number of observations per batch.
-    codes
-        Integer category code per observation, e.g. ``df["cell_type"].cat.codes``
-        from the input dataframe. Length must equal the loader's ``n_obs``.
-        Codes do not need to be contiguous on the obs axis -- a category may be
-        spread across many runs -- but every run of a non-excluded category must
-        be at least ``chunk_size`` long (see the run-length rule above).
+    categorical
+        A :class:`pandas.Categorical` with one entry per observation, e.g.
+        ``df["cell_type"].astype("category")`` or ``df["cell_type"].values``
+        when the column already has a categorical dtype. Length must equal the
+        loader's ``n_obs``. The obs axis need not be contiguous per category, but
+        every run of a non-excluded category must be at least ``chunk_size`` long
+        (see the run-length rule above). NA values (``codes == -1``) are not allowed.
     num_samples
         Total number of observations to draw per epoch.
     category_weights
-        Optional weights, one per category in ``np.unique(codes)``
-        (so ``len(category_weights) == n_categories``), controlling how often each
-        category is drawn. A non-positive weight excludes that category entirely.
-        When ``None`` (the default) every category is drawn uniformly. For proportional
-        (≈ plain global random) sampling pass each category's observation count,
-        e.g. ``np.bincount(codes)[np.unique(codes)]``. The weights are kept and,
-        whenever a mask narrows the range, the weights of the categories still
-        present are renormalized.
+        Optional weights, one per category in ``categorical.categories``
+        (so ``len(category_weights) == len(categorical.categories)``), controlling
+        how often each category is drawn. A non-positive weight excludes that category
+        entirely. When ``None`` (the default) every category is drawn uniformly. For
+        proportional (≈ plain global random) sampling pass each category's observation
+        count. The weights are kept and, whenever a mask narrows the range, the weights
+        of the categories still present are renormalized.
     mask
         Optional contiguous observation range to restrict sampling to. Defaults to
         the whole dataset.
@@ -103,7 +104,7 @@ class CategoricalSampler(Sampler):
         preload_nchunks: int,
         batch_size: int,
         *,
-        codes: np.ndarray,
+        categorical: pd.Categorical,
         num_samples: int,
         category_weights: np.ndarray | None = None,
         mask: slice | None = None,
@@ -111,9 +112,11 @@ class CategoricalSampler(Sampler):
         rng: np.random.Generator | None = None,
     ):
         check_lt_1([num_samples], ["num_samples"])
-        codes = np.asarray(codes)
-        if codes.ndim != 1:
-            raise ValueError("codes must be a 1D array of category codes (one per observation).")
+        if not isinstance(categorical, pd.Categorical):
+            raise TypeError(f"categorical must be a pandas.Categorical, got {type(categorical).__name__}.")
+        codes = np.asarray(categorical.codes)
+        if (codes == -1).any():
+            raise ValueError("categorical contains NA values (codes == -1). Remove NAs before passing.")
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
@@ -128,31 +131,35 @@ class CategoricalSampler(Sampler):
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
         self._mask = slice(start, stop)
+        self._categories = categorical.categories
 
         # categories and their weights are mask-independent; kept so any mask can renormalize from them
-        self._build_categories(codes, category_weights)
+        self._build_categories(codes, categorical.categories, category_weights)
 
         # eager build for the (default or constructor) range so run-length errors surface early
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
-    def _build_categories(self, codes: np.ndarray, category_weights: np.ndarray | None) -> None:
+    def _build_categories(
+        self, codes: np.ndarray, categories: pd.Index, category_weights: np.ndarray | None
+    ) -> None:
         """Resolve the (non-excluded) categories and their renormalizable weights."""
-        categories = np.unique(codes)  # one entry per category, sorted -- the weight alignment order
+        n_cats = len(categories)
+        cat_codes = np.arange(n_cats)
         if category_weights is None:
-            weights = np.ones(categories.shape, dtype=float)
+            weights = np.ones(n_cats, dtype=float)
         else:
             weights = np.asarray(category_weights, dtype=float)
-            if weights.shape != categories.shape:
+            if weights.shape != (n_cats,):
                 raise ValueError(
-                    f"category_weights must have one weight per category in np.unique(codes) "
-                    f"(expected shape {categories.shape}, got {weights.shape})."
+                    f"category_weights must have one weight per category in categorical.categories "
+                    f"(expected shape ({n_cats},), got {weights.shape})."
                 )
         active = weights > 0  # a non-positive weight excludes a category entirely
         if not active.any():
             raise ValueError("category_weights must have at least one positive weight.")
 
-        self._active_categories = categories[active]  # sorted category codes that can be sampled
+        self._active_categories = cat_codes[active]  # sorted category codes that can be sampled
         self._active_weights = weights[active]  # kept unnormalized so masked ranges renormalize from them
         self._active_probs = self._active_weights / self._active_weights.sum()  # used as-is over the full range
 
@@ -193,9 +200,10 @@ class CategoricalSampler(Sampler):
         too_short = run_len < self._chunk_size
         if np.any(too_short):
             bad = np.unique(run_cat[too_short])
+            bad_labels = self._categories[bad].tolist()
             raise ValueError(
                 f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
-                f"but {int(too_short.sum())} run(s) are shorter (categories {bad.tolist()}). "
+                f"but {int(too_short.sum())} run(s) are shorter (categories {bad_labels}). "
                 "Re-chunk the data so each category's runs are large enough, lower chunk_size, "
                 "or exclude these categories with a zero weight."
             )

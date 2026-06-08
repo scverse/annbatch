@@ -16,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from annbatch.samplers import CategoricalSampler
@@ -37,7 +38,7 @@ def make_sampler(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
-        codes=np.asarray(codes),
+        categorical=pd.Categorical(codes),
         num_samples=num_samples,
         rng=np.random.default_rng(seed),
         **kwargs,
@@ -75,7 +76,6 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
 @pytest.mark.parametrize(
     ("codes", "kwargs", "match"),
     [
-        pytest.param(np.zeros((10, 2), dtype=int), {}, "1D array", id="codes_2d"),
         pytest.param(np.array([0, 0, 1, 1, 2, 2]), {}, "at least chunk_size", id="all_runs_too_short"),
         pytest.param(
             np.array([0] * 30 + [1] * 30 + [0] * 3), {}, r"at least chunk_size.*\[0\]", id="one_run_too_short"
@@ -93,6 +93,25 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
 def test_invalid_construction(codes: np.ndarray, kwargs: dict, match: str):
     with pytest.raises(ValueError, match=match):
         make_sampler(codes, **kwargs)
+
+
+def test_invalid_construction_not_categorical():
+    with pytest.raises(TypeError, match="pandas.Categorical"):
+        CategoricalSampler(
+            chunk_size=10, preload_nchunks=4, batch_size=10,
+            categorical=np.repeat([0, 1], 50),  # type: ignore[arg-type]
+            num_samples=100,
+        )
+
+
+def test_invalid_construction_na_values():
+    codes_with_na = pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1])
+    with pytest.raises(ValueError, match="NA values"):
+        CategoricalSampler(
+            chunk_size=10, preload_nchunks=4, batch_size=10,
+            categorical=codes_with_na,
+            num_samples=100,
+        )
 
 
 def test_validate_rejects_n_obs_mismatch():
