@@ -14,7 +14,7 @@ This is the abstract base class that all samplers must inherit from. You need to
 
 This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifies how data should be loaded. Each `LoadRequest` contains:
 
-- **{attr}`~annbatch.types.LoadRequest.requests`**: A list of slices that define which contiguous chunks of memory to load from disk. Each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
+- **{attr}`~annbatch.types.LoadRequest.requests`**: A numpy array containing the indices to load or list of slices that define which contiguous chunks of memory to load from disk. When it is a list of slices, each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
 
   ```
 
