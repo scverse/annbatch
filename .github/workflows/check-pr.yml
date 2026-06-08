@@ -18,10 +18,9 @@ env:
   LABELS: ${{ join(github.event.pull_request.labels.*.name, '|') }}
 
 jobs:
-  # This job verifies that the milestone is present or not necessary
-  # and determines if "check-relnotes" needs to be run.
+  # This determines if "check-relnotes" needs to be run.
   check-milestone:
-    name: "Triage: Check PR title, milestone, and labels"
+    name: "Triage: Check PR title and release notes"
     runs-on: ubuntu-latest
     steps:
       - name: Check if release notes are necessary
