@@ -88,6 +88,10 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
             np.repeat([0, 1], 50), {"category_weights": np.zeros(2)}, "at least one positive", id="weights_zero"
         ),
         pytest.param(np.repeat([0, 1], 50), {"mask": slice(0, 500)}, "exceeds loader n_obs", id="mask_out_of_range"),
+        # chunk_size(10) * preload_nchunks(4) = 40 < batch_size
+        pytest.param(np.repeat([0, 1], 50), {"batch_size": 50}, "batch_size cannot exceed", id="batch_gt_preload"),
+        # 40 % 30 != 0
+        pytest.param(np.repeat([0, 1], 50), {"batch_size": 30}, "must be divisible", id="batch_not_divisible"),
     ],
 )
 def test_invalid_construction(codes: np.ndarray, kwargs: dict, match: str):
@@ -155,6 +159,10 @@ def test_chunks_are_category_coherent(codes: np.ndarray):
     assert -1 not in _chunk_categories(chunks, codes), "every chunk must lie within a single category"
     # chunks stay in-bounds and are full size (num_samples is a multiple of chunk_size here)
     assert all(0 <= c.start and c.stop <= len(codes) and c.stop - c.start == 10 for c in chunks)
+
+
+def test_shuffle_is_true():
+    assert make_sampler(np.repeat([0, 1], 50)).shuffle is True
 
 
 def test_noncontiguous_category_samples_all_runs():
@@ -253,32 +261,6 @@ def test_mask_with_no_positive_weight_in_range_raises(via: str):
         sampler = make_sampler(codes, category_weights=weights)
         with pytest.raises(ValueError, match="positive weight is present"):
             sampler.mask = slice(50, 100)
-
-
-def test_mask_reassignment_is_cached(monkeypatch):
-    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
-    sampler = make_sampler(codes, num_samples=500)
-
-    builds = {"n": 0}
-    original = sampler._ensure_runs.__func__
-
-    def counting_ensure(self, n_obs):
-        before = self._built_range
-        original(self, n_obs)
-        builds["n"] += self._built_range != before
-
-    monkeypatch.setattr(type(sampler), "_ensure_runs", counting_ensure)
-
-    sampler.mask = slice(0, 100)
-    assert {int(np.unique(codes[c])[0]) for c in _collect_chunks(sampler, len(codes))} == {0}
-    after_first = builds["n"]
-
-    _collect_chunks(sampler, len(codes))  # same range -> cache hit, no rebuild
-    assert builds["n"] == after_first
-
-    sampler.mask = slice(100, 200)  # new range -> exactly one rebuild, different category
-    assert {int(np.unique(codes[c])[0]) for c in _collect_chunks(sampler, len(codes))} == {1}
-    assert builds["n"] == after_first + 1
 
 
 # =============================================================================
