@@ -69,7 +69,7 @@ To control reproducibility, pass a seeded {class}`numpy.random.Generator` via th
 import numpy as np
 
 rng = np.random.default_rng(42)
-sampler = ChunkSampler(..., rng=rng)
+sampler = RandomSampler(..., rng=rng)
 ```
 
 Using `annbatch` with {class}`torch.utils.data.DataLoader` is neither explicitly supported nor guaranteed to behave as expected with respect to seeding and worker behavior.
