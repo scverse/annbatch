@@ -46,9 +46,14 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
 
 - **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
   - If not supplied: batches are randomly created based on the loaded chunks.
-  - If supplied: you can control how batches are created from the in-memory chunks. Each array contains indices that map into the concatenated in-memory data.
+  - If supplied: you can control how batches are created from the in-memory chunks. Each array contains indices in **chunk order** -- position `j` is the `j`-th observation when the chunks are concatenated in the order listed in `chunks` (exactly as drawn below).
 ```{note}
 The `splits` parameter gives you fine-grained control over how individual batches are created based on the loaded chunks. This capability is particularly useful when you want to organize batches based on semantic labels, categories, or other metadata.
+```
+```{important}
+Split indices are always in **chunk order**. Internally the loader fetches chunks grouped by on-disk dataset for efficiency, so the physical in-memory layout may be reordered, but it remaps your splits back to chunk order before yielding. You therefore never need to account for how chunks map to datasets.
+
+*Changed in 0.2.0:* splits previously had to index into the dataset-grouped physical layout; they now index in chunk order. Custom samplers that compensated for the dataset reordering must drop that compensation.
 ```
 
   ```
@@ -193,7 +198,7 @@ Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
 
 Each random read may:
 - Require loading an entire chunk just to extract one element (whereas sequential reads will use most if not all elements from every chunk)
-- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`annbatch.ChunkSampler`)
+- Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`~annbatch.samplers.RandomSampler`)
 
 ### The Randomness Trade-off
 
@@ -206,5 +211,5 @@ This means:
 
 That is why `annbatch` provides tools to:
 1. **Preshuffle your data** during dataset creation to break up correlations via {class}`~annbatch.DatasetCollection`
-2. **Load multiple random chunks** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.ChunkSampler`)
+2. **Load multiple random chunks** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.samplers.RandomSampler`)
 3. **Use larger in-memory buffers** to shuffle across more blocks (accelerated via `preload_to_gpu` argument to {class}`~annbatch.Loader`)
