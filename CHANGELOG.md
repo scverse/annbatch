@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning][].
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
 
+
 ## [0.2.0]
 
 ### Feature
 - Add a `merge` argument to {meth}`annbatch.DatasetCollection.add_adatas` to handle how columns in {attr}`~anndata.AnnData.var` are handled when creating the on-disk dataset.
+- Now {attr}`annbatch.types.LoadRequest.requests` (formerly `annbatch.types.LoadRequest.chunks`) can also be a numpy array of integers.
 
 ### Breaking
 - Removal of deprecated `annbatch.ChunkSampler`
@@ -20,6 +22,8 @@ and this project adheres to [Semantic Versioning][].
 - Added `n_batches` method to {class}`~annbatch.abc.Sampler` and all sampler implementations.
 - Remove deprecated `concat_strategy` argument from {class}`~annbatch.Loader`
 - {attr}`annbatch.types.LoadRequest.splits` now index in **request order** -- position `j` is the `j`-th observation when the request's `chunks` are concatenated in the order given. Previously, `splits` had to index into the loader's internal dataset-grouped memory layout. The {class}`~annbatch.Loader` now remaps splits to that layout itself, so custom samplers must produce chunk-order splits and stop compensating for the dataset reordering.
+- Deprecated `annbatch.types.LoadRequest.chunks` in favor of {attr}`annbatch.types.LoadRequest.requests`.
+
 
 ## [0.1.6]
 
