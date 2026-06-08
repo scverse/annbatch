@@ -217,7 +217,7 @@ class CategoricalSampler(Sampler):
         self._cat_base = self._run_pos_cumsum[first]  # the value in `cum` where each category begins
         self._cat_total = (
             self._run_pos_cumsum[last] - self._run_pos_cumsum[first]
-        )  # # of valid chunk positions per category
+        )  # num of valid chunk positions per category
         w = self._weights[cat_ids]
         self._probs = w / w.sum()
         self._built_range = (start, stop)
