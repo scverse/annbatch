@@ -51,7 +51,7 @@ def _chunk_categories(chunks: list[slice], codes: np.ndarray) -> list[int]:
 
 
 def _collect_chunks(sampler: CategoricalSampler, n_obs: int) -> list[slice]:
-    return [c for load_request in sampler.sample(n_obs) for c in load_request["chunks"]]
+    return [c for load_request in sampler.sample(n_obs) for c in load_request["requests"]]
 
 
 def _draw_shares(sampler: CategoricalSampler, codes: np.ndarray) -> dict[int, float]:
@@ -285,7 +285,7 @@ def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_
 
 @pytest.mark.parametrize("num_samples", [300, 305], ids=["multiple", "non_multiple"])
 def test_num_samples_respected(num_samples: int):
-    # non_multiple exercises the remainder partial-chunk path in _compute_chunks
+    # non_multiple exercises the remainder partial-slice path in _compute_slices
     codes = np.repeat([0, 1, 2], 100)
     sampler = make_sampler(codes, num_samples=num_samples, preload_nchunks=3)
     total = sum(len(s) for lr in sampler.sample(len(codes)) for s in lr["splits"])

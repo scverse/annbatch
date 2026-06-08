@@ -12,7 +12,7 @@ from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     check_lt_1,
     get_torch_worker_info,
-    iter_from_chunks,
+    iter_from_slices,
     validate_chunk_batch_preload_sizes,
     validate_mask_n_obs_and_resolve,
 )
@@ -250,9 +250,9 @@ class CategoricalSampler(Sampler):
             raise NotImplementedError("Multiple workers are not supported with CategoricalSampler.")
 
         self._ensure_runs(n_obs)
-        chunks = self._compute_chunks()
-        return iter_from_chunks(
-            chunks=chunks,
+        slices = self._compute_slices()
+        return iter_from_slices(
+            slices=slices,
             batch_rng=self._rng,
             preload_nchunks=self._preload_nchunks,
             batch_size=self._batch_size,
@@ -262,27 +262,27 @@ class CategoricalSampler(Sampler):
             worker_info=None,
         )
 
-    def _compute_chunks(self) -> list[slice]:
-        n_chunks, remainder = divmod(self._num_samples, self._chunk_size)
+    def _compute_slices(self) -> list[slice]:
+        n_slices, remainder = divmod(self._num_samples, self._chunk_size)
         if remainder > 0 and not self._drop_last:
-            n_chunks += 1
+            n_slices += 1
 
-        # 1) pick a category for each chunk according to the sampling policy
-        cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_chunks, p=self._probs)
+        # 1) pick a category for each slice according to the sampling policy
+        cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_slices, p=self._probs)
 
         # 2) one uniform draw within each chosen category's flat span of valid positions
-        local_off = (self._rng.random(n_chunks) * self._cat_total[cat_of_draw]).astype(np.intp)
+        local_off = (self._rng.random(n_slices) * self._cat_total[cat_of_draw]).astype(np.intp)
         global_off = self._cat_base[cat_of_draw] + local_off
 
-        # 3) map the flat offset -> run -> absolute chunk start (the searchsorted trick,
+        # 3) map the flat offset -> run -> absolute slice start (the searchsorted trick,
         #    generalized across every category at once)
         run_idx = np.searchsorted(self._run_pos_cumsum, global_off, side="right") - 1
         within = global_off - self._run_pos_cumsum[run_idx]
-        chunk_starts = self._run_start[run_idx] + within
-        # NB: self._cat_ids[cat_of_draw] is the category label of each chunk, available for free.
+        slice_starts = self._run_start[run_idx] + within
+        # NB: self._cat_ids[cat_of_draw] is the category label of each slice, available for free.
 
-        chunks = [slice(int(s), int(s + self._chunk_size)) for s in chunk_starts]
+        slices = [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
         if remainder > 0 and not self._drop_last:
-            last = int(chunk_starts[-1])
-            chunks[-1] = slice(last, last + remainder)
-        return chunks
+            last = int(slice_starts[-1])
+            slices[-1] = slice(last, last + remainder)
+        return slices

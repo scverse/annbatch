@@ -1,4 +1,4 @@
-"""Sampler classes for efficient chunk-based data access."""
+"""Sampler classes for efficient data access."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import numpy as np
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     get_torch_worker_info,
-    iter_from_chunks,
+    iter_from_slices,
     validate_chunk_batch_preload_sizes,
     validate_mask_and_resolve,
     validate_mask_n_obs_and_resolve,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 class _ChunkSampler(Sampler):
-    """Chunk-based sampler implementation for batched data access."""
+    """Sampler implementation for efficient batched data access."""
 
     _batch_size: int
     _chunk_size: int
@@ -137,18 +137,18 @@ class _ChunkSampler(Sampler):
         self._validate_worker_mode(worker_info)
 
         worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
-        chunks = self._compute_chunks(n_obs, rng=self._rng)
-        yield from self._iter_from_chunks(n_obs, chunks, batch_rng=worker_aware_rng, worker_info=worker_info)
+        slices = self._compute_slices(n_obs, rng=self._rng)
+        yield from self._iter_from_slices(n_obs, slices, batch_rng=worker_aware_rng, worker_info=worker_info)
 
-    def _iter_from_chunks(
+    def _iter_from_slices(
         self,
         n_obs: int,
-        chunks: list[slice],
+        slices: list[slice],
         batch_rng: np.random.Generator,
         worker_info: WorkerInfo | None,
     ) -> Iterator[LoadRequest]:
-        base = iter_from_chunks(
-            chunks=chunks,
+        base = iter_from_slices(
+            slices=slices,
             batch_rng=batch_rng,
             worker_info=worker_info,
             preload_nchunks=self._preload_nchunks,
@@ -165,47 +165,47 @@ class _ChunkSampler(Sampler):
         if tail > 0:
             load_request = next(base)
             yield {
-                "chunks": load_request["chunks"],
+                "requests": load_request["requests"],
                 "splits": load_request["splits"][:tail],
             }
 
-    def _compute_chunks(self, n_obs: int, rng: np.random.Generator) -> list[slice]:
-        """Compute chunks from start and stop indices.
+    def _compute_slices(self, n_obs: int, rng: np.random.Generator) -> list[slice]:
+        """Compute slices from start and stop indices.
 
-        Chunks are computed such that the last chunk may be incomplete.
+        Slices are computed such that the last slice may be incomplete.
         """
         start, stop = self._resolve_start_stop(n_obs)
         if self._replacement:
-            return self._compute_chunks_with_replacement(start, stop, n_obs, rng)
-        return self._compute_chunks_without_replacement(start, stop, rng)
+            return self._compute_slices_with_replacement(start, stop, n_obs, rng)
+        return self._compute_slices_without_replacement(start, stop, rng)
 
-    def _compute_chunks_with_replacement(
+    def _compute_slices_with_replacement(
         self, start: int, stop: int, n_obs: int, rng: np.random.Generator
     ) -> list[slice]:
-        """Draw random chunk positions with replacement."""
+        """Draw random slice positions with replacement."""
         num_samples = self._resolve_num_samples(n_obs)
-        n_chunks, remainder = divmod(num_samples, self._chunk_size)
-        start_indices = rng.integers(start, stop - self._chunk_size + 1, size=n_chunks)
+        n_slices, remainder = divmod(num_samples, self._chunk_size)
+        start_indices = rng.integers(start, stop - self._chunk_size + 1, size=n_slices)
         res = [slice(int(s), int(s + self._chunk_size)) for s in start_indices]
         if remainder > 0 and not self._drop_last:
             start_index = rng.integers(start, stop - remainder + 1)
             res.append(slice(start_index, start_index + remainder))
         return res
 
-    def _compute_chunks_without_replacement(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
-        """Compute chunks covering the full range exactly once.
+    def _compute_slices_without_replacement(self, start: int, stop: int, rng: np.random.Generator) -> list[slice]:
+        """Compute slices covering the full range exactly once.
 
-        The incomplete chunk (chunk that is less than chunk_size) is always placed last in iteration order regardless
+        The incomplete slice (slice that is less than chunk_size) is always placed last in iteration order regardless
         of shuffling -- ensuring no observation is duplicated.
         """
-        chunk_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
+        slice_indices = np.arange(math.ceil((stop - start) / self._chunk_size))
         if self.shuffle:
-            rng.shuffle(chunk_indices)
-        n_chunks, pivot_index = len(chunk_indices), chunk_indices[-1]
-        offsets = np.ones(n_chunks + 1, dtype=int) * self._chunk_size
+            rng.shuffle(slice_indices)
+        n_slices, pivot_index = len(slice_indices), slice_indices[-1]
+        offsets = np.ones(n_slices + 1, dtype=int) * self._chunk_size
         offsets[0] = start
         incomplete = (stop - start) % self._chunk_size
         offsets[pivot_index + 1] = incomplete if incomplete else self._chunk_size
         offsets = np.cumsum(offsets)
-        starts, stops = offsets[:-1][chunk_indices], offsets[1:][chunk_indices]
+        starts, stops = offsets[:-1][slice_indices], offsets[1:][slice_indices]
         return [slice(int(s), int(e)) for s, e in zip(starts, stops, strict=True)]

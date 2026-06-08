@@ -6,6 +6,7 @@ from functools import singledispatchmethod
 from importlib.metadata import version
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
+from warnings import warn
 
 import anndata as ad
 import numpy as np
@@ -459,15 +460,13 @@ class Loader[
             )
         return self
 
-    def _slices_to_dataset_rows(self, slices: list[slice]) -> tuple[OrderedDict[int, np.ndarray], np.ndarray]:
-        """Given a list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
-
-        In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
+    def _requests_to_dataset_rows(self, requests: list[slice] | np.ndarray) -> OrderedDict[int, np.ndarray]:
+        """Given a ndarray or list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
 
         Parameters
         ----------
-            slices
-                Slices to relative to the on-disk datasets.
+            requests
+                Slices or array of integers relative to the on-disk datasets.
 
         Returns
         -------
@@ -475,7 +474,10 @@ class Loader[
             ``order`` mapping each in-memory buffer position to its index in the original chunk order
             (the buffer is filled in dataset order, so ``order`` is what undoes that reordering).
         """
-        global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
+        if isinstance(requests, np.ndarray) and np.issubdtype(requests.dtype, np.integer):
+            global_index = requests
+        else:
+            global_index = np.concatenate([np.arange(s.start, s.stop) for s in requests])
 
         # Locate each requested row in its dataset by binary-searching the dataset boundaries,
         sizes = np.fromiter((shape[0] for shape in self._shapes), dtype=np.int64, count=len(self._shapes))
@@ -768,9 +770,21 @@ class Loader[
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
-            chunks_to_load = load_request["chunks"]
+            requests_to_load = load_request.get("requests", None)
+            if requests_to_load is None:
+                requests_to_load = load_request.get("chunks", None)
+                if requests_to_load is not None:
+                    # this is for backwards compat.
+                    warn(
+                        "The `chunks` key in the load request is deprecated and will be removed in a future version. Please use `requests` instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                else:
+                    raise KeyError("load_request must contain either 'requests' or 'chunks'.")
             splits = load_request["splits"]
-            dataset_index_to_rows, order = self._slices_to_dataset_rows(chunks_to_load)
+
+            dataset_index_to_rows, order = self._requests_to_dataset_rows(requests_to_load)
 
             # The buffer below is filled in dataset order, but ``splits`` are expressed in the
             # sampler's `LoadRequest.request` order. ``inv`` maps a request-order position to its buffer position so
