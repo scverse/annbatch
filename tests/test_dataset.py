@@ -712,3 +712,52 @@ def test_warn_concat_strategy(concat_strategy: Literal["concat-shuffle", "shuffl
             rng=np.random.default_rng(0),
             concat_strategy=concat_strategy,
         )
+
+
+class _FixedRequestSampler(SequentialSampler):
+    """Emits one preselected LoadRequest with chunk-order splits, reusing SequentialSampler's plumbing."""
+
+    def __init__(self, chunks: list[slice], splits: list[np.ndarray], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._chunks, self._splits = chunks, splits
+
+    def _sample(self, n_obs: int):
+        yield {"chunks": self._chunks, "splits": self._splits}
+
+
+def test_splits_are_chunk_order_across_datasets(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    """Splits index in chunk order; the loader undoes its dataset-grouped buffer layout.
+
+    The request lists a chunk from dataset 1 *before* a chunk from dataset 0, so the loader's
+    in-memory buffer (grouped by dataset) is the reverse of chunk order. Each split selects one
+    chunk's positions, so each batch must be exactly that chunk's rows. Before the chunk-order
+    remap, the dataset-grouped buffer leaked the wrong rows into each batch -- this test would
+    have failed.
+    """
+    paths = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    data0, data1 = open_dense(paths[0]), open_dense(paths[1])
+    n0 = data0["dataset"].shape[0]  # dataset 0 -> global [0, n0) ; dataset 1 -> global [n0, ...)
+
+    chunk_from_data1 = slice(n0, n0 + 10)
+    chunk_from_data0 = slice(0, 10)
+    split_from_data1 = np.arange(0, 10)
+    split_from_data0 = np.arange(10, 20)
+    sampler = _FixedRequestSampler(
+        batch_size=10,
+        preload_nchunks=2,
+        chunk_size=10,
+        # split 0 from data1, split 1 from data0
+        chunks=[chunk_from_data1, chunk_from_data0],
+        splits=[split_from_data1, split_from_data0],
+    )
+    loader = Loader(batch_sampler=sampler, return_index=True, preload_to_gpu=False, to_torch=False)
+    loader.add_dataset(**data0)
+    loader.add_dataset(**data1)
+
+    batches = list(loader)
+    # split 0 -> chunk A -> dataset 1's first 10 rows ; split 1 -> chunk B -> dataset 0's first 10 rows
+    assert np.array_equal(batches[0]["index"], np.arange(chunk_from_data1.start, chunk_from_data1.stop))
+    assert np.array_equal(batches[1]["index"], np.arange(chunk_from_data0.start, chunk_from_data0.stop))
+    # data follows the index: each batch is exactly the requested chunk's rows read off disk
+    np.testing.assert_array_equal(np.asarray(batches[0]["X"]), np.asarray(data1["dataset"][0:10]))
+    np.testing.assert_array_equal(np.asarray(batches[1]["X"]), np.asarray(data0["dataset"][0:10]))
