@@ -1,4 +1,4 @@
-"""Tests for RandomSampler, SequentialSampler, ChunkSampler, and DistributedSampler."""
+"""Tests for RandomSampler, SequentialSampler, and DistributedSampler."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from annbatch.abc import Sampler
-from annbatch.samplers import ChunkSampler, DistributedSampler, RandomSampler, SequentialSampler
+from annbatch.samplers import DistributedSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
 
 if TYPE_CHECKING:
@@ -128,7 +128,7 @@ def test_mask_coverage(
     sampler.validate(n_obs)
 
 
-def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[ChunkSampler]):
+def test_batch_sizes_match_expected_pattern(chunk_sampler_cls: type[Sampler]):
     """Test that batch sizes match expected pattern."""
     n_obs, chunk_size, preload_nchunks, batch_size = 103, 10, 2, 5
     # last slice is incomplete and is also the last batch in the load request
@@ -418,9 +418,11 @@ def test_drop_last_false_with_multiple_workers_raises():
         ),
     ],
 )
-def test_n_iters_property(sampler: Sampler, n_obs: int, expected: int):
-    """Test that n_iters() returns the correct value for different configurations."""
-    assert sampler.n_iters(n_obs) == expected
+def test_n_batches_property(sampler: Sampler, n_obs: int, expected: int):
+    """Test that n_batches() returns the correct value for different configurations."""
+    assert sampler.n_batches(n_obs) == expected
+    with pytest.warns(DeprecationWarning, match="n_iters is deprecated"):
+        assert sampler.n_iters(n_obs) == expected
 
 
 # =============================================================================
@@ -533,7 +535,7 @@ class SimpleSampler(Sampler):
     def shuffle(self) -> bool | None:
         return self._shuffle
 
-    def n_iters(self, n_obs: int) -> int:
+    def n_batches(self, n_obs: int) -> int:
         if self._batch_size is None or self._batch_size == 0:
             return 1
         return math.ceil(n_obs / self._batch_size)
@@ -607,17 +609,6 @@ def test_automatic_batching_respects_shuffle_flag(shuffle: bool):
         assert all_indices != list(range(n_obs)), "Indices should be shuffled"
     else:
         assert all_indices == list(range(n_obs)), "Indices should be sequential"
-
-
-# =============================================================================
-# ChunkSampler deprecation warning
-# =============================================================================
-
-
-def test_chunk_sampler_deprecation_warning():
-    """Test that ChunkSampler emits a DeprecationWarning."""
-    with pytest.deprecated_call(match="ChunkSampler is deprecated"):
-        ChunkSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
 
 
 @pytest.mark.parametrize(
@@ -846,8 +837,8 @@ class TestDistributedSampler:
                 f"Rank {rank}: batch shuffling should be reproducible with same seed"
             )
 
-    def test_n_iters_matches_actual_batch_count(self, make_distributed_sampler: Callable[..., DistributedSampler]):
-        """n_iters should match the actual number of yielded batches."""
+    def test_n_batches_matches_actual_batch_count(self, make_distributed_sampler: Callable[..., DistributedSampler]):
+        """n_batches should match the actual number of yielded batches."""
         n_obs, world_size = 205, 3
         chunk_size, preload_nchunks, batch_size = 10, 2, 10
 
@@ -861,10 +852,10 @@ class TestDistributedSampler:
                 enforce_equal_batches=True,
                 drop_last=True,
             )
-            expected = sampler.n_iters(n_obs)
+            expected = sampler.n_batches(n_obs)
             _, _, splits = collect_indices(sampler, n_obs)
             actual = len(splits)
-            assert actual == expected, f"rank {rank}: n_iters={expected}, actual={actual}"
+            assert actual == expected, f"rank {rank}: n_batches={expected}, actual={actual}"
 
     def test_wraps_sequential_sampler(self, make_distributed_sampler: Callable[..., DistributedSampler]):
         """Distributed wrapper should also work with SequentialSampler."""
