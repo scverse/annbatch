@@ -233,7 +233,7 @@ class CategoricalSampler(Sampler):
     def shuffle(self) -> bool:
         return True
 
-    def n_iters(self, n_obs: int) -> int:
+    def n_batches(self, n_obs: int) -> int:
         del n_obs  # determined by num_samples, not the loader size
         return (
             self._num_samples // self.batch_size if self._drop_last else math.ceil(self._num_samples / self.batch_size)
