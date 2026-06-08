@@ -6,7 +6,6 @@ from functools import singledispatchmethod
 from importlib.metadata import version
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
-from warnings import warn
 
 import anndata as ad
 import numpy as np
@@ -115,17 +114,6 @@ class Loader[
             Whether to return `torch.Tensor` as the output.
             Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
             Defaults to True if `torch` is installed.
-        concat_strategy
-            .. deprecated:: 0.1.4
-                We now write directly from disk to the in-memory buffer from which data is yielded.
-                This has optimal memory and compute performance obviating the need for this argument.
-                It will be removed in the next minor release.
-
-            The strategy for how in-memory, preloaded data should be concatenated and yielded.
-            With `concat-shuffle`, preloaded data is concatenated and then subsetted/shuffled (higher memory usage, but faster, at least for sparse data)
-            With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
-            The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
-            See
 
 
     Examples
@@ -175,15 +163,8 @@ class Loader[
         preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
-        concat_strategy: None | concat_strategies = None,
         rng: np.random.Generator | None = None,
     ):
-        if concat_strategy is not None:
-            warn(
-                "concat_strategy has no effect and will be removed in an upcoming release thanks to writing directly to output buffers.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         # args that are passed after resolving defaults
         core_sampler_args = {
             "chunk_size": chunk_size,
