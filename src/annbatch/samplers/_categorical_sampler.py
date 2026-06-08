@@ -124,25 +124,24 @@ class CategoricalSampler(Sampler):
             mask = slice(0, None)
         start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
 
-        self._codes = codes
+        self._categorical = categorical
         self._n_obs = n_obs
         self._rng = rng or np.random.default_rng()
         self._num_samples = num_samples
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
         self._mask = slice(start, stop)
-        self._categories = categorical.categories
 
         # categories and their weights are mask-independent; kept so any mask can renormalize from them
-        self._build_categories(categorical.categories, category_weights)
+        self._build_categories(category_weights)
 
         # eager build for the (default or constructor) range so run-length errors surface early
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
-    def _build_categories(self, categories: pd.Index, category_weights: np.ndarray | None) -> None:
+    def _build_categories(self, category_weights: np.ndarray | None) -> None:
         """Resolve the (non-excluded) categories and their renormalizable weights."""
-        n_cats = len(categories)
+        n_cats = len(self._categorical.categories)
         if category_weights is None:
             weights = np.ones(n_cats, dtype=float)
         else:
@@ -174,7 +173,7 @@ class CategoricalSampler(Sampler):
         if self._built_range == (start, stop):
             return
 
-        masked = self._codes[start:stop]
+        masked = self._categorical.codes[start:stop]
         boundaries = np.flatnonzero(np.diff(masked)) + 1
         edges = np.concatenate([np.array([0]), boundaries, np.array([masked.shape[0]])])
         run_start = edges[:-1] + start  # offset back to global observation coordinates
@@ -194,7 +193,7 @@ class CategoricalSampler(Sampler):
         too_short = run_len < self._chunk_size
         if np.any(too_short):
             bad = np.unique(run_cat[too_short])
-            bad_labels = self._categories[bad].tolist()
+            bad_labels = self._categorical.categories[bad].tolist()
             raise ValueError(
                 f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
                 f"but {int(too_short.sum())} run(s) are shorter (categories {bad_labels}). "
@@ -272,7 +271,7 @@ class CategoricalSampler(Sampler):
         cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_chunks, p=self._probs)
 
         # 2) one uniform draw within each chosen category's flat span of valid positions
-        local_off = self._rng.random(n_chunks) * self._cat_total[cat_of_draw]
+        local_off = (self._rng.random(n_chunks) * self._cat_total[cat_of_draw]).astype(np.intp)
         global_off = self._cat_base[cat_of_draw] + local_off
 
         # 3) map the flat offset -> run -> absolute chunk start (the searchsorted trick,
