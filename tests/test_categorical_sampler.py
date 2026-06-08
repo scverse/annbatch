@@ -3,7 +3,7 @@
 The passing tests check the sampler does what it promises: every chunk is
 category-coherent, categories are drawn with the requested weights (a zero weight
 excludes a category), masks restrict and renormalize correctly, and the
-bookkeeping (``num_samples`` / ``n_iters`` / validation) is correct.
+bookkeeping (``num_samples`` / ``n_batches`` / validation) is correct.
 
 The final test (``test_pure_categorical_batches_unsupported``) is expected to
 **fail**. It is deliberately not marked ``xfail``: it documents, with the real
@@ -38,7 +38,7 @@ def make_sampler(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
-        categorical=pd.Categorical(codes),
+        categorical=codes if isinstance(codes, pd.Categorical) else pd.Categorical(codes),
         num_samples=num_samples,
         rng=np.random.default_rng(seed),
         **kwargs,
@@ -191,6 +191,29 @@ def test_zero_weight_category_exempt_from_run_length_rule():
         make_sampler(codes, category_weights=np.array([1.0, 1.0, 1.0]))
 
 
+def test_run_length_error_names_category_labels():
+    # codes are alphabetical (B=0, NK=1, T=2), so matching 'B' proves the error prints
+    # the label, not the raw code -- the whole point of taking a pd.Categorical.
+    cat = pd.Categorical(["T"] * 30 + ["B"] * 3 + ["NK"] * 30)  # "B" has a 3-row run
+    with pytest.raises(ValueError, match=r"categories \['B'\]"):
+        make_sampler(cat)
+
+
+def test_absent_category_weight_is_ignored():
+    # "c" is declared but has no observations; its weight must be silently dropped and
+    # the present categories renormalize among themselves (here -> 50/50).
+    cat = pd.Categorical(["a"] * 100 + ["b"] * 100, categories=["a", "b", "c"])
+    codes = np.asarray(cat.codes)
+    sampler = make_sampler(cat, num_samples=40_000, category_weights=np.array([1.0, 1.0, 5.0]))
+    _assert_shares(sampler, codes, {0: 0.5, 1: 0.5})
+
+
+def test_weights_not_mutated():
+    weights = np.array([1.0, 1.0])
+    make_sampler(np.repeat([0, 1], 100), category_weights=weights)
+    assert np.array_equal(weights, [1.0, 1.0]), "the sampler must not mutate the caller's weights array"
+
+
 # =============================================================================
 # Mask
 # =============================================================================
@@ -271,15 +294,17 @@ def test_mask_reassignment_is_cached(monkeypatch):
         pytest.param(105, 10, True, 10, id="partial_dropped"),
     ],
 )
-def test_n_iters(num_samples: int, batch_size: int, drop_last: bool, expected_iters: int):
+def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_iters: int):
     sampler = make_sampler(
         np.repeat([0, 1], 100), num_samples=num_samples, preload_nchunks=2, batch_size=batch_size, drop_last=drop_last
     )
-    assert sampler.n_iters(200) == expected_iters
+    assert sampler.n_batches(200) == expected_iters
 
 
-def test_num_samples_respected():
+@pytest.mark.parametrize("num_samples", [300, 305], ids=["multiple", "non_multiple"])
+def test_num_samples_respected(num_samples: int):
+    # non_multiple exercises the remainder partial-chunk path in _compute_chunks
     codes = np.repeat([0, 1, 2], 100)
-    sampler = make_sampler(codes, num_samples=300, preload_nchunks=3)
+    sampler = make_sampler(codes, num_samples=num_samples, preload_nchunks=3)
     total = sum(len(s) for lr in sampler.sample(len(codes)) for s in lr["splits"])
-    assert total == 300
+    assert total == num_samples
