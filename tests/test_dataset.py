@@ -706,7 +706,7 @@ class _FixedRequestSampler(SequentialSampler):
 
     def __init__(self, requests: list[slice], splits: list[np.ndarray], *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._requests, self._splits = chunks, splits
+        self._requests, self._splits = requests, splits
 
     def _sample(self, n_obs: int):
         yield {"requests": self._requests, "splits": self._splits}
