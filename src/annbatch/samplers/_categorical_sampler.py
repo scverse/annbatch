@@ -176,7 +176,7 @@ class CategoricalSampler(Sampler):
 
         masked = self._codes[start:stop]
         boundaries = np.flatnonzero(np.diff(masked)) + 1
-        edges = np.concatenate([np.array([0]), boundaries, np.array([masked.shape[0]])]).astype(np.int64)
+        edges = np.concatenate([np.array([0]), boundaries, np.array([masked.shape[0]])])
         run_start = edges[:-1] + start  # offset back to global observation coordinates
         run_len = np.diff(edges)
         run_cat = masked[edges[:-1]]
@@ -207,7 +207,7 @@ class CategoricalSampler(Sampler):
         order = np.argsort(run_cat, kind="stable")
         run_start, run_cat, n_pos = run_start[order], run_cat[order], n_pos[order]
 
-        run_pos_cumsum = np.concatenate([np.array([0], dtype=np.int64), np.cumsum(n_pos)])
+        run_pos_cumsum = np.concatenate([np.array([0]), np.cumsum(n_pos)])
         cat_ids, first = np.unique(run_cat, return_index=True)
         last = np.append(first[1:], len(run_cat))
 
