@@ -98,7 +98,9 @@ def test_invalid_construction(codes: np.ndarray, kwargs: dict, match: str):
 def test_invalid_construction_not_categorical():
     with pytest.raises(TypeError, match="pandas.Categorical"):
         CategoricalSampler(
-            chunk_size=10, preload_nchunks=4, batch_size=10,
+            chunk_size=10,
+            preload_nchunks=4,
+            batch_size=10,
             categorical=np.repeat([0, 1], 50),  # type: ignore[arg-type]
             num_samples=100,
         )
@@ -108,7 +110,9 @@ def test_invalid_construction_na_values():
     codes_with_na = pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1])
     with pytest.raises(ValueError, match="NA values"):
         CategoricalSampler(
-            chunk_size=10, preload_nchunks=4, batch_size=10,
+            chunk_size=10,
+            preload_nchunks=4,
+            batch_size=10,
             categorical=codes_with_na,
             num_samples=100,
         )

@@ -140,9 +140,7 @@ class CategoricalSampler(Sampler):
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
-    def _build_categories(
-        self, codes: np.ndarray, categories: pd.Index, category_weights: np.ndarray | None
-    ) -> None:
+    def _build_categories(self, codes: np.ndarray, categories: pd.Index, category_weights: np.ndarray | None) -> None:
         """Resolve the (non-excluded) categories and their renormalizable weights."""
         n_cats = len(categories)
         cat_codes = np.arange(n_cats)
