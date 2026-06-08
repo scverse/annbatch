@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Breaking
 - Remove deprecated `concat_strategy` argument from {class}`~annbatch.Loader`
+- {attr}`annbatch.types.LoadRequest.splits` now index in **request order** -- position `j` is the `j`-th observation when the request's `chunks` are concatenated in the order given. Previously, `splits` had to index into the loader's internal dataset-grouped memory layout. The {class}`~annbatch.Loader` now remaps splits to that layout itself, so custom samplers must produce chunk-order splits and stop compensating for the dataset reordering.
 
 ## [0.1.6]
 
