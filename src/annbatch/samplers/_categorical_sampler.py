@@ -114,7 +114,7 @@ class CategoricalSampler(Sampler):
         check_lt_1([num_samples], ["num_samples"])
         if not isinstance(categorical, pd.Categorical):
             raise TypeError(f"categorical must be a pandas.Categorical, got {type(categorical).__name__}.")
-        codes = np.asarray(categorical.codes)
+        codes = categorical.codes
         if (codes == -1).any():
             raise ValueError("categorical contains NA values (codes == -1). Remove NAs before passing.")
         n_obs = int(codes.shape[0])
@@ -134,16 +134,15 @@ class CategoricalSampler(Sampler):
         self._categories = categorical.categories
 
         # categories and their weights are mask-independent; kept so any mask can renormalize from them
-        self._build_categories(codes, categorical.categories, category_weights)
+        self._build_categories(categorical.categories, category_weights)
 
         # eager build for the (default or constructor) range so run-length errors surface early
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
-    def _build_categories(self, codes: np.ndarray, categories: pd.Index, category_weights: np.ndarray | None) -> None:
+    def _build_categories(self, categories: pd.Index, category_weights: np.ndarray | None) -> None:
         """Resolve the (non-excluded) categories and their renormalizable weights."""
         n_cats = len(categories)
-        cat_codes = np.arange(n_cats)
         if category_weights is None:
             weights = np.ones(n_cats, dtype=float)
         else:
@@ -153,13 +152,12 @@ class CategoricalSampler(Sampler):
                     f"category_weights must have one weight per category in categorical.categories "
                     f"(expected shape ({n_cats},), got {weights.shape})."
                 )
-        active = weights > 0  # a non-positive weight excludes a category entirely
-        if not active.any():
+        if not (weights > 0).any():
             raise ValueError("category_weights must have at least one positive weight.")
 
-        self._active_categories = cat_codes[active]  # sorted category codes that can be sampled
-        self._active_weights = weights[active]  # kept unnormalized so masked ranges renormalize from them
-        self._active_probs = self._active_weights / self._active_weights.sum()  # used as-is over the full range
+        self._weights = weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
+        active_w = weights[weights > 0]
+        self._active_probs = active_w / active_w.sum()  # used as-is over the full range
 
     @property
     def mask(self) -> slice:
@@ -186,7 +184,7 @@ class CategoricalSampler(Sampler):
         run_cat = masked[edges[:-1]]
 
         # keep only runs of non-excluded categories; excluded (weight 0) runs are exempt from every check
-        keep = np.isin(run_cat, self._active_categories)
+        keep = self._weights[run_cat] > 0
         run_start, run_len, run_cat = run_start[keep], run_len[keep], run_cat[keep]
         if run_cat.size == 0:
             raise ValueError(
@@ -222,14 +220,12 @@ class CategoricalSampler(Sampler):
         self._cat_total = self._cum[last] - self._cum[first]  # # of valid chunk positions per category
         # over the full dataset every active category is present, so the precomputed probs apply;
         # only a narrower mask can hide categories and require renormalization
-        is_full_range = start == 0 and stop == n_obs
-        self._probs = self._active_probs if is_full_range else self._probs_for(cat_ids)
+        if start == 0 and stop == n_obs:
+            self._probs = self._active_probs
+        else:
+            w = self._weights[self._cat_ids]
+            self._probs = w / w.sum()
         self._built_range = (start, stop)
-
-    def _probs_for(self, cat_ids: np.ndarray) -> np.ndarray:
-        """Renormalized draw probabilities for the categories present in the current range."""
-        weights = self._active_weights[np.searchsorted(self._active_categories, cat_ids)]
-        return weights / weights.sum()
 
     @property
     def batch_size(self) -> int:
