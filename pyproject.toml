@@ -191,7 +191,8 @@ fragment_types = [
   { directory = "fix", name = "Fixed", showcontent = true },
   { directory = "perf", name = "Performance", showcontent = true },
   { directory = "docs", name = "Docs", showcontent = true },
-  { directory = "misc", name = "Misc", showcontent = true },
+  { directory = "chore", name = "Misc", showcontent = true },
+  { directory = "refactor", name = "Misc", showcontent = true },
 ]
 issue_link_format = "https://github.com/scverse/annbatch/issues/{issue}"
 
