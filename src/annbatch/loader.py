@@ -473,7 +473,6 @@ class Loader[
             ``order`` mapping each in-memory buffer position to its index in the original chunk order
             (the buffer is filled in dataset order, so ``order`` is what undoes that reordering).
         """
-
         if isinstance(requests, np.ndarray) and np.issubdtype(requests.dtype, np.integer):
             global_index = requests
         else:
@@ -770,7 +769,7 @@ class Loader[
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
-            requests_to_load = load_request["requests"]
+            load_request["requests"]
             splits = load_request["splits"]
 
             dataset_index_to_rows, order = self._requests_to_dataset_rows(chunks_to_load)
