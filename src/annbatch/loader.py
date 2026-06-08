@@ -769,10 +769,10 @@ class Loader[
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
-            load_request["requests"]
+            requests_to_load = load_request["requests"]
             splits = load_request["splits"]
 
-            dataset_index_to_rows, order = self._requests_to_dataset_rows(chunks_to_load)
+            dataset_index_to_rows, order = self._requests_to_dataset_rows(requests_to_load)
 
             # The buffer below is filled in dataset order, but ``splits`` are expressed in the
             # sampler's `LoadRequest.request` order. ``inv`` maps a request-order position to its buffer position so
