@@ -203,19 +203,19 @@ class CategoricalSampler(Sampler):
             )
         n_pos = run_len - self._chunk_size + 1  # number of valid chunk-start positions in the run
 
-        # group runs by category so each category owns a contiguous span of `cum`
+        # group runs by category so each category owns a contiguous span of `run_pos_cumsum`
         order = np.argsort(run_cat, kind="stable")
         run_start, run_cat, n_pos = run_start[order], run_cat[order], n_pos[order]
 
-        cum = np.concatenate([np.array([0], dtype=np.int64), np.cumsum(n_pos)])
+        run_pos_cumsum = np.concatenate([np.array([0], dtype=np.int64), np.cumsum(n_pos)])
         cat_ids, first = np.unique(run_cat, return_index=True)
         last = np.append(first[1:], len(run_cat))
 
         self._run_start = run_start
-        self._cum = cum
+        self._run_pos_cumsum = run_pos_cumsum
         self._cat_ids = cat_ids
-        self._cat_base = self._cum[first]  # the value in `cum` where each category begins
-        self._cat_total = self._cum[last] - self._cum[first]  # # of valid chunk positions per category
+        self._cat_base = self._run_pos_cumsum[first]  # the value in `cum` where each category begins
+        self._cat_total = self._run_pos_cumsum[last] - self._run_pos_cumsum[first]  # # of valid chunk positions per category
         w = self._weights[cat_ids]
         self._probs = w / w.sum()
         self._built_range = (start, stop)
@@ -275,8 +275,8 @@ class CategoricalSampler(Sampler):
 
         # 3) map the flat offset -> run -> absolute chunk start (the searchsorted trick,
         #    generalized across every category at once)
-        run_idx = np.searchsorted(self._cum, global_off, side="right") - 1
-        within = global_off - self._cum[run_idx]
+        run_idx = np.searchsorted(self._run_pos_cumsum, global_off, side="right") - 1
+        within = global_off - self._run_pos_cumsum[run_idx]
         chunk_starts = self._run_start[run_idx] + within
         # NB: self._cat_ids[cat_of_draw] is the category label of each chunk, available for free.
 
