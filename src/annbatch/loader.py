@@ -6,7 +6,6 @@ from functools import singledispatchmethod
 from importlib.metadata import version
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
-from warnings import warn
 
 import anndata as ad
 import numpy as np
@@ -115,17 +114,6 @@ class Loader[
             Whether to return `torch.Tensor` as the output.
             Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
             Defaults to True if `torch` is installed.
-        concat_strategy
-            .. deprecated:: 0.1.4
-                We now write directly from disk to the in-memory buffer from which data is yielded.
-                This has optimal memory and compute performance obviating the need for this argument.
-                It will be removed in the next minor release.
-
-            The strategy for how in-memory, preloaded data should be concatenated and yielded.
-            With `concat-shuffle`, preloaded data is concatenated and then subsetted/shuffled (higher memory usage, but faster, at least for sparse data)
-            With `shuffle-concat`, preloaded data is first shuffled/subsetted chunk-by-chunk and then concatenated (lower memory usage, potentially faster for dense data)
-            The default is automatically chosen - `concat-shuffle` if the data added to the loader is sparse and otherwise `shuffle-concat`.
-            See
 
 
     Examples
@@ -175,15 +163,8 @@ class Loader[
         preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool | None = None,
         to_torch: bool = find_spec("torch") is not None,
-        concat_strategy: None | concat_strategies = None,
         rng: np.random.Generator | None = None,
     ):
-        if concat_strategy is not None:
-            warn(
-                "concat_strategy has no effect and will be removed in an upcoming release thanks to writing directly to output buffers.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         # args that are passed after resolving defaults
         core_sampler_args = {
             "chunk_size": chunk_size,
@@ -224,7 +205,7 @@ class Loader[
         self._dataset_elem_cache = {}
 
     def __len__(self) -> int:
-        return self._batch_sampler.n_iters(self.n_obs)
+        return self._batch_sampler.n_batches(self.n_obs)
 
     @property
     def _sp_module(self) -> ModuleType:
@@ -478,7 +459,7 @@ class Loader[
             )
         return self
 
-    def _slices_to_dataset_rows(self, slices: list[slice]) -> OrderedDict[int, np.ndarray]:
+    def _slices_to_dataset_rows(self, slices: list[slice]) -> tuple[OrderedDict[int, np.ndarray], np.ndarray]:
         """Given a list of slices, give the lookup between on-disk datasets and row indices relative to that dataset.
 
         In the codebase we use slice and chunk interchangeably. Not to be confused with the zarr chunking/sharding terminology.
@@ -490,19 +471,29 @@ class Loader[
 
         Returns
         -------
-            A lookup between the dataset and its row indices, ordered by keys.
+            A lookup between the dataset and its row indices, ordered by keys, and the permutation
+            ``order`` mapping each in-memory buffer position to its index in the original chunk order
+            (the buffer is filled in dataset order, so ``order`` is what undoes that reordering).
         """
         global_index = np.concatenate([np.arange(s.start, s.stop) for s in slices])
+
+        # Locate each requested row in its dataset by binary-searching the dataset boundaries,
+        sizes = np.fromiter((shape[0] for shape in self._shapes), dtype=np.int64, count=len(self._shapes))
+        ends = np.cumsum(sizes)
+        starts = ends - sizes
+        dataset_of_row = np.searchsorted(ends, global_index, side="right")
+
+        # Group rows by dataset: a stable sort keeps the within-dataset order
+        order = np.argsort(dataset_of_row, kind="stable")
+        grouped = dataset_of_row[order]
+        group_start = np.concatenate([[0], np.flatnonzero(np.diff(grouped)) + 1])
+        group_end = np.append(group_start[1:], grouped.size)
+
         result: OrderedDict[int, np.ndarray] = OrderedDict()
-        b_start = 0
-        for ds, shape in enumerate(self._shapes):
-            b_end = b_start + shape[0]
-            mask = (global_index >= b_start) & (global_index < b_end)
-            if mask.any():
-                offset = b_start
-                result[ds] = global_index[mask] - offset
-            b_start = b_end
-        return result
+        for gs, ge in zip(group_start, group_end, strict=True):
+            ds = int(grouped[gs])
+            result[ds] = global_index[order[gs:ge]] - starts[ds]
+        return result, order
 
     def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and rows.
@@ -774,10 +765,24 @@ class Loader[
             ["Number of datasets", "Number of observations"],
         )
         is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
+        positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
             chunks_to_load = load_request["chunks"]
             splits = load_request["splits"]
-            dataset_index_to_rows = self._slices_to_dataset_rows(chunks_to_load)
+            dataset_index_to_rows, order = self._slices_to_dataset_rows(chunks_to_load)
+
+            # The buffer below is filled in dataset order, but ``splits`` are expressed in the
+            # sampler's `LoadRequest.request` order. ``inv`` maps a request-order position to its buffer position so
+            # the split semantics are independent of how chunks were regrouped across datasets.
+            # ``order`` is a permutation of ``range(n)``, so every used slot is overwritten -- the
+            # reused buffer never carries stale values from a previous request.
+            n = order.size
+            inv_buffer = np.empty(n, dtype=np.intp)
+            if n > positions.size:
+                positions = np.arange(n, dtype=np.intp)
+            inv = inv_buffer[:n]
+            inv = positions[order]
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
@@ -793,12 +798,13 @@ class Loader[
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_rows)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
             for split in splits:
-                data = in_memory_data[split]
+                sel = inv[split]
+                data = in_memory_data[sel]
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
-                    "obs": concatenated_obs.iloc[split] if concatenated_obs is not None else None,
+                    "obs": concatenated_obs.iloc[sel] if concatenated_obs is not None else None,
                     "var": self._var,
-                    "index": in_memory_indices[split] if in_memory_indices is not None else None,
+                    "index": in_memory_indices[sel] if in_memory_indices is not None else None,
                 }
 
             # https://github.com/cupy/cupy/issues/9625
