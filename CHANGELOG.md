@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.2.0]
 
+### Feature
+- Add a `merge` argument to {meth}`annbatch.DatasetCollection.add_adatas` to handle how columns in {attr}`~anndata.AnnData.var` are handled when creating the on-disk dataset.
+
 ### Breaking
 - Removal of deprecated `annbatch.ChunkSampler`
 - Deprecated `n_iters` method of {class}`~annbatch.abc.Sampler` in favor of `n_batches` to match the actual semantics of the returned value.
