@@ -748,3 +748,26 @@ def test_splits_are_chunk_order_across_datasets(adata_with_zarr_path_same_var_sp
     # data follows the index: each batch is exactly the requested chunk's rows read off disk
     np.testing.assert_array_equal(np.asarray(batches[0]["X"]), np.asarray(data1["dataset"][0:10]))
     np.testing.assert_array_equal(np.asarray(batches[1]["X"]), np.asarray(data0["dataset"][0:10]))
+
+
+def test_chunks_deprecation_warning(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    paths = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    data0 = open_dense(paths[0])
+
+    class ChunksSampler(SequentialSampler):
+        def _sample(self, n_obs: int):
+            yield {"chunks": [slice(0, 10)], "splits": [np.arange(10)]}
+
+    loader = Loader(
+        batch_sampler=ChunksSampler(batch_size=10, preload_nchunks=2, chunk_size=10),
+        return_index=True,
+        preload_to_gpu=False,
+        to_torch=False,
+    )
+    loader.add_dataset(**data0)
+
+    with pytest.deprecated_call():
+        batches = list(loader)
+
+    assert len(batches) == 1
+

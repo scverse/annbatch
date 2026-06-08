@@ -6,6 +6,7 @@ from functools import singledispatchmethod
 from importlib.metadata import version
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast
+from warnings import warn
 
 import anndata as ad
 import numpy as np
@@ -769,7 +770,18 @@ class Loader[
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
-            requests_to_load = load_request["requests"]
+            requests_to_load = load_request.get("requests", None)
+            if requests_to_load is None:
+                requests_to_load = load_request.get("chunks", None)
+                if requests_to_load is not None:
+                    # this is for backwards compat.
+                    warn(
+                        "The `chunks` key in the load request is deprecated and will be removed in a future version. Please use `requests` instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                else:
+                    raise KeyError("load_request must contain either 'requests' or 'chunks'.")
             splits = load_request["splits"]
 
             dataset_index_to_rows, order = self._requests_to_dataset_rows(requests_to_load)
