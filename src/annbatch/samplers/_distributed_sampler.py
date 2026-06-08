@@ -136,9 +136,9 @@ class DistributedSampler(Sampler):
         rank_stop = rank_start + per_rank
         return slice(rank_start, rank_stop)
 
-    def n_iters(self, n_obs: int) -> int:
+    def n_batches(self, n_obs: int) -> int:
         self._sampler.mask = self._shard_mask(n_obs)
-        return self._sampler.n_iters(n_obs)
+        return self._sampler.n_batches(n_obs)
 
     def validate(self, n_obs: int) -> None:
         self._sampler.mask = self._shard_mask(n_obs)
