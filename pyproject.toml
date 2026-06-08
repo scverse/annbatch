@@ -61,6 +61,7 @@ optional-dependencies.doc = [
   "sphinx-toolbox>=3.8",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
+  "towncrier>=24.1",
 ]
 optional-dependencies.test = [
   "annbatch[zarrs]",
@@ -86,6 +87,7 @@ envs.docs.features = [ "doc" ]
 envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
 envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+envs.docs.scripts.towncrier = "towncrier {args}"
 envs.hatch-test.python = "3.14"
 envs.hatch-test.features = [ "test" ]
 envs.hatch-test.matrix = [
@@ -177,6 +179,21 @@ run.omit = [
 ]
 run.patch = [ "subprocess" ]
 run.source = [ "annbatch" ]
+
+[tool.towncrier]
+package = "annbatch"
+directory = "docs/release-notes"
+filename = "CHANGELOG.md"
+title_format = "## [{version}]"
+fragment_types = [
+  { directory = "breaking", name = "Breaking", showcontent = true },
+  { directory = "feat", name = "Feature", showcontent = true },
+  { directory = "fix", name = "Fixed", showcontent = true },
+  { directory = "perf", name = "Performance", showcontent = true },
+  { directory = "docs", name = "Docs", showcontent = true },
+  { directory = "misc", name = "Misc", showcontent = true },
+]
+issue_link_format = "https://github.com/scverse/annbatch/issues/{issue}"
 
 [tool.cruft]
 skip = [
