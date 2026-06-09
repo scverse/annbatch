@@ -1,16 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
-import numpy as np
-
-from annbatch.utils import check_lt_1, split_given_size
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-    from annbatch.types import LoadRequest
+from annbatch.utils import check_lt_1
 
 
 class WorkerInfo(NamedTuple):
@@ -32,44 +25,6 @@ def get_torch_worker_info() -> WorkerInfo | None:
         if info is not None:
             return WorkerInfo(id=info.id, num_workers=info.num_workers)
     return None
-
-
-def iter_from_slices(
-    slices: list[slice],
-    batch_rng: np.random.Generator,
-    worker_info: WorkerInfo | None,
-    preload_nchunks: int,
-    batch_size: int,
-    drop_last: bool,
-    shuffle: bool,
-    chunk_size: int,
-) -> Iterator[LoadRequest]:
-    # Worker sharding: each worker gets a disjoint subset of slices
-    if worker_info is not None:
-        slices = np.array_split(slices, worker_info.num_workers)[worker_info.id]
-    # Set up the iterator for slices and the batch indices for splits
-    slices_per_request = split_given_size(slices, preload_nchunks)
-    in_memory_size = preload_nchunks * chunk_size
-    batch_indices = np.arange(in_memory_size)
-    split_batch_indices = split_given_size(batch_indices, batch_size)
-    for request_slices in slices_per_request[:-1]:
-        if shuffle:
-            # Avoid copies using in-place shuffling since `self.shuffle` should not change mid-training
-            batch_rng.shuffle(batch_indices)
-            split_batch_indices = split_given_size(batch_indices, batch_size)
-        yield {"requests": request_slices, "splits": split_batch_indices}
-    # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nchunks * chunk_size
-    final_slices = slices_per_request[-1]
-    total_obs_in_last_batch = int(sum(s.stop - s.start for s in final_slices))
-    if total_obs_in_last_batch == 0:  # pragma: no cover
-        raise RuntimeError("Last batch was found to have no observations. Please open an issue.")
-    if drop_last:
-        if total_obs_in_last_batch < batch_size:
-            return
-        total_obs_in_last_batch -= total_obs_in_last_batch % batch_size
-    indices = batch_rng.permutation(total_obs_in_last_batch) if shuffle else np.arange(total_obs_in_last_batch)
-    batch_indices = split_given_size(indices, batch_size)
-    yield {"requests": final_slices, "splits": batch_indices}
 
 
 def validate_chunk_batch_preload_sizes(

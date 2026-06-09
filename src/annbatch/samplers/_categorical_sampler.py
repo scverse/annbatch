@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 from typing import TYPE_CHECKING
 
@@ -267,21 +268,9 @@ class CategoricalSampler(Sampler):
             raise NotImplementedError("Multiple workers are not supported with CategoricalSampler.")
 
         self._ensure_runs(n_obs)
-        slices = self._compute_slices()
-        return self._iter_requests(slices)
+        return self._iter_requests()
 
-    def _iter_requests(self, slices: list[slice]) -> Iterator[LoadRequest]:
-        """Yield and shuffle every batch's worth of slices."""
-        for window in split_given_size(np.asarray(slices, dtype=object), self._preload_nchunks):
-            n_rows = int(sum(s.stop - s.start for s in window))
-            splits = split_given_size(np.arange(n_rows), self._batch_size)
-            for batch in splits:
-                self._rng.shuffle(batch)
-            if self._drop_last:
-                splits = [b for b in splits if b.size == self._batch_size]
-            yield {"requests": list(window), "splits": splits}
-
-    def _compute_slices(self) -> list[slice]:
+    def _iter_requests(self) -> Iterator[LoadRequest]:
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)
         if remainder > 0 and not self._drop_last:
             n_slices += 1
@@ -304,4 +293,25 @@ class CategoricalSampler(Sampler):
         if remainder > 0 and not self._drop_last:
             last = int(slice_starts[-1])
             slices[-1] = slice(last, last + remainder)
-        return slices
+
+        # now allocate the splits
+        n_windows, window_remainder = divmod(self._num_samples, self._preload_nchunks * self._chunk_size)
+        n_splits = self._chunk_size // self._batch_size
+        splits = [np.arange(self._batch_size) for _ in range(n_splits)]
+        windows = list(itertools.batched(slices, self._preload_nchunks))
+        for i in range(n_windows - 1):
+            for batch in splits:
+                # can't vectorize this because we need to return a list, not ndarray
+                self._rng.shuffle(batch)
+            yield {
+                "requests": list(windows[i]),
+                "splits": splits,
+            }
+
+        if window_remainder > 0:
+            final_window = windows[-1]
+            n_rows = sum(s.stop - s.start for s in final_window)
+            splits = split_given_size(np.arange(n_rows), self._batch_size)
+            for batch in splits:
+                self._rng.shuffle(batch)
+            yield {"requests": list(final_window), "splits": splits}
