@@ -130,13 +130,13 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
             "must be divisible",
             id="batch_not_divisible",
         ),
-        # preload_size 40 % 4 == 0, but chunk_size 10 % 4 != 0 -> batches would span categories
+        # window ok (40 % 4 == 0) but 10 and 4 divide neither way
         pytest.param(
             pd.Categorical(np.repeat([0, 1], 50)),
             {"batch_size": 4},
             ValueError,
-            "must be divisible",
-            id="batch_not_divides_chunk",
+            "must divide one another",
+            id="batch_indivisible_with_chunk",
         ),
         pytest.param(np.repeat([0, 1], 50), {}, TypeError, "pandas.Categorical", id="not_categorical"),
         pytest.param(
@@ -249,6 +249,15 @@ def test_category_draw_shares(codes: np.ndarray, weights: np.ndarray | None, exp
     _assert_shares(make_sampler(pd.Categorical(codes), num_samples=40_000, category_weights=weights), codes, expected)
 
 
+def test_category_draw_shares_batch_exceeds_chunk():
+    # batch_size > chunk_size draws one category per 2-chunk batch; shares must still track weights
+    codes = np.repeat([0, 1, 2], 100)
+    sampler = make_sampler(
+        pd.Categorical(codes), num_samples=40_000, batch_size=20, category_weights=np.array([6.0, 3.0, 1.0])
+    )
+    _assert_shares(sampler, codes, {0: 0.6, 1: 0.3, 2: 0.1})
+
+
 def test_zero_weight_category_exempt_from_run_length_rule():
     codes = np.array([0] * 30 + [1] * 3 + [2] * 30, dtype=np.int64)  # category 1 has a 3-row run
     # excluding category 1 with a zero weight -> its short run is exempt, no error
@@ -344,14 +353,21 @@ def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_
 @pytest.mark.parametrize(
     ("chunk_size", "batch_size", "preload_nchunks", "num_samples", "drop_last"),
     [
+        # batch_size <= chunk_size: a chunk holds one or more batches
         pytest.param(10, 10, 4, 400, False, id="exact_windows"),  # num_samples a multiple of the window
         pytest.param(10, 10, 4, 410, False, id="partial_window"),  # trailing window has fewer slices
         pytest.param(10, 10, 4, 405, False, id="remainder_slice"),  # trailing slice shorter than chunk_size
         pytest.param(10, 5, 4, 405, False, id="multi_batch_remainder"),  # >1 batch/chunk + short last batch
         pytest.param(20, 5, 2, 410, False, id="many_batches_per_chunk"),
         pytest.param(10, 10, 1, 355, False, id="preload_one"),  # one slice per window
-        pytest.param(10, 5, 3, 305, True, id="drop_last_multi_batch"),  # drop_last omits the sub-chunk remainder
+        pytest.param(10, 5, 3, 302, True, id="drop_last_partial_batch"),  # final 2-row batch dropped
         pytest.param(10, 10, 4, 400, True, id="drop_last_exact"),  # drop_last is a no-op when it divides evenly
+        # batch_size >= chunk_size: a batch spans several same-category chunks
+        pytest.param(10, 20, 4, 400, False, id="batch_two_chunks"),
+        pytest.param(10, 20, 4, 410, False, id="batch_two_chunks_partial"),  # final 10-row batch kept
+        pytest.param(10, 40, 4, 400, False, id="batch_whole_window"),  # one batch per window
+        pytest.param(10, 20, 2, 400, False, id="batch_two_chunks_preload2"),
+        pytest.param(10, 20, 4, 410, True, id="batch_two_chunks_drop"),  # final 10-row batch dropped
     ],
 )
 def test_sampling_invariants(chunk_size: int, batch_size: int, preload_nchunks: int, num_samples: int, drop_last: bool):
@@ -376,8 +392,8 @@ def test_sampling_invariants(chunk_size: int, batch_size: int, preload_nchunks: 
             total_obs += split.size
             assert np.unique(concat[split]).size == 1, "every batch must lie within a single category"
 
-    # drop_last omits the final sub-chunk remainder; otherwise every requested observation is yielded
-    expected_obs = (num_samples // chunk_size) * chunk_size if drop_last else num_samples
+    # drop_last drops only the final incomplete batch; otherwise every requested observation is yielded
+    expected_obs = (num_samples // batch_size) * batch_size if drop_last else num_samples
     assert total_obs == expected_obs
     assert sampler.n_batches(n) == batches_seen, "n_batches must match the batches actually yielded"
     assert all(0 <= s.start and s.stop <= n for s in requests), "every chunk must stay in-bounds"

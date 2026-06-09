@@ -35,8 +35,7 @@ class CategoricalSampler(Sampler):
 
     Sampling is **with replacement** -- each pass draws ``num_samples`` observations
     rather than partitioning a fixed epoch -- so there is no notion of an epoch and the
-    number of iterations is fixed. The chunk_size should be divided by the batch_size
-    so that every batch stays within one category; see the implementation notes below.
+    number of iterations is fixed.
 
     *Category selection.* A category with a non-positive weight is excluded: it is
     never sampled and its runs are exempt from the run-length rule below. Set a
@@ -45,7 +44,9 @@ class CategoricalSampler(Sampler):
     *Run-length rule.* Every contiguous run of a *non-excluded* category must span
     at least ``chunk_size`` observations; otherwise no aligned slice fits inside it
     and the sampler raises at construction, naming the offending categories by their
-    label (not their integer code).
+    label.
+
+
     *Mask.* Assigning :attr:`mask` restricts sampling to a contiguous observation
     range ``[start, stop)``. The RLE is rebuilt over that window (slice starts stay
     in global coordinates) and cached on the resolved ``(start, stop)`` pair, so
@@ -60,12 +61,12 @@ class CategoricalSampler(Sampler):
     A run-length encoding (RLE) of ``categorical.codes`` is built over the :attr:`mask`
     range. Each draw picks a category ``c ~ Categorical(p)`` then a uniform slice-start
     within ``c``, and a prefix-sum lookup maps it to the absolute slice in
-    *O(log n_runs)*. Because ``chunk_size`` must be a whole number of ``batch_size``
-    blocks, every batch cut from a slice stays within its one category. Memory scales
-    with the number of runs (``<= n_obs // chunk_size``).
+    *O(log n_runs)*. Memory scales with the number of runs (``<= n_obs // chunk_size``).
 
-
-
+    In this implementation each chunk and each batch can contain only one category.
+    But within a window of ``preload_nchunks * chunk_size`` rows, the chunks that
+    belong to the same category are shuffled within their category-coherent batch
+    But there is still within preload window shuffling while still having a category-coherent batch.
 
 
     Parameters
@@ -131,12 +132,10 @@ class CategoricalSampler(Sampler):
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        if chunk_size % batch_size != 0:
-            # each chunk must hold a whole number of batches so that every batch stays
-            # within a single slice (hence a single category); see _iter_requests.
+        if chunk_size % batch_size != 0 and batch_size % chunk_size != 0:
             raise ValueError(
-                "chunk_size must be divisible by batch_size so that each batch stays within one category. "
-                f"Got chunk_size={chunk_size} % batch_size={batch_size} = {chunk_size % batch_size}."
+                "chunk_size and batch_size must divide one another (one a whole multiple of the other) "
+                f"so each batch stays within a single category. Got chunk_size={chunk_size}, batch_size={batch_size}."
             )
         if mask is None:
             mask = slice(0, None)
@@ -250,8 +249,7 @@ class CategoricalSampler(Sampler):
     def n_batches(self, n_obs: int) -> int:
         del n_obs  # determined by num_samples, not the loader size
         if self._drop_last:
-            # drop_last omits the final sub-chunk remainder, so only whole chunks are yielded
-            return (self._num_samples // self._chunk_size) * (self._chunk_size // self._batch_size)
+            return self._num_samples // self._batch_size
         return math.ceil(self._num_samples / self._batch_size)
 
     def validate(self, n_obs: int) -> None:
@@ -273,25 +271,26 @@ class CategoricalSampler(Sampler):
 
     def _iter_requests(self) -> Iterator[LoadRequest]:
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)
-        if remainder > 0 and not self._drop_last:
+        if remainder > 0:
             n_slices += 1
 
-        # 1) pick a category for each slice according to the sampling policy
-        cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_slices, p=self._probs)
+        # chunks per batch
+        group_chunks = max(1, self._batch_size // self._chunk_size)
+        group_cats = self._rng.choice(
+            len(self._cat_ids), size=self.n_batches(None), p=self._probs
+        )  # one category per slice
+        cat_of_slice = np.repeat(group_cats, group_chunks)[:n_slices]
 
-        # 2) one uniform draw within each chosen category's flat span of valid positions
-        local_off = self._rng.integers(self._cat_total[cat_of_draw])
-        global_off = self._cat_base[cat_of_draw] + local_off
-
-        # 3) map the flat offset -> run -> absolute slice start (the searchsorted trick,
-        #    generalized across every category at once)
+        # one uniform chunk-start within each slice's category; searchsorted maps the flat offset
+        # -> run -> absolute slice start, vectorized across every slice at once.
+        local_off = self._rng.integers(self._cat_total[cat_of_slice])
+        global_off = self._cat_base[cat_of_slice] + local_off
         run_idx = np.searchsorted(self._run_pos_cumsum, global_off, side="right") - 1
         within = global_off - self._run_pos_cumsum[run_idx]
         slice_starts = self._run_start[run_idx] + within
-        # NB: self._cat_ids[cat_of_draw] is the category label of each slice, available for free.
 
         slices = [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
-        if remainder > 0 and not self._drop_last:
+        if remainder > 0:
             last = int(slice_starts[-1])
             slices[-1] = slice(last, last + remainder)
 
@@ -299,8 +298,11 @@ class CategoricalSampler(Sampler):
         full_splits = split_given_size(np.arange(window_size), self._batch_size)
         for window in itertools.batched(slices, self._preload_nchunks):
             n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
-            # reuse full splits if we can
             splits = full_splits if n_rows == window_size else split_given_size(np.arange(n_rows), self._batch_size)
+            if self._drop_last and splits[-1].size < self._batch_size:
+                splits = splits[:-1]
+                if not splits:
+                    continue
             for batch in splits:
                 # can't vectorize this because we need to return a list, not ndarray
                 self._rng.shuffle(batch)
