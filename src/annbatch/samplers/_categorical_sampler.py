@@ -12,10 +12,10 @@ from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     check_lt_1,
     get_torch_worker_info,
-    iter_from_slices,
     validate_chunk_batch_preload_sizes,
     validate_mask_n_obs_and_resolve,
 )
+from annbatch.utils import split_given_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -24,44 +24,54 @@ if TYPE_CHECKING:
 
 
 class CategoricalSampler(Sampler):
-    """Categorical chunk sampler.
+    """Sample category-coherent batches with replacement.
 
-    The sampler is given an integer category code per observation (e.g. from a
-    categorical column). Every chunk it yields lies entirely within a single
-    category, so each on-disk read stays contiguous and the chunk's category is
-    known for free. A run-length encoding (RLE) of the codes is built for the
-    range selected by :attr:`mask` (the whole dataset by default) and a full
-    epoch of chunks is drawn in one vectorized pass, so memory scales with the
-    number of runs (``<= n_obs / chunk_size``), not the number of categories.
+    Every batch the :class:`~annbatch.Loader` yields is drawn from a single category:
+    a category is drawn ``c ~ Categorical(p)`` (``p`` proportional to
+    ``category_weights``, uniform by default), then the batch's observations are drawn
+    from ``c``. A load request may span several categories but no batch mixes them,
+    which makes over- or under-sampling specific populations straightforward.
 
-    The distribution *within* a category is uniform over its valid chunk-start
-    positions; the distribution *over* categories is uniform by default and is
-    reshaped by ``category_weights``.
+    Sampling is **with replacement** -- each pass draws ``num_samples`` observations
+    rather than partitioning a fixed epoch -- so there is no notion of an epoch and the
+    number of iterations is fixed. The chunk_size should be divided by the batch_size
+    so that every batch stays within one category; see the implementation notes below.
 
-    **Category selection.** A category with weight ``0`` is excluded: it is never
-    sampled and is exempt from the run-length rule. There is no separate
-    selection argument -- set a weight to ``0`` to drop a category.
+    *Category selection.* A category with a non-positive weight is excluded: it is
+    never sampled and its runs are exempt from the run-length rule below. Set a
+    weight to ``0`` to drop a category; there is no separate exclusion argument.
 
-    **Run-length rule.** Every contiguous run of a *non-excluded* category must be
-    at least ``chunk_size`` observations long; otherwise no chunk could fit inside
-    it and the sampler raises, naming the offending categories.
-
-    **Mask.** Assigning :attr:`mask` restricts sampling to a contiguous range
-    ``[start, stop)``. The RLE is rebuilt over ``codes[start:stop]`` (chunk starts
-    stay in global coordinates) and the build is cached on the resolved range, so
-    reassigning the same mask is free and a new range rebuilds exactly once. The
-    weights of the categories still present in the range are renormalized; if no
-    category with positive weight remains in the range, assigning the mask raises.
-
-    Sampling is with replacement (chunks are drawn independently). ``num_samples``
-    controls the total number of observations drawn per epoch.
+    *Run-length rule.* Every contiguous run of a *non-excluded* category must span
+    at least ``chunk_size`` observations; otherwise no aligned slice fits inside it
+    and the sampler raises at construction, naming the offending categories by their
+    label (not their integer code).
+    *Mask.* Assigning :attr:`mask` restricts sampling to a contiguous observation
+    range ``[start, stop)``. The RLE is rebuilt over that window (slice starts stay
+    in global coordinates) and cached on the resolved ``(start, stop)`` pair, so
+    reassigning the same mask is free. Category weights are renormalized from the
+    original values over only the categories present in the new range; if no
+    category with a positive weight remains, the assignment raises.
 
     Multiple workers are not supported with this sampler.
+
+    Implementation
+    --------------
+    A run-length encoding (RLE) of ``categorical.codes`` is built over the :attr:`mask`
+    range. Each draw picks a category ``c ~ Categorical(p)`` then a uniform slice-start
+    within ``c``, and a prefix-sum lookup maps it to the absolute slice in
+    *O(log n_runs)*. Because ``chunk_size`` must be a whole number of ``batch_size``
+    blocks, every batch cut from a slice stays within its one category. Memory scales
+    with the number of runs (``<= n_obs // chunk_size``).
+
+
+
+
 
     Parameters
     ----------
     chunk_size
-        Size of each chunk i.e. the range of each chunk yielded.
+        Number of observations in each slice yielded. Also the minimum run length
+        required of every non-excluded category (see the run-length rule).
     preload_nchunks
         Number of chunks to load per iteration.
     batch_size
@@ -74,7 +84,7 @@ class CategoricalSampler(Sampler):
         every run of a non-excluded category must be at least ``chunk_size`` long
         (see the run-length rule above). NA values (``codes == -1``) are not allowed.
     num_samples
-        Total number of observations to draw per epoch.
+        Total number of observations to draw.
     category_weights
         Optional weights, one per category in ``categorical.categories``
         (so ``len(category_weights) == len(categorical.categories)``), controlling
@@ -120,6 +130,13 @@ class CategoricalSampler(Sampler):
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
+        if chunk_size % batch_size != 0:
+            # each chunk must hold a whole number of batches so that every batch stays
+            # within a single slice (hence a single category); see _iter_requests.
+            raise ValueError(
+                "chunk_size must be divisible by batch_size so that each batch stays within one category. "
+                f"Got chunk_size={chunk_size} % batch_size={batch_size} = {chunk_size % batch_size}."
+            )
         if mask is None:
             mask = slice(0, None)
         start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
@@ -251,16 +268,18 @@ class CategoricalSampler(Sampler):
 
         self._ensure_runs(n_obs)
         slices = self._compute_slices()
-        return iter_from_slices(
-            slices=slices,
-            batch_rng=self._rng,
-            preload_nchunks=self._preload_nchunks,
-            batch_size=self._batch_size,
-            drop_last=self._drop_last,
-            chunk_size=self._chunk_size,
-            shuffle=True,
-            worker_info=None,
-        )
+        return self._iter_requests(slices)
+
+    def _iter_requests(self, slices: list[slice]) -> Iterator[LoadRequest]:
+        """Yield and shuffle every batch's worth of slices."""
+        for window in split_given_size(np.asarray(slices, dtype=object), self._preload_nchunks):
+            n_rows = int(sum(s.stop - s.start for s in window))
+            splits = split_given_size(np.arange(n_rows), self._batch_size)
+            for batch in splits:
+                self._rng.shuffle(batch)
+            if self._drop_last:
+                splits = [b for b in splits if b.size == self._batch_size]
+            yield {"requests": list(window), "splits": splits}
 
     def _compute_slices(self) -> list[slice]:
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)

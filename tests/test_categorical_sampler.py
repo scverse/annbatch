@@ -92,6 +92,8 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
         pytest.param(np.repeat([0, 1], 50), {"batch_size": 50}, "batch_size cannot exceed", id="batch_gt_preload"),
         # 40 % 30 != 0
         pytest.param(np.repeat([0, 1], 50), {"batch_size": 30}, "must be divisible", id="batch_not_divisible"),
+        # preload_size 40 % 4 == 0, but chunk_size 10 % 4 != 0 -> batches would span categories
+        pytest.param(np.repeat([0, 1], 50), {"batch_size": 4}, "must be divisible", id="batch_not_divides_chunk"),
     ],
 )
 def test_invalid_construction(codes: np.ndarray, kwargs: dict, match: str):
@@ -159,6 +161,26 @@ def test_chunks_are_category_coherent(codes: np.ndarray):
     assert -1 not in _chunk_categories(chunks, codes), "every chunk must lie within a single category"
     # chunks stay in-bounds and are full size (num_samples is a multiple of chunk_size here)
     assert all(0 <= c.start and c.stop <= len(codes) and c.stop - c.start == 10 for c in chunks)
+
+
+@pytest.mark.parametrize(
+    ("chunk_size", "batch_size", "preload_nchunks"),
+    [
+        pytest.param(10, 10, 4, id="batch_eq_chunk"),
+        pytest.param(10, 5, 4, id="batch_lt_chunk"),
+        pytest.param(20, 5, 3, id="many_batches_per_chunk"),
+    ],
+)
+def test_batches_are_category_coherent(chunk_size: int, batch_size: int, preload_nchunks: int):
+    # the preload window mixes several categories, but each *batch* (split) must not.
+    codes = np.repeat([0, 1, 2, 3], 100)
+    sampler = make_sampler(
+        codes, num_samples=400, chunk_size=chunk_size, batch_size=batch_size, preload_nchunks=preload_nchunks
+    )
+    for load_request in sampler.sample(len(codes)):
+        concat = np.concatenate([codes[s.start : s.stop] for s in load_request["requests"]])
+        for split in load_request["splits"]:
+            assert np.unique(concat[split]).size == 1, "every batch must lie within a single category"
 
 
 def test_shuffle_is_true():
