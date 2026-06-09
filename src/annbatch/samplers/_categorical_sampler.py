@@ -249,9 +249,10 @@ class CategoricalSampler(Sampler):
 
     def n_batches(self, n_obs: int) -> int:
         del n_obs  # determined by num_samples, not the loader size
-        return (
-            self._num_samples // self.batch_size if self._drop_last else math.ceil(self._num_samples / self.batch_size)
-        )
+        if self._drop_last:
+            # drop_last omits the final sub-chunk remainder, so only whole chunks are yielded
+            return (self._num_samples // self._chunk_size) * (self._chunk_size // self._batch_size)
+        return math.ceil(self._num_samples / self._batch_size)
 
     def validate(self, n_obs: int) -> None:
         """Validate that the codes describe exactly the loader's observations."""
@@ -294,24 +295,12 @@ class CategoricalSampler(Sampler):
             last = int(slice_starts[-1])
             slices[-1] = slice(last, last + remainder)
 
-        # now allocate the splits
-        n_windows, window_remainder = divmod(self._num_samples, self._preload_nchunks * self._chunk_size)
-        n_splits = self._chunk_size // self._batch_size
-        splits = [np.arange(self._batch_size) for _ in range(n_splits)]
-        windows = list(itertools.batched(slices, self._preload_nchunks))
-        for i in range(n_windows - 1):
+        window_size = self._preload_nchunks * self._chunk_size
+        full_splits = split_given_size(np.arange(window_size), self._batch_size)
+        for window in itertools.batched(slices, self._preload_nchunks):
+            n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
+            splits = full_splits if n_rows == window_size else split_given_size(np.arange(n_rows), self._batch_size)
             for batch in splits:
                 # can't vectorize this because we need to return a list, not ndarray
                 self._rng.shuffle(batch)
-            yield {
-                "requests": list(windows[i]),
-                "splits": splits,
-            }
-
-        if window_remainder > 0:
-            final_window = windows[-1]
-            n_rows = sum(s.stop - s.start for s in final_window)
-            splits = split_given_size(np.arange(n_rows), self._batch_size)
-            for batch in splits:
-                self._rng.shuffle(batch)
-            yield {"requests": list(final_window), "splits": splits}
+            yield {"requests": list(window), "splits": splits}
