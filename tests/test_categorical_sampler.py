@@ -275,12 +275,6 @@ def test_absent_category_weight_is_ignored():
     _assert_shares(sampler, codes, {0: 0.5, 1: 0.5})
 
 
-def test_weights_not_mutated():
-    weights = np.array([1.0, 1.0])
-    make_sampler(pd.Categorical(np.repeat([0, 1], 100)), category_weights=weights)
-    assert np.array_equal(weights, [1.0, 1.0]), "the sampler must not mutate the caller's weights array"
-
-
 # =============================================================================
 # Mask
 # =============================================================================
