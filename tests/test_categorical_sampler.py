@@ -260,10 +260,11 @@ def test_zero_weight_category_exempt_from_run_length_rule():
 
 def test_run_length_error_names_category_labels():
     # codes are alphabetical (B=0, NK=1, T=2), so matching 'B' proves the error prints
+    # this is expected to fail because the min chunk size is 10 and B has a 3-row run
     # the label, not the raw code -- the whole point of taking a pd.Categorical.
     cat = pd.Categorical(["T"] * 30 + ["B"] * 3 + ["NK"] * 30)  # "B" has a 3-row run
     with pytest.raises(ValueError, match=r"categories \['B'\]"):
-        make_sampler(cat)
+        make_sampler(cat, chunk_size=10)
 
 
 def test_absent_category_weight_is_ignored():
