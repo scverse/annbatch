@@ -76,33 +76,81 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
 @pytest.mark.parametrize(
     ("categorical", "kwargs", "error_type", "match"),
     [
-        pytest.param(pd.Categorical([0, 0, 1, 1, 2, 2]), {}, ValueError, "at least chunk_size", id="all_runs_too_short"),
         pytest.param(
-            pd.Categorical([0] * 30 + [1] * 30 + [0] * 3), {}, ValueError, r"at least chunk_size.*\[0\]", id="one_run_too_short"
-        ),
-        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"num_samples": 0}, ValueError, "num_samples must be greater than 1", id="num_samples"),
-        pytest.param(
-            pd.Categorical(np.repeat([0, 1], 50)), {"category_weights": np.ones(3)}, ValueError, "one weight per category", id="weights_shape"
+            pd.Categorical([0, 0, 1, 1, 2, 2]), {}, ValueError, "at least chunk_size", id="all_runs_too_short"
         ),
         pytest.param(
-            pd.Categorical(np.repeat([0, 1], 50)), {"category_weights": np.zeros(2)}, ValueError, "at least one positive", id="weights_zero"
+            pd.Categorical([0] * 30 + [1] * 30 + [0] * 3),
+            {},
+            ValueError,
+            r"at least chunk_size.*\[0\]",
+            id="one_run_too_short",
         ),
-        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"mask": slice(0, 500)}, ValueError, "exceeds loader n_obs", id="mask_out_of_range"),
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"num_samples": 0},
+            ValueError,
+            "num_samples must be greater than 1",
+            id="num_samples",
+        ),
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"category_weights": np.ones(3)},
+            ValueError,
+            "one weight per category",
+            id="weights_shape",
+        ),
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"category_weights": np.zeros(2)},
+            ValueError,
+            "at least one positive",
+            id="weights_zero",
+        ),
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"mask": slice(0, 500)},
+            ValueError,
+            "exceeds loader n_obs",
+            id="mask_out_of_range",
+        ),
         # chunk_size(10) * preload_nchunks(4) = 40 < batch_size
-        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"batch_size": 50}, ValueError, "batch_size cannot exceed", id="batch_gt_preload"),
-        # 40 % 30 != 0
-        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"batch_size": 30}, ValueError, "must be divisible", id="batch_not_divisible"),
-        # preload_size 40 % 4 == 0, but chunk_size 10 % 4 != 0 -> batches would span categories
-        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"batch_size": 4}, ValueError, "must be divisible", id="batch_not_divides_chunk"),
         pytest.param(
-            np.repeat([0, 1], 50), {}, TypeError, "pandas.Categorical", id="not_categorical"
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"batch_size": 50},
+            ValueError,
+            "batch_size cannot exceed",
+            id="batch_gt_preload",
         ),
+        # 40 % 30 != 0
         pytest.param(
-            pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1]), {}, ValueError, "NA values", id="na_values"
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"batch_size": 30},
+            ValueError,
+            "must be divisible",
+            id="batch_not_divisible",
+        ),
+        # preload_size 40 % 4 == 0, but chunk_size 10 % 4 != 0 -> batches would span categories
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
+            {"batch_size": 4},
+            ValueError,
+            "must be divisible",
+            id="batch_not_divides_chunk",
+        ),
+        pytest.param(np.repeat([0, 1], 50), {}, TypeError, "pandas.Categorical", id="not_categorical"),
+        pytest.param(
+            pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1]),
+            {},
+            ValueError,
+            "NA values",
+            id="na_values",
         ),
     ],
 )
-def test_invalid_construction(categorical: pd.Categorical | np.ndarray, kwargs: dict, error_type: type[Exception], match: str):
+def test_invalid_construction(
+    categorical: pd.Categorical | np.ndarray, kwargs: dict, error_type: type[Exception], match: str
+):
     with pytest.raises(error_type, match=match):
         make_sampler(categorical, **kwargs)
 
@@ -158,7 +206,11 @@ def test_batches_are_category_coherent(chunk_size: int, batch_size: int, preload
     # the preload window mixes several categories, but each *batch* (split) must not.
     codes = np.repeat([0, 1, 2, 3], 100)
     sampler = make_sampler(
-        pd.Categorical(codes), num_samples=400, chunk_size=chunk_size, batch_size=batch_size, preload_nchunks=preload_nchunks
+        pd.Categorical(codes),
+        num_samples=400,
+        chunk_size=chunk_size,
+        batch_size=batch_size,
+        preload_nchunks=preload_nchunks,
     )
     for load_request in sampler.sample(len(codes)):
         concat = np.concatenate([codes[s.start : s.stop] for s in load_request["requests"]])
@@ -174,7 +226,9 @@ def test_noncontiguous_category_samples_all_runs():
     # category 0 lives in two separate runs; over many draws both should be hit.
     codes = np.array([0] * 50 + [1] * 50 + [0] * 50, dtype=np.int64)
     starts = [
-        c.start for c in _collect_chunks(make_sampler(pd.Categorical(codes), num_samples=5000), len(codes)) if codes[c.start] == 0
+        c.start
+        for c in _collect_chunks(make_sampler(pd.Categorical(codes), num_samples=5000), len(codes))
+        if codes[c.start] == 0
     ]
     assert any(s < 50 for s in starts) and any(s >= 100 for s in starts), "both runs of category 0 should be sampled"
 
@@ -283,7 +337,11 @@ def test_mask_with_no_positive_weight_in_range_raises(via: str):
 )
 def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_iters: int):
     sampler = make_sampler(
-        pd.Categorical(np.repeat([0, 1], 100)), num_samples=num_samples, preload_nchunks=2, batch_size=batch_size, drop_last=drop_last
+        pd.Categorical(np.repeat([0, 1], 100)),
+        num_samples=num_samples,
+        preload_nchunks=2,
+        batch_size=batch_size,
+        drop_last=drop_last,
     )
     assert sampler.n_batches(200) == expected_iters
 
