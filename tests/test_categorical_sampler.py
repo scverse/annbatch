@@ -362,6 +362,8 @@ def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_
         pytest.param(10, 10, 1, 355, False, id="preload_one"),  # one slice per window
         pytest.param(10, 5, 3, 302, True, id="drop_last_partial_batch"),  # final 2-row batch dropped
         pytest.param(10, 10, 4, 400, True, id="drop_last_exact"),  # drop_last is a no-op when it divides evenly
+        pytest.param(10, 10, 2, 95, True, id="drop_last_remainder_chunk"),  # batch==chunk, drops trailing chunk
+        pytest.param(10, 10, 2, 95, False, id="keep_remainder_chunk"),  # same, partial last batch kept
         # batch_size >= chunk_size: a batch spans several same-category chunks
         pytest.param(10, 20, 4, 400, False, id="batch_two_chunks"),
         pytest.param(10, 20, 4, 410, False, id="batch_two_chunks_partial"),  # final 10-row batch kept
