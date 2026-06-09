@@ -24,7 +24,7 @@ from annbatch.samplers._utils import WorkerInfo
 
 
 def make_sampler(
-    codes: np.ndarray,
+    categorical: pd.Categorical,
     *,
     num_samples: int = 1000,
     chunk_size: int = 10,
@@ -38,7 +38,7 @@ def make_sampler(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
-        categorical=codes if isinstance(codes, pd.Categorical) else pd.Categorical(codes),
+        categorical=categorical,
         num_samples=num_samples,
         rng=np.random.default_rng(seed),
         **kwargs,
@@ -74,64 +74,47 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
 
 
 @pytest.mark.parametrize(
-    ("codes", "kwargs", "match"),
+    ("categorical", "kwargs", "error_type", "match"),
     [
-        pytest.param(np.array([0, 0, 1, 1, 2, 2]), {}, "at least chunk_size", id="all_runs_too_short"),
+        pytest.param(pd.Categorical([0, 0, 1, 1, 2, 2]), {}, ValueError, "at least chunk_size", id="all_runs_too_short"),
         pytest.param(
-            np.array([0] * 30 + [1] * 30 + [0] * 3), {}, r"at least chunk_size.*\[0\]", id="one_run_too_short"
+            pd.Categorical([0] * 30 + [1] * 30 + [0] * 3), {}, ValueError, r"at least chunk_size.*\[0\]", id="one_run_too_short"
         ),
-        pytest.param(np.repeat([0, 1], 50), {"num_samples": 0}, "num_samples must be greater than 1", id="num_samples"),
+        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"num_samples": 0}, ValueError, "num_samples must be greater than 1", id="num_samples"),
         pytest.param(
-            np.repeat([0, 1], 50), {"category_weights": np.ones(3)}, "one weight per category", id="weights_shape"
+            pd.Categorical(np.repeat([0, 1], 50)), {"category_weights": np.ones(3)}, ValueError, "one weight per category", id="weights_shape"
         ),
         pytest.param(
-            np.repeat([0, 1], 50), {"category_weights": np.zeros(2)}, "at least one positive", id="weights_zero"
+            pd.Categorical(np.repeat([0, 1], 50)), {"category_weights": np.zeros(2)}, ValueError, "at least one positive", id="weights_zero"
         ),
-        pytest.param(np.repeat([0, 1], 50), {"mask": slice(0, 500)}, "exceeds loader n_obs", id="mask_out_of_range"),
+        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"mask": slice(0, 500)}, ValueError, "exceeds loader n_obs", id="mask_out_of_range"),
         # chunk_size(10) * preload_nchunks(4) = 40 < batch_size
-        pytest.param(np.repeat([0, 1], 50), {"batch_size": 50}, "batch_size cannot exceed", id="batch_gt_preload"),
+        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"batch_size": 50}, ValueError, "batch_size cannot exceed", id="batch_gt_preload"),
         # 40 % 30 != 0
-        pytest.param(np.repeat([0, 1], 50), {"batch_size": 30}, "must be divisible", id="batch_not_divisible"),
+        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"batch_size": 30}, ValueError, "must be divisible", id="batch_not_divisible"),
         # preload_size 40 % 4 == 0, but chunk_size 10 % 4 != 0 -> batches would span categories
-        pytest.param(np.repeat([0, 1], 50), {"batch_size": 4}, "must be divisible", id="batch_not_divides_chunk"),
+        pytest.param(pd.Categorical(np.repeat([0, 1], 50)), {"batch_size": 4}, ValueError, "must be divisible", id="batch_not_divides_chunk"),
+        pytest.param(
+            np.repeat([0, 1], 50), {}, TypeError, "pandas.Categorical", id="not_categorical"
+        ),
+        pytest.param(
+            pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1]), {}, ValueError, "NA values", id="na_values"
+        ),
     ],
 )
-def test_invalid_construction(codes: np.ndarray, kwargs: dict, match: str):
-    with pytest.raises(ValueError, match=match):
-        make_sampler(codes, **kwargs)
-
-
-def test_invalid_construction_not_categorical():
-    with pytest.raises(TypeError, match="pandas.Categorical"):
-        CategoricalSampler(
-            chunk_size=10,
-            preload_nchunks=4,
-            batch_size=10,
-            categorical=np.repeat([0, 1], 50),  # type: ignore[arg-type]
-            num_samples=100,
-        )
-
-
-def test_invalid_construction_na_values():
-    codes_with_na = pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1])
-    with pytest.raises(ValueError, match="NA values"):
-        CategoricalSampler(
-            chunk_size=10,
-            preload_nchunks=4,
-            batch_size=10,
-            categorical=codes_with_na,
-            num_samples=100,
-        )
+def test_invalid_construction(categorical: pd.Categorical | np.ndarray, kwargs: dict, error_type: type[Exception], match: str):
+    with pytest.raises(error_type, match=match):
+        make_sampler(categorical, **kwargs)
 
 
 def test_validate_rejects_n_obs_mismatch():
-    sampler = make_sampler(np.repeat([0, 1], 50), num_samples=50)
+    sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 50)), num_samples=50)
     with pytest.raises(ValueError, match="does not match loader n_obs"):
         sampler.validate(n_obs=999)
 
 
 def test_multiple_workers_not_supported():
-    sampler = make_sampler(np.repeat([0, 1], 50), num_samples=50)
+    sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 50)), num_samples=50)
     with (
         patch(
             "annbatch.samplers._categorical_sampler.get_torch_worker_info",
@@ -157,7 +140,7 @@ def test_multiple_workers_not_supported():
     ],
 )
 def test_chunks_are_category_coherent(codes: np.ndarray):
-    chunks = _collect_chunks(make_sampler(codes, num_samples=1000), len(codes))
+    chunks = _collect_chunks(make_sampler(pd.Categorical(codes), num_samples=1000), len(codes))
     assert -1 not in _chunk_categories(chunks, codes), "every chunk must lie within a single category"
     # chunks stay in-bounds and are full size (num_samples is a multiple of chunk_size here)
     assert all(0 <= c.start and c.stop <= len(codes) and c.stop - c.start == 10 for c in chunks)
@@ -175,7 +158,7 @@ def test_batches_are_category_coherent(chunk_size: int, batch_size: int, preload
     # the preload window mixes several categories, but each *batch* (split) must not.
     codes = np.repeat([0, 1, 2, 3], 100)
     sampler = make_sampler(
-        codes, num_samples=400, chunk_size=chunk_size, batch_size=batch_size, preload_nchunks=preload_nchunks
+        pd.Categorical(codes), num_samples=400, chunk_size=chunk_size, batch_size=batch_size, preload_nchunks=preload_nchunks
     )
     for load_request in sampler.sample(len(codes)):
         concat = np.concatenate([codes[s.start : s.stop] for s in load_request["requests"]])
@@ -184,14 +167,14 @@ def test_batches_are_category_coherent(chunk_size: int, batch_size: int, preload
 
 
 def test_shuffle_is_true():
-    assert make_sampler(np.repeat([0, 1], 50)).shuffle is True
+    assert make_sampler(pd.Categorical(np.repeat([0, 1], 50))).shuffle is True
 
 
 def test_noncontiguous_category_samples_all_runs():
     # category 0 lives in two separate runs; over many draws both should be hit.
     codes = np.array([0] * 50 + [1] * 50 + [0] * 50, dtype=np.int64)
     starts = [
-        c.start for c in _collect_chunks(make_sampler(codes, num_samples=5000), len(codes)) if codes[c.start] == 0
+        c.start for c in _collect_chunks(make_sampler(pd.Categorical(codes), num_samples=5000), len(codes)) if codes[c.start] == 0
     ]
     assert any(s < 50 for s in starts) and any(s >= 100 for s in starts), "both runs of category 0 should be sampled"
 
@@ -209,16 +192,16 @@ def test_noncontiguous_category_samples_all_runs():
     ],
 )
 def test_category_draw_shares(codes: np.ndarray, weights: np.ndarray | None, expected: dict[int, float]):
-    _assert_shares(make_sampler(codes, num_samples=40_000, category_weights=weights), codes, expected)
+    _assert_shares(make_sampler(pd.Categorical(codes), num_samples=40_000, category_weights=weights), codes, expected)
 
 
 def test_zero_weight_category_exempt_from_run_length_rule():
     codes = np.array([0] * 30 + [1] * 3 + [2] * 30, dtype=np.int64)  # category 1 has a 3-row run
     # excluding category 1 with a zero weight -> its short run is exempt, no error
-    make_sampler(codes, category_weights=np.array([1.0, 0.0, 1.0]))
+    make_sampler(pd.Categorical(codes), category_weights=np.array([1.0, 0.0, 1.0]))
     # giving it a positive weight -> the short run violates the run-length rule
     with pytest.raises(ValueError, match="at least chunk_size"):
-        make_sampler(codes, category_weights=np.array([1.0, 1.0, 1.0]))
+        make_sampler(pd.Categorical(codes), category_weights=np.array([1.0, 1.0, 1.0]))
 
 
 def test_run_length_error_names_category_labels():
@@ -240,7 +223,7 @@ def test_absent_category_weight_is_ignored():
 
 def test_weights_not_mutated():
     weights = np.array([1.0, 1.0])
-    make_sampler(np.repeat([0, 1], 100), category_weights=weights)
+    make_sampler(pd.Categorical(np.repeat([0, 1], 100)), category_weights=weights)
     assert np.array_equal(weights, [1.0, 1.0]), "the sampler must not mutate the caller's weights array"
 
 
@@ -253,9 +236,9 @@ def test_weights_not_mutated():
 def test_mask_restricts_range(via: str):
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
     if via == "constructor":
-        sampler = make_sampler(codes, num_samples=500, mask=slice(0, 100))
+        sampler = make_sampler(pd.Categorical(codes), num_samples=500, mask=slice(0, 100))
     else:
-        sampler = make_sampler(codes, num_samples=500)
+        sampler = make_sampler(pd.Categorical(codes), num_samples=500)
         sampler.mask = slice(0, 100)
     chunks = _collect_chunks(sampler, len(codes))
     assert all(0 <= c.start and c.stop <= 100 for c in chunks), "chunks must stay within the mask range"
@@ -264,7 +247,7 @@ def test_mask_restricts_range(via: str):
 
 def test_mask_renormalizes_from_original_weights():
     codes = np.concatenate([np.full(100, 0), np.full(100, 1), np.full(100, 2)]).astype(np.int64)
-    sampler = make_sampler(codes, num_samples=40_000, category_weights=np.array([3.0, 1.0, 6.0]))
+    sampler = make_sampler(pd.Categorical(codes), num_samples=40_000, category_weights=np.array([3.0, 1.0, 6.0]))
     _assert_shares(sampler, codes, {0: 0.3, 1: 0.1, 2: 0.6})  # full range
     sampler.mask = slice(0, 200)  # only categories 0 and 1 -> renormalize [3, 1] from the originals
     _assert_shares(sampler, codes, {0: 0.75, 1: 0.25})
@@ -278,9 +261,9 @@ def test_mask_with_no_positive_weight_in_range_raises(via: str):
     weights = np.array([1.0, 0.0])  # category 1 excluded -> the [50, 100) range has no sampleable category
     if via == "constructor":
         with pytest.raises(ValueError, match="positive weight is present"):
-            make_sampler(codes, category_weights=weights, mask=slice(50, 100))
+            make_sampler(pd.Categorical(codes), category_weights=weights, mask=slice(50, 100))
     else:
-        sampler = make_sampler(codes, category_weights=weights)
+        sampler = make_sampler(pd.Categorical(codes), category_weights=weights)
         with pytest.raises(ValueError, match="positive weight is present"):
             sampler.mask = slice(50, 100)
 
@@ -300,15 +283,49 @@ def test_mask_with_no_positive_weight_in_range_raises(via: str):
 )
 def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_iters: int):
     sampler = make_sampler(
-        np.repeat([0, 1], 100), num_samples=num_samples, preload_nchunks=2, batch_size=batch_size, drop_last=drop_last
+        pd.Categorical(np.repeat([0, 1], 100)), num_samples=num_samples, preload_nchunks=2, batch_size=batch_size, drop_last=drop_last
     )
     assert sampler.n_batches(200) == expected_iters
 
 
-@pytest.mark.parametrize("num_samples", [300, 305], ids=["multiple", "non_multiple"])
-def test_num_samples_respected(num_samples: int):
-    # non_multiple exercises the remainder partial-slice path in _compute_slices
-    codes = np.repeat([0, 1, 2], 100)
-    sampler = make_sampler(codes, num_samples=num_samples, preload_nchunks=3)
-    total = sum(len(s) for lr in sampler.sample(len(codes)) for s in lr["splits"])
-    assert total == num_samples
+@pytest.mark.parametrize(
+    ("chunk_size", "batch_size", "preload_nchunks", "num_samples", "drop_last"),
+    [
+        pytest.param(10, 10, 4, 400, False, id="exact_windows"),  # num_samples a multiple of the window
+        pytest.param(10, 10, 4, 410, False, id="partial_window"),  # trailing window has fewer slices
+        pytest.param(10, 10, 4, 405, False, id="remainder_slice"),  # trailing slice shorter than chunk_size
+        pytest.param(10, 5, 4, 405, False, id="multi_batch_remainder"),  # >1 batch/chunk + short last batch
+        pytest.param(20, 5, 2, 410, False, id="many_batches_per_chunk"),
+        pytest.param(10, 10, 1, 355, False, id="preload_one"),  # one slice per window
+        pytest.param(10, 5, 3, 305, True, id="drop_last_multi_batch"),  # drop_last omits the sub-chunk remainder
+        pytest.param(10, 10, 4, 400, True, id="drop_last_exact"),  # drop_last is a no-op when it divides evenly
+    ],
+)
+def test_sampling_invariants(chunk_size: int, batch_size: int, preload_nchunks: int, num_samples: int, drop_last: bool):
+    codes = np.repeat([0, 1, 2, 3], 250)  # 4 categories, every run >> chunk_size
+    n = len(codes)
+    sampler = make_sampler(
+        pd.Categorical(codes),
+        num_samples=num_samples,
+        chunk_size=chunk_size,
+        batch_size=batch_size,
+        preload_nchunks=preload_nchunks,
+        drop_last=drop_last,
+    )
+
+    requests: list[slice] = []
+    batches_seen = total_obs = 0
+    for lr in sampler.sample(n):
+        requests.extend(lr["requests"])
+        concat = np.concatenate([codes[s.start : s.stop] for s in lr["requests"]])
+        for split in lr["splits"]:
+            batches_seen += 1
+            total_obs += split.size
+            assert np.unique(concat[split]).size == 1, "every batch must lie within a single category"
+
+    # drop_last omits the final sub-chunk remainder; otherwise every requested observation is yielded
+    expected_obs = (num_samples // chunk_size) * chunk_size if drop_last else num_samples
+    assert total_obs == expected_obs
+    assert sampler.n_batches(n) == batches_seen, "n_batches must match the batches actually yielded"
+    assert all(0 <= s.start and s.stop <= n for s in requests), "every chunk must stay in-bounds"
+    assert -1 not in _chunk_categories(requests, codes), "every chunk must lie within a single category"
