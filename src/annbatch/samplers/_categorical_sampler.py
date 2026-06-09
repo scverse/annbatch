@@ -280,7 +280,7 @@ class CategoricalSampler(Sampler):
         cat_of_draw = self._rng.choice(len(self._cat_ids), size=n_slices, p=self._probs)
 
         # 2) one uniform draw within each chosen category's flat span of valid positions
-        local_off = (self._rng.random(n_slices) * self._cat_total[cat_of_draw]).astype(np.intp)
+        local_off = self._rng.integers(self._cat_total[cat_of_draw])
         global_off = self._cat_base[cat_of_draw] + local_off
 
         # 3) map the flat offset -> run -> absolute slice start (the searchsorted trick,
