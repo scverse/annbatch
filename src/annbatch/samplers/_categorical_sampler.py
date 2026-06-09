@@ -299,6 +299,7 @@ class CategoricalSampler(Sampler):
         full_splits = split_given_size(np.arange(window_size), self._batch_size)
         for window in itertools.batched(slices, self._preload_nchunks):
             n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
+            # reuse full splits if we can
             splits = full_splits if n_rows == window_size else split_given_size(np.arange(n_rows), self._batch_size)
             for batch in splits:
                 # can't vectorize this because we need to return a list, not ndarray
