@@ -233,7 +233,7 @@ class CategoricalSampler(Sampler):
             )
 
         # Sort runs by category so each category's runs are contiguous in the table;
-        # `flat_offset_into_runs` then indexes directly into the sorted run table.
+        # `first_row_in_runs_of_category` then indexes directly into the sorted run table.
         self._categorical_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
 
         # Per-category table: probability, number of runs, and offset into the sorted run table
@@ -243,7 +243,7 @@ class CategoricalSampler(Sampler):
             {
                 "prob": w / w.sum(),
                 "n_runs": n_runs_per_cat.astype(np.int64),
-                "flat_offset_into_runs": np.concatenate(([0], np.cumsum(n_runs_per_cat[:-1]))).astype(np.int64),
+                "first_row_in_runs_of_category": np.concatenate(([0], np.cumsum(n_runs_per_cat[:-1]))).astype(np.int64),
             },
             index=pd.Index(categories_to_sample, name="cat"),
         )
@@ -303,8 +303,8 @@ class CategoricalSampler(Sampler):
         cats_n_runs = self._per_category_sampling_info["n_runs"].to_numpy()
         possible_run_pos_within_a_category = self._rng.integers(cats_n_runs[cat_of_slice])
         # Generate a position into the runs table to get the run to fetch within
-        cats_flat_offset = self._per_category_sampling_info["flat_offset_into_runs"].to_numpy()
-        chosen = cats_flat_offset[cat_of_slice] + possible_run_pos_within_a_category
+        first_row_of_category = self._per_category_sampling_info["first_row_in_runs_of_category"].to_numpy()
+        chosen = first_row_of_category[cat_of_slice] + possible_run_pos_within_a_category
         run_starts = self._categorical_runs["start"].to_numpy()[chosen]
         run_ends = self._categorical_runs["end"].to_numpy()[chosen]
         # Now sample a valid start position within each chunk
