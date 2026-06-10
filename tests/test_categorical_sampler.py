@@ -409,12 +409,14 @@ def test_max_categories_per_window(preload_nchunks: int):
     n = len(codes)
     expected_max = preload_nchunks // 2
     sampler = make_sampler(
-        pd.Categorical(codes), num_samples=9 * preload_nchunks * 40, chunk_size=9, batch_size=6,
+        pd.Categorical(codes),
+        num_samples=9 * preload_nchunks * 40,
+        chunk_size=9,
+        batch_size=6,
         preload_nchunks=preload_nchunks,
     )
     cats_per_window = [
-        len(np.unique(np.concatenate([codes[s.start : s.stop] for s in lr["requests"]])))
-        for lr in sampler.sample(n)
+        len(np.unique(np.concatenate([codes[s.start : s.stop] for s in lr["requests"]]))) for lr in sampler.sample(n)
     ]
     assert max(cats_per_window) == expected_max, f"expected up to {expected_max} categories per window"
     assert min(cats_per_window) >= 1
