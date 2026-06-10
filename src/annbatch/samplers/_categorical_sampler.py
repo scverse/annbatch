@@ -35,9 +35,9 @@ class CategoricalSampler(Sampler):
 
     Sampling is **with replacement** -- each pass draws ``num_samples`` observations
     rather than partitioning a fixed epoch -- so there is no notion of an epoch and the
-    number of iterations is fixed. One of ``chunk_size`` and ``batch_size`` must divide
-    each other so a batch is either a sub-block of one chunk (``batch_size <= chunk_size``)
-    or a run of whole chunks (``batch_size >=chunk_size``).
+    number of iterations is fixed. One of ``chunk_size`` and ``batch_size`` must divide the
+    other, so a batch is either a sub-block of one chunk (``batch_size <= chunk_size``) or a
+    run of whole chunks (``batch_size >= chunk_size``).
 
     *Category selection.* A category with a non-positive weight is excluded: it is
     never sampled and its runs are exempt from the run-length rule below. Set a
@@ -60,18 +60,18 @@ class CategoricalSampler(Sampler):
     Implementation
     --------------
     A run-length encoding (RLE) of ``categorical.codes`` is built over the :attr:`mask`
-    range. Because either ``chunk_size`` or ``batch_size`` divide one another, a batch
+    range. Because one of ``chunk_size`` and ``batch_size`` divides the other, a batch
     corresponds to ``group_chunks = max(1, batch_size // chunk_size)`` whole chunks (and a
-    chunk holds ``chunk_size // batch_size`` whole batches when ``batch_size <=
-    chunk_size``). Categories are assigned per *group* of that many chunks -- one category
-    ``c ~ Categorical(p)`` is drawn and shared across the group -- so each chunk is a
-    single-category on-disk read and each batch falls inside one group, hence one category.
-    A preload window of ``preload_nchunks`` chunks therefore holds up to
-    ``preload_nchunks // group_chunks`` distinct categories; a uniform chunk-start within
+    chunk holds ``chunk_size // batch_size`` whole batches when ``batch_size <= chunk_size``).
+    Categories are assigned per *group* of that many chunks -- one category
+    ``c ~ Categorical(p)`` is drawn independently for each group and shared across its chunks
+    -- so each chunk is a single-category on-disk read and each batch falls inside one group,
+    hence one category. Drawing per *minimal* group packs as many categories into a window as
+    coherence allows: up to ``preload_nchunks // group_chunks`` distinct categories
+    (equivalently ``preload_nchunks * chunk_size // lcm(chunk_size, batch_size)``). A uniform chunk-start within
     ``c`` is drawn per chunk (a prefix-sum lookup maps it to the absolute slice in
-    *O(log n_runs)*), and rows within each batch are shuffled, so batches are
-    category-coherent but not ordered. Memory scales with the number of runs
-    (``<= n_obs // chunk_size``).
+    *O(log n_runs)*), and rows within each batch are shuffled, so batches are category-coherent
+    but not ordered. Memory scales with the number of runs (``<= n_obs // chunk_size``).
 
     Parameters
     ----------
