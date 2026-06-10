@@ -36,10 +36,8 @@ class CategoricalSampler(Sampler):
     Sampling is **with replacement** -- each pass draws ``num_samples`` observations
     rather than partitioning a fixed epoch -- so there is no notion of an epoch and the
     number of iterations is fixed. One of ``chunk_size`` and ``batch_size`` must divide
-    each other so a batch is either a sub-block of one chunk (``batch_size <= chunk_size``) or a run of whole chunks (``batch_size >=
-    chunk_size``) -- never a partial chunk that could straddle two categories.
-    ``chunk_size * preload_nchunks`` must also be divisible by ``batch_size`` (already
-    required by the loader).
+    each other so a batch is either a sub-block of one chunk (``batch_size <= chunk_size``)
+    or a run of whole chunks (``batch_size >=chunk_size``).
 
     *Category selection.* A category with a non-positive weight is excluded: it is
     never sampled and its runs are exempt from the run-length rule below. Set a
@@ -62,7 +60,7 @@ class CategoricalSampler(Sampler):
     Implementation
     --------------
     A run-length encoding (RLE) of ``categorical.codes`` is built over the :attr:`mask`
-    range. Because ``chunk_size`` and ``batch_size`` divide one another, a batch
+    range. Because either ``chunk_size`` or ``batch_size`` divide one another, a batch
     corresponds to ``group_chunks = max(1, batch_size // chunk_size)`` whole chunks (and a
     chunk holds ``chunk_size // batch_size`` whole batches when ``batch_size <=
     chunk_size``). Categories are assigned per *group* of that many chunks -- one category
