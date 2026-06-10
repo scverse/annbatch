@@ -372,7 +372,9 @@ def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_
     ],
 )
 def test_sampling_invariants(chunk_size: int, batch_size: int, preload_nchunks: int, num_samples: int, drop_last: bool):
-    codes = np.repeat([0, 1, 2, 3], 250)  # 4 categories, every run >> chunk_size
+    codes = np.concatenate(
+        [np.repeat([0, 1, 2, 3], 250), np.repeat([3, 2, 1, 0], 250)]
+    )  # 4 categories, every run >> chunk_size
     n = len(codes)
     sampler = make_sampler(
         pd.Categorical(codes),
