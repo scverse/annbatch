@@ -35,9 +35,9 @@ class CategoricalSampler(Sampler):
 
     Sampling is **with replacement** -- each pass draws ``num_samples`` observations
     rather than partitioning a fixed epoch -- so there is no notion of an epoch and the
-    number of iterations is fixed. One of ``chunk_size`` and ``batch_size`` must divide the
-    other, so a batch is either a sub-block of one chunk (``batch_size <= chunk_size``) or a
-    run of whole chunks (``batch_size >= chunk_size``).
+    number of iterations is fixed. The only size requirement is that
+    ``chunk_size * preload_nchunks`` is divisible by ``batch_size`` (already enforced by the
+    loader).
 
     *Category selection.* A category with a non-positive weight is excluded: it is
     never sampled and its runs are exempt from the run-length rule below. Set a
@@ -60,18 +60,20 @@ class CategoricalSampler(Sampler):
     Implementation
     --------------
     A run-length encoding (RLE) of ``categorical.codes`` is built over the :attr:`mask`
-    range. Because one of ``chunk_size`` and ``batch_size`` divides the other, a batch
-    corresponds to ``group_chunks = max(1, batch_size // chunk_size)`` whole chunks (and a
-    chunk holds ``chunk_size // batch_size`` whole batches when ``batch_size <= chunk_size``).
-    Categories are assigned per *group* of that many chunks -- one category
-    ``c ~ Categorical(p)`` is drawn independently for each group and shared across its chunks
-    -- so each chunk is a single-category on-disk read and each batch falls inside one group,
-    hence one category. Drawing per *minimal* group packs as many categories into a window as
-    coherence allows: up to ``preload_nchunks // group_chunks`` distinct categories
-    (equivalently ``preload_nchunks * chunk_size // lcm(chunk_size, batch_size)``). A uniform chunk-start within
-    ``c`` is drawn per chunk (a prefix-sum lookup maps it to the absolute slice in
-    *O(log n_runs)*), and rows within each batch are shuffled, so batches are category-coherent
-    but not ordered. Memory scales with the number of runs (``<= n_obs // chunk_size``).
+    range. A category boundary may only fall where a chunk edge and a batch edge coincide,
+    which happens every ``lcm(chunk_size, batch_size)`` rows; so categories are assigned per
+    *group* of ``group_chunks = batch_size // gcd(chunk_size, batch_size)`` chunks (one ``lcm``
+    block) -- one category ``c ~ Categorical(p)`` is drawn independently for each group and
+    shared across its chunks. Each chunk is then a single-category on-disk read and each batch
+    falls inside one group, hence one category. Drawing per *minimal* group packs as many
+    categories into a window as coherence allows: up to ``preload_nchunks // group_chunks``
+    distinct categories (equivalently ``preload_nchunks * chunk_size // lcm(chunk_size,
+    batch_size)``). ``preload_nchunks`` is always a multiple of ``group_chunks`` because
+    ``chunk_size * preload_nchunks`` is divisible by ``batch_size``, so groups tile each window.
+    A uniform chunk-start within ``c`` is drawn per chunk (a prefix-sum lookup maps it to the
+    absolute slice in *O(log n_runs)*), and rows within each batch are shuffled, so batches are
+    category-coherent but not ordered. Memory scales with the number of runs
+    (``<= n_obs // chunk_size``).
 
     Parameters
     ----------
@@ -81,8 +83,8 @@ class CategoricalSampler(Sampler):
     preload_nchunks
         Number of chunks to load per iteration.
     batch_size
-        Number of observations per batch. Must divide or be a multiple of ``chunk_size``,
-        and ``chunk_size * preload_nchunks`` must be divisible by it.
+        Number of observations per batch. ``chunk_size * preload_nchunks`` must be divisible
+        by it; it need not divide or be a multiple of ``chunk_size``.
     categorical
         A :class:`pandas.Categorical` with one entry per observation, e.g.
         ``df["cell_type"].astype("category")`` or ``df["cell_type"].values``
@@ -137,14 +139,6 @@ class CategoricalSampler(Sampler):
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        # a batch must sit inside one chunk's category, so one of chunk_size and batch_size must
-        # divide the other (be its whole multiple); otherwise a batch edge could fall inside a chunk
-        # and straddle two categories. (window_size % batch_size is checked just above.)
-        if chunk_size % batch_size != 0 and batch_size % chunk_size != 0:
-            raise ValueError(
-                "one of chunk_size and batch_size must divide the other (be its whole multiple) "
-                f"so each batch stays within a single category. Got chunk_size={chunk_size}, batch_size={batch_size}."
-            )
         if mask is None:
             mask = slice(0, None)
         start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
@@ -282,11 +276,10 @@ class CategoricalSampler(Sampler):
         if remainder > 0:
             n_slices += 1
 
-        # one of chunk_size / batch_size divides the other, so a batch spans `group_chunks` whole
-        # chunks (== 1 when batch_size <= chunk_size, i.e. a chunk holds several batches). Draw one
-        # category per group and repeat it across the group's chunks: every chunk -- and thus every
-        # batch -- stays single-category, with up to preload_nchunks // group_chunks per window.
-        group_chunks = max(1, self._batch_size // self._chunk_size)
+        # categories may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
+        # batch edges align), i.e. every `group_chunks = lcm // chunk_size = batch_size // gcd`
+        # chunks. Draw one category per group and repeat it across the group's chunks.
+        group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
         n_groups = math.ceil(n_slices / group_chunks)
         group_cats = self._rng.choice(len(self._cat_ids), size=n_groups, p=self._probs)
         cat_of_slice = np.repeat(group_cats, group_chunks)[:n_slices]

@@ -130,14 +130,6 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
             "must be divisible",
             id="batch_not_divisible",
         ),
-        # window ok (40 % 4 == 0) but neither of chunk_size 10 and batch_size 4 divides the other
-        pytest.param(
-            pd.Categorical(np.repeat([0, 1], 50)),
-            {"batch_size": 4},
-            ValueError,
-            "must divide the other",
-            id="batch_indivisible_with_chunk",
-        ),
         pytest.param(np.repeat([0, 1], 50), {}, TypeError, "pandas.Categorical", id="not_categorical"),
         pytest.param(
             pd.Categorical.from_codes([-1, 0, 0, 1, 1] * 20, categories=[0, 1]),
@@ -370,6 +362,13 @@ def test_n_batches(num_samples: int, batch_size: int, drop_last: bool, expected_
         pytest.param(10, 40, 4, 400, False, id="batch_whole_window"),  # one batch per window
         pytest.param(10, 20, 2, 400, False, id="batch_two_chunks_preload2"),
         pytest.param(10, 20, 4, 410, True, id="batch_two_chunks_drop"),  # final 10-row batch dropped
+        # chunk_size and batch_size do not divide each other: groups of lcm rows
+        pytest.param(9, 6, 2, 540, False, id="indivisible_window_one_group"),  # gcd 3, group=2, pn==group
+        pytest.param(9, 6, 4, 540, False, id="indivisible_two_groups"),  # group=2, 2 groups/window
+        pytest.param(9, 6, 4, 545, False, id="indivisible_remainder"),  # short final slice + partial batch
+        pytest.param(9, 6, 4, 545, True, id="indivisible_drop_last"),  # final partial batch dropped
+        pytest.param(10, 4, 4, 400, False, id="indivisible_gcd2"),  # gcd 2, group=2
+        pytest.param(6, 5, 10, 600, False, id="coprime_group_five"),  # gcd 1, group=5
     ],
 )
 def test_sampling_invariants(chunk_size: int, batch_size: int, preload_nchunks: int, num_samples: int, drop_last: bool):
@@ -400,3 +399,22 @@ def test_sampling_invariants(chunk_size: int, batch_size: int, preload_nchunks: 
     assert sampler.n_batches(n) == batches_seen, "n_batches must match the batches actually yielded"
     assert all(0 <= s.start and s.stop <= n for s in requests), "every chunk must stay in-bounds"
     assert -1 not in _chunk_categories(requests, codes), "every chunk must lie within a single category"
+
+
+@pytest.mark.parametrize("preload_nchunks", [2, 4], ids=["pn2_one_category", "pn4_two_categories"])
+def test_max_categories_per_window(preload_nchunks: int):
+    # chunk_size=9, batch_size=6: gcd=3, lcm=18, group_chunks=lcm/cs=2. A window holds
+    # preload_nchunks // group_chunks categories, so pn=2 -> 1 per window, pn=4 -> 2 per window.
+    codes = np.repeat([0, 1, 2, 3], 250)
+    n = len(codes)
+    expected_max = preload_nchunks // 2
+    sampler = make_sampler(
+        pd.Categorical(codes), num_samples=9 * preload_nchunks * 40, chunk_size=9, batch_size=6,
+        preload_nchunks=preload_nchunks,
+    )
+    cats_per_window = [
+        len(np.unique(np.concatenate([codes[s.start : s.stop] for s in lr["requests"]])))
+        for lr in sampler.sample(n)
+    ]
+    assert max(cats_per_window) == expected_max, f"expected up to {expected_max} categories per window"
+    assert min(cats_per_window) >= 1
