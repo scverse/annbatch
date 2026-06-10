@@ -130,12 +130,12 @@ def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dic
             "must be divisible",
             id="batch_not_divisible",
         ),
-        # window ok (40 % 4 == 0) but 10 and 4 divide neither way
+        # window ok (40 % 4 == 0) but neither of chunk_size 10 and batch_size 4 divides the other
         pytest.param(
             pd.Categorical(np.repeat([0, 1], 50)),
             {"batch_size": 4},
             ValueError,
-            "must divide one another",
+            "must divide the other",
             id="batch_indivisible_with_chunk",
         ),
         pytest.param(np.repeat([0, 1], 50), {}, TypeError, "pandas.Categorical", id="not_categorical"),

@@ -137,12 +137,12 @@ class CategoricalSampler(Sampler):
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        # a batch must sit inside one chunk's category, so chunk_size and batch_size have to divide
-        # one another (one a whole multiple of the other); otherwise a batch edge could fall inside
-        # a chunk and straddle two categories. (window_size % batch_size is checked just above.)
+        # a batch must sit inside one chunk's category, so one of chunk_size and batch_size must
+        # divide the other (be its whole multiple); otherwise a batch edge could fall inside a chunk
+        # and straddle two categories. (window_size % batch_size is checked just above.)
         if chunk_size % batch_size != 0 and batch_size % chunk_size != 0:
             raise ValueError(
-                "chunk_size and batch_size must divide one another (one a whole multiple of the other) "
+                "one of chunk_size and batch_size must divide the other (be its whole multiple) "
                 f"so each batch stays within a single category. Got chunk_size={chunk_size}, batch_size={batch_size}."
             )
         if mask is None:
