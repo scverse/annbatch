@@ -116,6 +116,13 @@ class CategoricalSampler(Sampler):
     _chunk_size: int
     _preload_nchunks: int
     _num_samples: int
+    _n_obs: int
+    _rng: np.random.Generator
+    _drop_last: bool
+    _mask: slice
+    _categorical_runs: pd.DataFrame
+    _per_category_sampling_info: pd.DataFrame
+    _categorical: pd.Categorical
 
     def __init__(
         self,
@@ -193,51 +200,54 @@ class CategoricalSampler(Sampler):
             return
 
         masked = self._categorical.codes[start:stop]
-        boundaries = np.flatnonzero(np.diff(masked)) + 1
-        edges = np.concatenate([np.array([0]), boundaries, np.array([masked.shape[0]])])
-        run_start = edges[:-1] + start  # offset back to global observation coordinates
-        run_len = np.diff(edges)
-        run_cat = masked[edges[:-1]]
+        # Boundaries of where the category changes including the startings/stopping points
+        edges = np.concatenate([np.array([0]), np.flatnonzero(np.diff(masked)) + 1, np.array([masked.shape[0]])])
+        # Per-run table: start/end in global coordinates, length, and category
+        runs = pd.DataFrame(
+            {
+                "start": edges[:-1] + start,
+                "end": edges[1:] + start,
+                "len": np.diff(edges),
+                "cat": masked[edges[:-1]],
+            }
+        )
 
         # keep only runs of non-excluded categories; excluded (weight 0) runs are exempt from every check
-        keep = self._weights[run_cat] > 0
-        run_start, run_len, run_cat = run_start[keep], run_len[keep], run_cat[keep]
-        if run_cat.size == 0:
+        runs = runs.loc[self._weights[runs["cat"].to_numpy()] > 0].reset_index(drop=True)
+        if runs.empty:
             raise ValueError(
                 "No category with positive weight is present in the current mask range "
                 f"[{start}, {stop}); its renormalized weights would sum to zero."
             )
 
         # run-length rule: every kept run must hold at least one full chunk
-        too_short = run_len < self._chunk_size
-        if np.any(too_short):
-            bad = np.unique(run_cat[too_short])
+        too_short_mask = runs["len"].to_numpy() < self._chunk_size
+        if np.any(too_short_mask):
+            bad = np.unique(runs.loc[too_short_mask, "cat"].to_numpy())
             bad_labels = self._categorical.categories[bad].tolist()
             raise ValueError(
                 f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
-                f"but {int(too_short.sum())} run(s) are shorter (categories {bad_labels}). "
+                f"but {int(too_short_mask.sum())} run(s) are shorter (categories {bad_labels}). "
                 "Re-chunk the data so each category's runs are large enough, lower chunk_size, "
                 "or exclude these categories with a zero weight."
             )
-        n_pos = run_len - self._chunk_size + 1  # number of valid chunk-start positions in the run
 
-        # group runs by category so each category owns a contiguous span of `run_pos_cumsum`
-        order = np.argsort(run_cat, kind="stable")
-        run_start, run_cat, n_pos = run_start[order], run_cat[order], n_pos[order]
+        # Sort runs by category so each category's runs are contiguous in the table;
+        # `flat_offset_into_runs` then indexes directly into the sorted run table.
+        self._categorical_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
 
-        run_pos_cumsum = np.concatenate([np.array([0]), np.cumsum(n_pos)])
-        cat_ids, first = np.unique(run_cat, return_index=True)
-        last = np.append(first[1:], len(run_cat))
+        # Per-category table: probability, number of runs, and offset into the sorted run table
+        categories_to_sample, n_runs_per_cat = np.unique(self._categorical_runs["cat"].to_numpy(), return_counts=True)
+        w = self._weights[categories_to_sample]
+        self._per_category_sampling_info = pd.DataFrame(
+            {
+                "prob": w / w.sum(),
+                "n_runs": n_runs_per_cat.astype(np.int64),
+                "flat_offset_into_runs": np.concatenate(([0], np.cumsum(n_runs_per_cat[:-1]))).astype(np.int64),
+            },
+            index=pd.Index(categories_to_sample, name="cat"),
+        )
 
-        self._run_start = run_start
-        self._run_pos_cumsum = run_pos_cumsum
-        self._cat_ids = cat_ids
-        self._cat_base = self._run_pos_cumsum[first]  # value in `run_pos_cumsum` where each category's span begins
-        self._cat_total = (
-            self._run_pos_cumsum[last] - self._run_pos_cumsum[first]
-        )  # num of valid chunk positions per category
-        w = self._weights[cat_ids]
-        self._probs = w / w.sum()
         self._built_range = (start, stop)
 
     @property
@@ -281,16 +291,24 @@ class CategoricalSampler(Sampler):
         # chunks. Draw one category per group and repeat it across the group's chunks.
         group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
         n_groups = math.ceil(n_slices / group_chunks)
-        group_cats = self._rng.choice(len(self._cat_ids), size=n_groups, p=self._probs)
+        # Sample groups: draw a position into self._per_category_sampling_info (one row per sampleable category)
+        group_cats = self._rng.choice(
+            len(self._per_category_sampling_info), size=n_groups, p=self._per_category_sampling_info["prob"].to_numpy()
+        )
         cat_of_slice = np.repeat(group_cats, group_chunks)[:n_slices]
 
-        # one uniform chunk-start within each slice's category; searchsorted maps the flat offset
-        # -> run -> absolute slice start, vectorized across every slice at once.
-        local_off = self._rng.integers(self._cat_total[cat_of_slice])
-        global_off = self._cat_base[cat_of_slice] + local_off
-        run_idx = np.searchsorted(self._run_pos_cumsum, global_off, side="right") - 1
-        within = global_off - self._run_pos_cumsum[run_idx]
-        slice_starts = self._run_start[run_idx] + within
+        # Sample one of the possible run positions within a category i.e.,
+        # [a: slice(0, 10), b: slice(10, 20), a: slice(20, 30)]
+        # would have two possible run positions for a (one of 0 and 2) and one for b (just 1)
+        cats_n_runs = self._per_category_sampling_info["n_runs"].to_numpy()
+        possible_run_pos_within_a_category = self._rng.integers(cats_n_runs[cat_of_slice])
+        # Generate a position into the runs table to get the run to fetch within
+        cats_flat_offset = self._per_category_sampling_info["flat_offset_into_runs"].to_numpy()
+        chosen = cats_flat_offset[cat_of_slice] + possible_run_pos_within_a_category
+        run_starts = self._categorical_runs["start"].to_numpy()[chosen]
+        run_ends = self._categorical_runs["end"].to_numpy()[chosen]
+        # Now sample a valid start position within each chunk
+        slice_starts = self._rng.integers(run_starts, run_ends - self._chunk_size + 1)
 
         slices = [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
         if remainder > 0:
