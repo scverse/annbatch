@@ -13,7 +13,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import DatasetCollection, Loader, write_sharded
+from annbatch import Loader, write_sharded
 from annbatch.abc import Sampler
 from annbatch.samplers import SequentialSampler
 
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from annbatch.io import DatasetCollection
 
 skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
 skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
