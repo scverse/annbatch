@@ -3,7 +3,7 @@
 This page walks through how `annbatch` works in depth.
 For a hands-on, runnable version, see the {doc}`quickstart notebook <notebooks/example>`.
 
-## Preprocessing
+## Preprocessing of On-Disk Data
 
 ```python
 collection = DatasetCollection("path/to/output/store.zarr").add_adatas(
@@ -21,6 +21,7 @@ Shuffling is important to ensure model convergence, especially because of our co
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
 See the [zarr docs on sharding][] for more information.
 For performance considerations, see our dedicated docs page: {doc}`preshuffling`.
+If your data fits in-memory, consider simply shuffling in-memory and passing it to the loader.
 
 [zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
 
