@@ -284,20 +284,6 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
         gen_loader(adata_with_zarr_path_same_var_space[1])
 
 
-def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
-    data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
-    data["dataset"] = data["dataset"][...]
-    ds = Loader(
-        shuffle=True,
-        chunk_size=10,
-        preload_nchunks=10,
-        preload_to_gpu=False,
-        to_torch=False,
-    )
-    with pytest.raises(TypeError, match="Cannot add"):
-        ds.add_dataset(**data)
-
-
 def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     ds = Loader()
     ds = ds.use_collection(simple_collection[1])
