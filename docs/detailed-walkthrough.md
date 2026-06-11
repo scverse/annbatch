@@ -44,8 +44,9 @@ for batch in ds:
 
 The data loader implements a chunked fetching strategy where `preload_nchunks` number of contiguous-chunks of size `chunk_size` are loaded.
 `chunk_size` corresponds the number of rows of `anndata` store to load sequentially.
+This number can be quite large for pre-shuffled data but not for un-shuffled data.
 
-For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader`.
+For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader` regardless of matrix type.
 Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
 In order to take advantage of the sharded zarr files performance, though, locally, you *must* set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
