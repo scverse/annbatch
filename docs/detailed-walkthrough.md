@@ -108,4 +108,5 @@ Thus, as a first step to assessing your needs, if your data fits in memory, load
 To accelerate reading the data into memory, you may still find {doc}`zarrs-python <zarrs:index>` in conjunction with sharding still helpful in the same way it accelerates io here.
 To this end, please have a look at [this gist](https://gist.github.com/ilan-gold/c73383def3798df2724405aa64e40c3d) comparing file loading speeds between {func}`anndata.io.read_zarr` and {func}`anndata.io.read_h5ad`.
 It highlights how {doc}`zarrs-python <zarrs:index>` and sharding can help there as well.
-However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
+`annbatch` natively supports in-memory data with unified `var` spaces (sparse and dense).
+Ince you have too much data to fit into memory, for whatever reason, the on-disk data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
