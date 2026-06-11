@@ -744,4 +744,3 @@ def test_dataset_collection_obs_columns(adata_with_h5_path_different_var_space, 
         assert set(res.columns) == set(expected)
         for col in expected:
             pd.testing.assert_series_equal(res[col], h5_obs_all[col])
-
