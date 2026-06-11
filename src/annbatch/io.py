@@ -55,7 +55,6 @@ def _read_obs_dataframe(obs_group: zarr.Group | h5py.Group, columns: None | list
     return pd.DataFrame(col_data, index=index_data)
 
 
-
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
     # https://github.com/scverse/anndata/issues/2475 for load_annotation_index
     adata = ad.experimental.read_lazy(x, load_annotation_index=Version(version("pandas")) >= Version("3"))

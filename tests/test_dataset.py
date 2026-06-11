@@ -13,8 +13,9 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Loader, write_sharded, DatasetCollection
+from annbatch import DatasetCollection, Loader, write_sharded
 from annbatch.abc import Sampler
+from annbatch.io import DatasetCollection
 from annbatch.samplers import SequentialSampler
 
 try:
@@ -28,7 +29,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from annbatch.io import DatasetCollection
 
 skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
 skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
@@ -778,7 +778,7 @@ def test_dataset_collection_obs_zarr(simple_collection):
     # Test obs() with columns=None
     obs_all = collection.obs()
     assert not obs_all.empty
-    assert set(["label", "src_path"]).issubset(set(obs_all.columns))
+    assert {"label", "src_path"}.issubset(set(obs_all.columns))
 
     # Test obs() with a specific column subset
     obs_subset = collection.obs(columns=["label"])
@@ -788,7 +788,6 @@ def test_dataset_collection_obs_zarr(simple_collection):
     # Test obs() with columns=[]
     obs_empty_cols = collection.obs(columns=[])
     assert obs_empty_cols.empty
-
 
 
 @pytest.mark.parametrize("is_h5ad", [False, True], ids=["zarr", "h5ad"])
