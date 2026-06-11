@@ -26,7 +26,7 @@
 .. autosummary::
    :toctree: generated/
 
-    CategoricalSampler
+    ClassSampler
     RandomSampler
     SequentialSampler
     DistributedSampler
