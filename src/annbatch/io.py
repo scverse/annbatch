@@ -612,7 +612,7 @@ class DatasetCollection:
         )
 
     def obs(self, columns: None | list[str] = None) -> pd.DataFrame:
-        """Get the concatenated observations annotation {class}`pandas.DataFrame` across the collection.
+        """Get the concatenated observations annotations as a {class}`pandas.DataFrame` across the collection.
 
         Parameters
         ----------
