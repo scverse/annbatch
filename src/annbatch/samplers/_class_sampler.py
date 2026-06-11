@@ -1,4 +1,4 @@
-"""CategoricalSampler -- categorical chunk sampler."""
+"""ClassSampler -- class-based chunk sampler."""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class CategoricalSampler(Sampler):
-    """Sample category-coherent batches with replacement.
+class ClassSampler(Sampler):
+    """Sample class-coherent batches with replacement.
 
-    Every batch the :class:`~annbatch.Loader` yields is drawn from a single category:
-    a category is drawn ``c ~ Categorical(p)`` (``p`` proportional to
-    ``category_weights``, uniform by default), then the batch's observations are drawn
-    from ``c``. A load request may span several categories but no batch mixes them,
+    Every batch the :class:`~annbatch.Loader` yields is drawn from a single class:
+    a class is drawn ``c ~ Categorical(p)`` (``p`` proportional to
+    ``class_weights``, uniform by default), then the batch's observations are drawn
+    from ``c``. A load request may span several classes but no batch mixes them,
     which makes over- or under-sampling specific populations straightforward.
 
     Sampling is **with replacement** -- each pass draws ``num_samples`` observations
@@ -39,69 +39,69 @@ class CategoricalSampler(Sampler):
     ``chunk_size * preload_nchunks`` is divisible by ``batch_size`` (already enforced by the
     loader).
 
-    *Category selection.* A category with a non-positive weight is excluded: it is
+    *Class selection.* A class with a non-positive weight is excluded: it is
     never sampled and its runs are exempt from the run-length rule below. Set a
-    weight to ``0`` to drop a category; there is no separate exclusion argument.
+    weight to ``0`` to drop a class; there is no separate exclusion argument.
 
-    *Run-length rule.* Every contiguous run of a *non-excluded* category must span
+    *Run-length rule.* Every contiguous run of a *non-excluded* class must span
     at least ``chunk_size`` observations; otherwise no aligned slice fits inside it
-    and the sampler raises at construction, naming the offending categories by their
+    and the sampler raises at construction, naming the offending classes by their
     label.
 
     *Mask.* Assigning :attr:`mask` restricts sampling to a contiguous observation
     range ``[start, stop)``. The RLE is rebuilt over that window (slice starts stay
     in global coordinates) and cached on the resolved ``(start, stop)`` pair, so
-    reassigning the same mask is free. Category weights are renormalized from the
-    original values over only the categories present in the new range; if no
-    category with a positive weight remains, the assignment raises.
+    reassigning the same mask is free. Class weights are renormalized from the
+    original values over only the classes present in the new range; if no
+    class with a positive weight remains, the assignment raises.
 
     Multiple workers are not supported with this sampler.
 
     Implementation
     --------------
-    A run-length encoding (RLE) of ``categorical.codes`` is built over the :attr:`mask`
-    range. A category boundary may only fall where a chunk edge and a batch edge coincide,
-    which happens every ``lcm(chunk_size, batch_size)`` rows; so categories are assigned per
+    A run-length encoding (RLE) of ``classes.codes`` is built over the :attr:`mask`
+    range. A class boundary may only fall where a chunk edge and a batch edge coincide,
+    which happens every ``lcm(chunk_size, batch_size)`` rows; so classes are assigned per
     *group* of ``group_chunks = batch_size // gcd(chunk_size, batch_size)`` chunks (one ``lcm``
-    block) -- one category ``c ~ Categorical(p)`` is drawn independently for each group and
-    shared across its chunks. Each chunk is then a single-category on-disk read and each batch
-    falls inside one group, hence one category. Drawing per *minimal* group packs as many
-    categories into a window as coherence allows: up to ``preload_nchunks // group_chunks``
-    distinct categories (equivalently ``preload_nchunks * chunk_size // lcm(chunk_size,
+    block) -- one class ``c ~ Categorical(p)`` is drawn independently for each group and
+    shared across its chunks. Each chunk is then a single-class on-disk read and each batch
+    falls inside one group, hence one class. Drawing per *minimal* group packs as many
+    classes into a window as coherence allows: up to ``preload_nchunks // group_chunks``
+    distinct classes (equivalently ``preload_nchunks * chunk_size // lcm(chunk_size,
     batch_size)``). ``preload_nchunks`` is always a multiple of ``group_chunks`` because
     ``chunk_size * preload_nchunks`` is divisible by ``batch_size``, so groups tile each window.
     A uniform chunk-start within ``c`` is drawn per chunk (a prefix-sum lookup maps it to the
     absolute slice in *O(log n_runs)*), and rows within each batch are shuffled, so batches are
-    category-coherent but not ordered. Memory scales with the number of runs
+    class-coherent but not ordered. Memory scales with the number of runs
     (``<= n_obs // chunk_size``).
 
     Parameters
     ----------
     chunk_size
         Number of observations in each slice yielded. Also the minimum run length
-        required of every non-excluded category (see the run-length rule).
+        required of every non-excluded class (see the run-length rule).
     preload_nchunks
         Number of chunks to load per iteration.
     batch_size
         Number of observations per batch. ``chunk_size * preload_nchunks`` must be divisible
         by it; it need not divide or be a multiple of ``chunk_size``.
-    categorical
+    classes
         A :class:`pandas.Categorical` with one entry per observation, e.g.
         ``df["cell_type"].astype("category")`` or ``df["cell_type"].values``
         when the column already has a categorical dtype. Length must equal the
-        loader's ``n_obs``. The obs axis need not be contiguous per category, but
-        every run of a non-excluded category must be at least ``chunk_size`` long
+        loader's ``n_obs``. The obs axis need not be contiguous per class, but
+        every run of a non-excluded class must be at least ``chunk_size`` long
         (see the run-length rule above). NA values (``codes == -1``) are not allowed.
     num_samples
         Total number of observations to draw.
-    category_weights
-        Optional weights, one per category in ``categorical.categories``
-        (so ``len(category_weights) == len(categorical.categories)``), controlling
-        how often each category is drawn. A non-positive weight excludes that category
-        entirely. When ``None`` (the default) every category is drawn uniformly. For
-        proportional (≈ plain global random) sampling pass each category's observation
+    class_weights
+        Optional weights, one per class in ``classes.categories``
+        (so ``len(class_weights) == len(classes.categories)``), controlling
+        how often each class is drawn. A non-positive weight excludes that class
+        entirely. When ``None`` (the default) every class is drawn uniformly. For
+        proportional (≈ plain global random) sampling pass each class's observation
         count. The weights are kept and, whenever a mask narrows the range, the weights
-        of the categories still present are renormalized.
+        of the classes still present are renormalized.
     mask
         Optional contiguous observation range to restrict sampling to. Defaults to
         the whole dataset.
@@ -120,9 +120,9 @@ class CategoricalSampler(Sampler):
     _rng: np.random.Generator
     _drop_last: bool
     _mask: slice
-    _categorical_runs: pd.DataFrame
-    _per_category_sampling_info: pd.DataFrame
-    _categorical: pd.Categorical
+    _class_runs: pd.DataFrame
+    _per_class_sampling_info: pd.DataFrame
+    _classes: pd.Categorical
 
     def __init__(
         self,
@@ -130,19 +130,19 @@ class CategoricalSampler(Sampler):
         preload_nchunks: int,
         batch_size: int,
         *,
-        categorical: pd.Categorical,
+        classes: pd.Categorical,
         num_samples: int,
-        category_weights: np.ndarray | None = None,
+        class_weights: np.ndarray | None = None,
         mask: slice | None = None,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
     ):
         check_lt_1([num_samples], ["num_samples"])
-        if not isinstance(categorical, pd.Categorical):
-            raise TypeError(f"categorical must be a pandas.Categorical, got {type(categorical).__name__}.")
-        codes = categorical.codes
+        if not isinstance(classes, pd.Categorical):
+            raise TypeError(f"classes must be a pandas.Categorical, got {type(classes).__name__}.")
+        codes = classes.codes
         if (codes == -1).any():
-            raise ValueError("categorical contains NA values (codes == -1). Remove NAs before passing.")
+            raise ValueError("classes contains NA values (codes == -1). Remove NAs before passing.")
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
@@ -150,7 +150,7 @@ class CategoricalSampler(Sampler):
             mask = slice(0, None)
         start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
 
-        self._categorical = categorical
+        self._classes = classes
         self._n_obs = n_obs
         self._rng = rng or np.random.default_rng()
         self._num_samples = num_samples
@@ -158,27 +158,27 @@ class CategoricalSampler(Sampler):
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
         self._mask = slice(start, stop)
 
-        # categories and their weights are mask-independent; kept so any mask can renormalize from them
-        self._build_categories(category_weights)
+        # classes and their weights are mask-independent; kept so any mask can renormalize from them
+        self._build_classes(class_weights)
 
         # eager build for the (default or constructor) range so run-length errors surface early
         self._built_range: tuple[int, int] | None = None
         self._ensure_runs(self._n_obs)
 
-    def _build_categories(self, category_weights: np.ndarray | None) -> None:
-        """Resolve the (non-excluded) categories and their renormalizable weights."""
-        n_cats = len(self._categorical.categories)
-        if category_weights is None:
-            weights = np.ones(n_cats, dtype=float)
+    def _build_classes(self, class_weights: np.ndarray | None) -> None:
+        """Resolve the (non-excluded) classes and their renormalizable weights."""
+        n_classes = len(self._classes.categories)
+        if class_weights is None:
+            weights = np.ones(n_classes, dtype=float)
         else:
-            weights = np.array(category_weights, dtype=float)
-            if weights.shape != (n_cats,):
+            weights = np.array(class_weights, dtype=float)
+            if weights.shape != (n_classes,):
                 raise ValueError(
-                    f"category_weights must have one weight per category in categorical.categories "
-                    f"(expected shape ({n_cats},), got {weights.shape})."
+                    f"class_weights must have one weight per class in classes.categories "
+                    f"(expected shape ({n_classes},), got {weights.shape})."
                 )
         if not (weights > 0).any():
-            raise ValueError("category_weights must have at least one positive weight.")
+            raise ValueError("class_weights must have at least one positive weight.")
 
         self._weights = weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
 
@@ -188,7 +188,7 @@ class CategoricalSampler(Sampler):
 
     @mask.setter
     def mask(self, value: slice) -> None:
-        # resolve + eagerly rebuild so range errors (run-length, no active category) surface on assignment
+        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
         start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
         self._mask = slice(start, stop)
         self._ensure_runs(self._n_obs)
@@ -199,10 +199,10 @@ class CategoricalSampler(Sampler):
         if self._built_range == (start, stop):
             return
 
-        masked = self._categorical.codes[start:stop]
-        # Boundaries of where the category changes including the startings/stopping points
+        masked = self._classes.codes[start:stop]
+        # Boundaries of where the class changes including the startings/stopping points
         edges = np.concatenate([np.array([0]), np.flatnonzero(np.diff(masked)) + 1, np.array([masked.shape[0]])])
-        # Per-run table: start/end in global coordinates, length, and category
+        # Per-run table: start/end in global coordinates, length, and class
         runs = pd.DataFrame(
             {
                 "start": edges[:-1] + start,
@@ -212,11 +212,11 @@ class CategoricalSampler(Sampler):
             }
         )
 
-        # keep only runs of non-excluded categories; excluded (weight 0) runs are exempt from every check
+        # keep only runs of non-excluded classes; excluded (weight 0) runs are exempt from every check
         runs = runs.loc[self._weights[runs["cat"].to_numpy()] > 0].reset_index(drop=True)
         if runs.empty:
             raise ValueError(
-                "No category with positive weight is present in the current mask range "
+                "No class with positive weight is present in the current mask range "
                 f"[{start}, {stop}); its renormalized weights would sum to zero."
             )
 
@@ -224,28 +224,28 @@ class CategoricalSampler(Sampler):
         too_short_mask = runs["len"].to_numpy() < self._chunk_size
         if np.any(too_short_mask):
             bad = np.unique(runs.loc[too_short_mask, "cat"].to_numpy())
-            bad_labels = self._categorical.categories[bad].tolist()
+            bad_labels = self._classes.categories[bad].tolist()
             raise ValueError(
                 f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
-                f"but {int(too_short_mask.sum())} run(s) are shorter (categories {bad_labels}). "
-                "Re-chunk the data so each category's runs are large enough, lower chunk_size, "
-                "or exclude these categories with a zero weight."
+                f"but {int(too_short_mask.sum())} run(s) are shorter (classes {bad_labels}). "
+                "Re-chunk the data so each class's runs are large enough, lower chunk_size, "
+                "or exclude these classes with a zero weight."
             )
 
-        # Sort runs by category so each category's runs are contiguous in the table;
-        # `first_row_in_runs_of_category` then indexes directly into the sorted run table.
-        self._categorical_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
+        # Sort runs by class so each class's runs are contiguous in the table;
+        # `first_row_in_runs_of_class` then indexes directly into the sorted run table.
+        self._class_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
 
-        # Per-category table: probability, number of runs, and offset into the sorted run table
-        categories_to_sample, n_runs_per_cat = np.unique(self._categorical_runs["cat"].to_numpy(), return_counts=True)
-        w = self._weights[categories_to_sample]
-        self._per_category_sampling_info = pd.DataFrame(
+        # Per-class table: probability, number of runs, and offset into the sorted run table
+        classes_to_sample, n_runs_per_class = np.unique(self._class_runs["cat"].to_numpy(), return_counts=True)
+        w = self._weights[classes_to_sample]
+        self._per_class_sampling_info = pd.DataFrame(
             {
                 "prob": w / w.sum(),
-                "n_runs": n_runs_per_cat.astype(np.int64),
-                "first_row_in_runs_of_category": np.concatenate(([0], np.cumsum(n_runs_per_cat[:-1]))).astype(np.int64),
+                "n_runs": n_runs_per_class.astype(np.int64),
+                "first_row_in_runs_of_class": np.concatenate(([0], np.cumsum(n_runs_per_class[:-1]))).astype(np.int64),
             },
-            index=pd.Index(categories_to_sample, name="cat"),
+            index=pd.Index(classes_to_sample, name="cat"),
         )
 
         self._built_range = (start, stop)
@@ -268,15 +268,15 @@ class CategoricalSampler(Sampler):
         """Validate that the codes describe exactly the loader's observations."""
         if n_obs != self._n_obs:
             raise ValueError(
-                f"categorical length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
-                "The categorical column must describe exactly the loader's observations."
+                f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
+                "The classes column must describe exactly the loader's observations."
             )
         self._ensure_runs(n_obs)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
         if worker_info is not None and worker_info.num_workers > 1:
-            raise NotImplementedError("Multiple workers are not supported with CategoricalSampler.")
+            raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
 
         self._ensure_runs(n_obs)
         return self._iter_requests()
@@ -286,27 +286,27 @@ class CategoricalSampler(Sampler):
         if remainder > 0:
             n_slices += 1
 
-        # categories may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
+        # classes may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
         # batch edges align), i.e. every `group_chunks = lcm // chunk_size = batch_size // gcd`
-        # chunks. Draw one category per group and repeat it across the group's chunks.
+        # chunks. Draw one class per group and repeat it across the group's chunks.
         group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
         n_groups = math.ceil(n_slices / group_chunks)
-        # Sample groups: draw a position into self._per_category_sampling_info (one row per sampleable category)
-        group_cats = self._rng.choice(
-            len(self._per_category_sampling_info), size=n_groups, p=self._per_category_sampling_info["prob"].to_numpy()
+        # Sample groups: draw a position into self._per_class_sampling_info (one row per sampleable class)
+        group_classes = self._rng.choice(
+            len(self._per_class_sampling_info), size=n_groups, p=self._per_class_sampling_info["prob"].to_numpy()
         )
-        cat_of_slice = np.repeat(group_cats, group_chunks)[:n_slices]
+        class_of_slice = np.repeat(group_classes, group_chunks)[:n_slices]
 
-        # Sample one of the possible run positions within a category i.e.,
+        # Sample one of the possible run positions within a class i.e.,
         # [a: slice(0, 10), b: slice(10, 20), a: slice(20, 30)]
         # would have two possible run positions for a (one of 0 and 2) and one for b (just 1)
-        cats_n_runs = self._per_category_sampling_info["n_runs"].to_numpy()
-        possible_run_pos_within_a_category = self._rng.integers(cats_n_runs[cat_of_slice])
+        class_n_runs = self._per_class_sampling_info["n_runs"].to_numpy()
+        possible_run_pos_within_a_class = self._rng.integers(class_n_runs[class_of_slice])
         # Generate a position into the runs table to get the run to fetch within
-        first_row_of_category = self._per_category_sampling_info["first_row_in_runs_of_category"].to_numpy()
-        chosen = first_row_of_category[cat_of_slice] + possible_run_pos_within_a_category
-        run_starts = self._categorical_runs["start"].to_numpy()[chosen]
-        run_ends = self._categorical_runs["end"].to_numpy()[chosen]
+        first_row_of_class = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()
+        chosen = first_row_of_class[class_of_slice] + possible_run_pos_within_a_class
+        run_starts = self._class_runs["start"].to_numpy()[chosen]
+        run_ends = self._class_runs["end"].to_numpy()[chosen]
         # Now sample a valid start position within each chunk
         slice_starts = self._rng.integers(run_starts, run_ends - self._chunk_size + 1)
 
