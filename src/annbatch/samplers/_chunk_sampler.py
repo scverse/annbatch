@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from annbatch.abc import Sampler
-from annbatch.samplers._utils import get_torch_worker_info
+from annbatch.samplers._utils import (
+    get_torch_worker_info,
+    validate_chunk_batch_preload_sizes,
+    validate_mask_and_resolve,
+    validate_mask_n_obs_and_resolve,
+)
 from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
@@ -46,30 +51,11 @@ class _ChunkSampler(Sampler):
     ):
         if num_samples is not None:
             check_lt_1([num_samples], ["num_samples"])
-
         if mask is None:
             mask = slice(0, None)
-        if mask.step is not None and mask.step != 1:
-            raise ValueError(f"mask.step must be 1, but got {mask.step}")
-        start, stop = mask.start or 0, mask.stop
-        if start < 0:
-            raise ValueError("mask.start must be >= 0")
-        if stop is not None and start >= stop:
-            raise ValueError("mask.start must be < mask.stop when mask.stop is specified")
 
-        check_lt_1([chunk_size, preload_nchunks], ["Chunk size", "Preloaded chunks"])
-        preload_size = chunk_size * preload_nchunks
-
-        if batch_size > preload_size:
-            raise ValueError(
-                "batch_size cannot exceed chunk_size * preload_nchunks. "
-                f"Got batch_size={batch_size}, but max is {preload_size}."
-            )
-        if preload_size % batch_size != 0:
-            raise ValueError(
-                "chunk_size * preload_nchunks must be divisible by batch_size. "
-                f"Got {preload_size} % {batch_size} = {preload_size % batch_size}."
-            )
+        start, stop = validate_mask_and_resolve(mask)
+        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
         self._rng = rng or np.random.default_rng()
         self._replacement = replacement
         self._num_samples = num_samples
@@ -94,7 +80,7 @@ class _ChunkSampler(Sampler):
         return self._num_samples or self._resolve_mask_size(n_obs)
 
     def _resolve_start_stop(self, n_obs: int) -> tuple[int, int]:
-        return self._mask.start or 0, self._mask.stop or n_obs
+        return validate_mask_n_obs_and_resolve(self._mask, n_obs)
 
     def _resolve_mask_size(self, n_obs: int) -> int:
         s, e = self._resolve_start_stop(n_obs)
@@ -117,14 +103,7 @@ class _ChunkSampler(Sampler):
         ValueError
             If the sampler configuration is invalid for the given n_obs.
         """
-        start, stop = self._resolve_start_stop(n_obs)
-        if stop > n_obs:
-            raise ValueError(
-                f"Sampler mask.stop ({stop}) exceeds loader n_obs ({n_obs}). "
-                "The sampler range must be within the loader's observations."
-            )
-        if start >= stop:
-            raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
+        _ = validate_mask_n_obs_and_resolve(self._mask, n_obs)
         num_samples = self._resolve_num_samples(n_obs)
         mask_size = self._resolve_mask_size(n_obs)
         if not self._replacement and num_samples > mask_size:
