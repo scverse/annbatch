@@ -1,4 +1,4 @@
-"""CategoricalSampler -- categorical chunk sampler."""
+"""ClassSampler -- categorical chunk sampler."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class CategoricalSampler(Sampler):
+class ClassSampler(Sampler):
     """Sample category-coherent batches with replacement.
 
     Every batch the :class:`~annbatch.Loader` yields is drawn from a single category:
@@ -276,7 +276,7 @@ class CategoricalSampler(Sampler):
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
         if worker_info is not None and worker_info.num_workers > 1:
-            raise NotImplementedError("Multiple workers are not supported with CategoricalSampler.")
+            raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
 
         self._ensure_runs(n_obs)
         return self._iter_requests()

@@ -1,4 +1,4 @@
-"""Tests for CategoricalSampler.
+"""Tests for ClassSampler.
 
 The passing tests check the sampler does what it promises: every chunk is
 category-coherent, categories are drawn with the requested weights (a zero weight
@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from annbatch.samplers import CategoricalSampler
+from annbatch.samplers import ClassSampler
 from annbatch.samplers._utils import WorkerInfo
 
 
@@ -32,9 +32,9 @@ def make_sampler(
     batch_size: int = 10,
     seed: int = 0,
     **kwargs,
-) -> CategoricalSampler:
+) -> ClassSampler:
     """Build a sampler with sane defaults so each test only states what matters."""
-    return CategoricalSampler(
+    return ClassSampler(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         batch_size=batch_size,
@@ -50,18 +50,18 @@ def _chunk_categories(chunks: list[slice], codes: np.ndarray) -> list[int]:
     return [int(u[0]) if (u := np.unique(codes[c])).size == 1 else -1 for c in chunks]
 
 
-def _collect_chunks(sampler: CategoricalSampler, n_obs: int) -> list[slice]:
+def _collect_chunks(sampler: ClassSampler, n_obs: int) -> list[slice]:
     return [c for load_request in sampler.sample(n_obs) for c in load_request["requests"]]
 
 
-def _draw_shares(sampler: CategoricalSampler, codes: np.ndarray) -> dict[int, float]:
+def _draw_shares(sampler: ClassSampler, codes: np.ndarray) -> dict[int, float]:
     """Fraction of drawn chunks belonging to each category."""
     cats = np.array(_chunk_categories(_collect_chunks(sampler, len(codes)), codes))
     vals, counts = np.unique(cats, return_counts=True)
     return {int(v): cnt / counts.sum() for v, cnt in zip(vals, counts, strict=True)}
 
 
-def _assert_shares(sampler: CategoricalSampler, codes: np.ndarray, expected: dict[int, float], atol: float = 0.02):
+def _assert_shares(sampler: ClassSampler, codes: np.ndarray, expected: dict[int, float], atol: float = 0.02):
     shares = _draw_shares(sampler, codes)
     assert set(shares) == set(expected), f"sampled categories {sorted(shares)} != {sorted(expected)}"
     for cat, exp in expected.items():
