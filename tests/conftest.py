@@ -115,9 +115,9 @@ def adata_with_h5_path_different_var_space(
     ), tmp_path
 
 
-@pytest.fixture(scope="session", params=[False, True], ids=["same-dtype", "mixed-dtype"])
+@pytest.fixture(scope="session")
 def simple_collection(
-    request, tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
 ) -> tuple[DatasetCollection, ad.AnnData]:
     zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
@@ -128,10 +128,28 @@ def simple_collection(
         dataset_size=60,
         shuffle_chunk_size=10,
     )
-    if request.param:
+    return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection
+
+
+@pytest.fixture(scope="session", params=[False, True], ids=["same-dtype", "mixed-dtype"])
+def maybe_mixed_dtype_collection(
+    request, tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+) -> tuple[ad.AnnData, DatasetCollection, bool]:
+    """Like ``simple_collection``, but optionally rewrites the first dataset's
+    X (and sparse layer) with a different dtype to exercise the dtype-promotion
+    code path in ``Loader._concatenate_outs``. Returns ``(adata, collection, is_mixed)``."""
+    zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
+    output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "mixed_dtype_fixture.zarr"
+    collection = DatasetCollection(output_path).add_adatas(
+        zarr_stores,
+        n_obs_per_chunk=10,
+        shard_size=20,
+        dataset_size=60,
+        shuffle_chunk_size=10,
+    )
+    is_mixed = bool(request.param)
+    if is_mixed:
         with ad.settings.override(auto_shard_zarr_v3=True, zarr_write_format=3):
-            # Rewrite the first dataset's X (and sparse layer) with a different dtype
-            # to exercise the dtype-promotion code path in Loader._concatenate_outs.
             first = next(iter(collection))
             new_X = first["X"][...].astype("f8")
             del first["X"]
@@ -140,13 +158,13 @@ def simple_collection(
             del first["layers"]["sparse"]
             ad.io.write_elem(first["layers"], "sparse", sparse_layer)
 
-            datasets = list(collection)
-            first_X_dtype = datasets[0]["X"].dtype
-            first_sparse_dtype = datasets[0]["layers"]["sparse"]["data"].dtype
-            assert any(ds["X"].dtype != first_X_dtype for ds in datasets[1:]), (
-                "mixed-dtype fixture failed to produce differing X dtypes"
-            )
-            assert any(ds["layers"]["sparse"]["data"].dtype != first_sparse_dtype for ds in datasets[1:]), (
-                "mixed-dtype fixture failed to produce differing sparse layer dtypes"
-            )
-    return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection
+        datasets = list(collection)
+        first_X_dtype = datasets[0]["X"].dtype
+        first_sparse_dtype = datasets[0]["layers"]["sparse"]["data"].dtype
+        assert any(ds["X"].dtype != first_X_dtype for ds in datasets[1:]), (
+            "mixed-dtype fixture failed to produce differing X dtypes"
+        )
+        assert any(ds["layers"]["sparse"]["data"].dtype != first_sparse_dtype for ds in datasets[1:]), (
+            "mixed-dtype fixture failed to produce differing sparse layer dtypes"
+        )
+    return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection, is_mixed

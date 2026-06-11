@@ -204,7 +204,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     ],
 )
 def test_store_load_dataset(
-    simple_collection: tuple[ad.AnnData, DatasetCollection],
+    maybe_mixed_dtype_collection: tuple[ad.AnnData, DatasetCollection, bool],
     *,
     shuffle: bool,
     gen_loader,
@@ -217,10 +217,14 @@ def test_store_load_dataset(
         3. All samples from the dataset are processed
         4. If the dataset is not shuffled, it returns the correct data
     """
-    loader: Loader = gen_loader(simple_collection[1], shuffle, use_zarrs)
+    adata, collection, is_mixed = maybe_mixed_dtype_collection
+    if is_mixed:
+        with pytest.warns(UserWarning, match="Adding dataset with dtype"):
+            loader: Loader = gen_loader(collection, shuffle, use_zarrs)
+    else:
+        loader: Loader = gen_loader(collection, shuffle, use_zarrs)
     if use_zarrs and loader.dataset_type in {np.ndarray, sp.csr_matrix, sp.csr_array}:
         pytest.skip("No need to run zarrs with in-memory")
-    adata = simple_collection[0]
     is_dense = loader.dataset_type in {zarr.Array, np.ndarray}
     n_elems = 0
     batches = []
