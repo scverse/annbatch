@@ -179,6 +179,7 @@ class Loader[
     _sparse_dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _collection_added: bool = False
+    _dtypes_homogeneous: bool = True
 
     def __init__(
         self,
@@ -480,7 +481,8 @@ class Loader[
             raise TypeError("var must be a pandas DataFrame")
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
-        if not self._datasets_share_dtype(datasets):
+        self._dtypes_homogeneous = self._datasets_share_dtype(datasets)
+        if self._train_datasets and not self._dtypes_homogeneous:
             warn(
                 f"Adding dataset with dtype {dataset.dtype!r} that differs from the existing dataset dtype(s) "
                 f"(first dataset: {self._train_datasets[0].dtype!r}). Heterogeneous dtypes incur extra per-batch "
@@ -592,7 +594,7 @@ class Loader[
             return self._alloc((total_rows, *shape_res), dtype, use_pinned=self._preload_to_gpu)
 
     @staticmethod
-    def _datasets_share_dtype(datasets: list[CSRDatasetElems | BackingArray]) -> bool:
+    def _datasets_share_dtype(datasets: list[BackingArray]) -> bool:
         """Whether all given dataset-like objects share the same dtype(s)."""
         if len(datasets) <= 1:
             return True
@@ -606,19 +608,6 @@ class Loader[
 
         first = dtypes_of(datasets[0])
         return all(dtypes_of(d) == first for d in datasets[1:])
-
-    def _dtypes_homogeneous(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> bool:
-        """Whether all requested datasets share the same dtype(s).
-
-        For sparse datasets the comparison covers ``data``, ``indices`` and ``indptr`` dtypes.
-        Must be called after :meth:`_ensure_sparse_cache` for backed-sparse datasets.
-        """
-        idxs = list(dataset_index_to_rows.keys())
-        if len(idxs) <= 1:
-            return True
-        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
-        datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
-        return self._datasets_share_dtype([datasets[i] for i in idxs])
 
     def _allocate_per_dataset_outs(
         self, dataset_index_to_rows: OrderedDict[int, np.ndarray]
@@ -872,7 +861,7 @@ class Loader[
         if is_backed_sparse:
             await self._ensure_sparse_cache()
 
-        if not self._dtypes_homogeneous(dataset_index_to_rows):
+        if not self._dtypes_homogeneous:
             per_dataset_outs = self._allocate_per_dataset_outs(dataset_index_to_rows)
             tasks = [
                 self._fetch_data(
