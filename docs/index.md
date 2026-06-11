@@ -4,7 +4,7 @@ A data loader and io utilities for mini-batched data loading of on-disk {mod}`an
 co-developed by [Lamin Labs](https://lamin.ai/) and [scverse](https://scverse.org/).
 
 `annbatch` lets you train models on terabyte-scale collections of `AnnData` files that do not fit
-into memory, while keeping your GPU fed with high-throughput, shuffled mini-batches.
+into memory, while keeping your GPU fed with high-throughput, shuffled mini-batches. It also supports in-memory data.
 
 ```{image} _static/speed_comparision.png
 :alt: annbatch data-loading speed compared to other dataloaders
