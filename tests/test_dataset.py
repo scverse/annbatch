@@ -15,7 +15,6 @@ import zarr
 
 from annbatch import DatasetCollection, Loader, write_sharded
 from annbatch.abc import Sampler
-from annbatch.io import DatasetCollection
 from annbatch.samplers import SequentialSampler
 
 try:
