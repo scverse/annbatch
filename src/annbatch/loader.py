@@ -75,10 +75,10 @@ if find_spec("numba"):
             for j in range(n):
                 out_data[dst_start + j] = src_data[src_start + j]
                 out_indices[dst_start + j] = src_indices[src_start + j]
-else:
+else:  # pragma: no cover
 
     def _csr_subset_rows(src_data, src_indices, src_indptr, rows, out_data, out_indices):
-        raise ImportError("numba must be installed for in-memory data: `pip install annbatch[numba]`")
+        raise ImportError("numba must be installed for in-memory sparse data: `pip install annbatch[numba]`")
 
 
 def _cupy_dtype(dtype: np.dtype) -> np.dtype:
@@ -472,6 +472,8 @@ class Loader[
             raise TypeError(
                 "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
             )
+        if isinstance(dataset, sp.csr_matrix | sp.csr_array) and not find_spec("numba"):
+            raise ImportError("numba must be installed for in-memory sparse data: `pip install annbatch[numba]`")
         if not isinstance(obs, pd.DataFrame) and obs is not None:
             raise TypeError("obs must be a pandas DataFrame")
         if not isinstance(var, pd.DataFrame) and var is not None:
