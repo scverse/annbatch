@@ -422,3 +422,34 @@ def test_max_classes_per_window(preload_nchunks: int):
     ]
     assert max(classes_per_window) == expected_max, f"expected up to {expected_max} classes per window"
     assert min(classes_per_window) >= 1
+
+
+def test_class_sampler_from_collection(simple_collection):
+    from annbatch import Loader
+
+    _, collection = simple_collection
+
+    # Get categories from the collection
+    classes = pd.Categorical(collection.obs(columns=["label"])["label"])
+
+    # Create ClassSampler with categories
+    sampler = ClassSampler(
+        chunk_size=1,
+        preload_nchunks=4,
+        batch_size=4,
+        classes=classes,
+        num_samples=100,
+    )
+
+    # Load it to the Loader
+    loader = Loader(batch_sampler=sampler, to_torch=False, preload_to_gpu=False)
+    loader.use_collection(collection)
+
+    # Iterate through the loader and verify class-coherence of each batch
+    batches = list(loader)
+    assert len(batches) == 25  # 100 num_samples / 4 batch_size
+    for batch in batches:
+        assert batch["X"].shape == (4, 100)
+        labels = batch["obs"]["label"]
+        assert len(np.unique(labels)) == 1
+
