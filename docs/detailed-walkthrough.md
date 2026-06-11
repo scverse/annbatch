@@ -18,6 +18,8 @@ collection = DatasetCollection("path/to/output/store.zarr").add_adatas(
 First, you convert your existing `.h5ad` files into a zarr-backed anndata format.
 In the process, the data gets shuffled and is distributed across several anndata files.
 Shuffling is important to ensure model convergence, especially because of our contiguous data fetching scheme which is not perfectly random.
+Shuffling also helps improve performance because it ensures uniform data types across your training dataset i.e., matrices all of `float64` type.
+This allows efficient preallocation of pinned memory.
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
 See the [zarr docs on sharding][] for more information.
 For performance considerations, see our dedicated docs page: {doc}`preshuffling`.
@@ -54,6 +56,10 @@ In order to take advantage of the sharded zarr files performance, though, locall
 Using {mod}`zarr` on its own will not yield high performance for local filesystems.
 We have not tested remote data (i.e., using {func}`zarr.open` with a {class}`zarr.storage.ObjectStore`) but because we use {mod}`zarr`, this data loader should also work over cloud connections via relevant zarr stores.
 Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of non-local stores.
+
+:::{important}
+As mentioned above, ensuring uniform dtypes across your training collection is important for performance.
+For in-memory data, this transformation should be trivial.
 
 ### User configurable sampling strategy
 
