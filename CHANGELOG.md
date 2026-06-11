@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning][].
 - {attr}`annbatch.types.LoadRequest.splits` now index in **request order** -- position `j` is the `j`-th observation when the request's `chunks` are concatenated in the order given. Previously, `splits` had to index into the loader's internal dataset-grouped memory layout. The {class}`~annbatch.Loader` now remaps splits to that layout itself, so custom samplers must produce chunk-order splits and stop compensating for the dataset reordering.
 - Deprecated `annbatch.types.LoadRequest.chunks` in favor of {attr}`annbatch.types.LoadRequest.requests`.
 
+### Fixed
+- Handling of different data types i.e., `float32` vs `float64` in the same {class}`~annbatch.Loader`
 
 ## [0.1.6]
 

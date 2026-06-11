@@ -115,9 +115,9 @@ def adata_with_h5_path_different_var_space(
     ), tmp_path
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", params=[False, True], ids=["same-dtype", "mixed-dtype"])
 def simple_collection(
-    tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
+    request, tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
 ) -> tuple[DatasetCollection, ad.AnnData]:
     zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
@@ -128,4 +128,25 @@ def simple_collection(
         dataset_size=60,
         shuffle_chunk_size=10,
     )
+    if request.param:
+        with ad.settings.override(auto_shard_zarr_v3=True, zarr_write_format=3):
+            # Rewrite the first dataset's X (and sparse layer) with a different dtype
+            # to exercise the dtype-promotion code path in Loader._concatenate_outs.
+            first = next(iter(collection))
+            new_X = first["X"][...].astype("f8")
+            del first["X"]
+            ad.io.write_elem(first, "X", new_X)
+            sparse_layer = ad.io.read_elem(first["layers"]["sparse"]).astype("int64")
+            del first["layers"]["sparse"]
+            ad.io.write_elem(first["layers"], "sparse", sparse_layer)
+
+            datasets = list(collection)
+            first_X_dtype = datasets[0]["X"].dtype
+            first_sparse_dtype = datasets[0]["layers"]["sparse"]["data"].dtype
+            assert any(ds["X"].dtype != first_X_dtype for ds in datasets[1:]), (
+                "mixed-dtype fixture failed to produce differing X dtypes"
+            )
+            assert any(ds["layers"]["sparse"]["data"].dtype != first_sparse_dtype for ds in datasets[1:]), (
+                "mixed-dtype fixture failed to produce differing sparse layer dtypes"
+            )
     return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection

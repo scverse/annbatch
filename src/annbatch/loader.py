@@ -537,6 +537,13 @@ class Loader[
             result[ds] = global_index[order[gs:ge]] - starts[ds]
         return result, order
 
+    def _alloc(self, shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
+        if self._preload_to_gpu:
+            import cupyx as cpx
+
+            return cpx.empty_pinned(shape, dtype)
+        return np.empty(shape, dtype)
+
     def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and rows.
 
@@ -549,13 +556,6 @@ class Loader[
         Must be called after :meth:`_ensure_sparse_cache` for sparse datasets.
         """
         total_rows = sum(len(rows) for rows in dataset_index_to_rows.values())
-
-        def _alloc(shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
-            if self._preload_to_gpu:
-                import cupyx as cpx
-
-                return cpx.empty_pinned(shape, dtype)
-            return np.empty(shape, dtype)
 
         if (is_backed := issubclass(self.dataset_type, ad.abc.CSRDataset)) or issubclass(
             self.dataset_type, sp.csr_array | sp.csr_matrix
@@ -571,8 +571,8 @@ class Loader[
             indptr_dtype = datasets[first_idx].indptr.dtype
             return CSRContainer(
                 elems=(
-                    _alloc((total_nnz,), data_dtype),
-                    _alloc((total_nnz,), indices_dtype),
+                    self._alloc((total_nnz,), data_dtype),
+                    self._alloc((total_nnz,), indices_dtype),
                     np.empty(total_rows + 1, dtype=indptr_dtype),
                 ),
                 shape=(total_rows, self.n_var),
@@ -582,7 +582,97 @@ class Loader[
             first_idx = next(iter(dataset_index_to_rows))
             dtype = self._train_datasets[first_idx].dtype
             shape_res = self._train_datasets[first_idx].shape[1:]
-            return _alloc((total_rows, *shape_res), dtype)
+            return self._alloc((total_rows, *shape_res), dtype)
+
+    def _dtypes_homogeneous(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> bool:
+        """Whether all requested datasets share the same dtype(s).
+
+        For sparse datasets the comparison covers ``data``, ``indices`` and ``indptr`` dtypes.
+        Must be called after :meth:`_ensure_sparse_cache` for backed-sparse datasets.
+        """
+        idxs = list(dataset_index_to_rows.keys())
+        if len(idxs) <= 1:
+            return True
+        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
+        if is_sparse:
+            datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
+            first = datasets[idxs[0]]
+            return all(
+                datasets[i].data.dtype == first.data.dtype and datasets[i].indices.dtype == first.indices.dtype
+                for i in idxs[1:]
+            )
+        first_dtype = self._train_datasets[idxs[0]].dtype
+        return all(self._train_datasets[i].dtype == first_dtype for i in idxs[1:])
+
+    def _allocate_per_dataset_outs(
+        self, dataset_index_to_rows: OrderedDict[int, np.ndarray]
+    ) -> OrderedDict[int, CSRContainer | np.ndarray]:
+        """Allocate one output buffer per dataset, each using that dataset's native dtype(s).
+
+        Used when datasets have differing dtypes — the per-dataset buffers are concatenated
+        into a final buffer of the promoted dtype by :meth:`_concatenate_outs`.
+        Must be called after :meth:`_ensure_sparse_cache` for backed-sparse datasets.
+        """
+        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
+        outs: OrderedDict[int, CSRContainer | np.ndarray] = OrderedDict()
+        if is_sparse:
+            datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
+            for idx, rows in dataset_index_to_rows.items():
+                ds = datasets[idx]
+                nnz = int((ds.indptr[rows + 1] - ds.indptr[rows]).sum())
+                outs[idx] = CSRContainer(
+                    elems=(
+                        self._alloc((nnz,), ds.data.dtype),
+                        self._alloc((nnz,), ds.indices.dtype),
+                        np.empty(len(rows) + 1, dtype=ds.indptr.dtype),
+                    ),
+                    shape=(len(rows), self.n_var),
+                    dtype=ds.data.dtype,
+                )
+        else:
+            for idx, rows in dataset_index_to_rows.items():
+                ds = self._train_datasets[idx]
+                outs[idx] = self._alloc((len(rows), *ds.shape[1:]), ds.dtype)
+        return outs
+
+    def _concatenate_outs(self, outs: OrderedDict[int, CSRContainer | np.ndarray]) -> CSRContainer | np.ndarray:
+        """Concatenate per-dataset buffers into a single buffer with promoted dtype(s)."""
+        values = list(outs.values())
+        if isinstance(values[0], CSRContainer):
+            data_dtype = np.result_type(*[o.elems[0].dtype for o in values])
+            indices_dtype = np.result_type(*[o.elems[1].dtype for o in values])
+            indptr_dtype = np.result_type(*[o.elems[2].dtype for o in values])
+            total_nnz = sum(o.elems[0].size for o in values)
+            total_rows = sum(o.shape[0] for o in values)
+            data = self._alloc((total_nnz,), data_dtype)
+            indices = self._alloc((total_nnz,), indices_dtype)
+            indptr = np.empty(total_rows + 1, dtype=indptr_dtype)
+            indptr[0] = 0
+            nnz_offset = 0
+            row_offset = 0
+            for o in values:
+                n = o.elems[0].size
+                r = o.shape[0]
+                data[nnz_offset : nnz_offset + n] = o.elems[0]
+                indices[nnz_offset : nnz_offset + n] = o.elems[1]
+                indptr[row_offset + 1 : row_offset + r + 1] = o.elems[2][1:] + nnz_offset
+                nnz_offset += n
+                row_offset += r
+            return CSRContainer(
+                elems=(data, indices, indptr),
+                shape=(total_rows, self.n_var),
+                dtype=data_dtype,
+            )
+        dtype = np.result_type(*[o.dtype for o in values])
+        total_rows = sum(o.shape[0] for o in values)
+        out = self._alloc((total_rows, *values[0].shape[1:]), dtype)
+        offset = 0
+        for o in values:
+            out[offset : offset + o.shape[0]] = o
+            offset += o.shape[0]
+        return out
 
     @singledispatchmethod
     async def _fetch_data(
@@ -767,6 +857,27 @@ class Loader[
         is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
         if is_backed_sparse:
             await self._ensure_sparse_cache()
+
+        if not self._dtypes_homogeneous(dataset_index_to_rows):
+            per_dataset_outs = self._allocate_per_dataset_outs(dataset_index_to_rows)
+            tasks = [
+                self._fetch_data(
+                    self._get_elem_from_cache(dataset_idx) if is_backed_sparse else self._train_datasets[dataset_idx],
+                    rows,
+                    per_dataset_outs[dataset_idx],
+                )
+                for dataset_idx, rows in dataset_index_to_rows.items()
+            ]
+            await asyncio.gather(*tasks)
+            if is_sparse:
+                datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
+                for dataset_idx, rows in dataset_index_to_rows.items():
+                    sub_out = per_dataset_outs[dataset_idx]
+                    cached_indptr = datasets[dataset_idx].indptr
+                    per_row_nnz = cached_indptr[rows + 1] - cached_indptr[rows]
+                    sub_out.elems[2][0] = 0
+                    np.cumsum(per_row_nnz, out=sub_out.elems[2][1:])
+            return self._concatenate_outs(per_dataset_outs)
 
         out = self._allocate_out(dataset_index_to_rows)
 
