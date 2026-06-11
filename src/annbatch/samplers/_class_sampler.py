@@ -75,6 +75,21 @@ class ClassSampler(Sampler):
     class-coherent but not ordered. Memory scales with the number of runs
     (``<= n_obs // chunk_size``).
 
+    Examples
+    --------
+    >>> from annbatch import Loader
+    >>> from annbatch.samplers import ClassSampler
+    >>> # Get categorical column from collection
+    >>> classes = collection.obs(columns=["categories"])["categories"].values
+    >>> sampler = ClassSampler(
+    ...     chunk_size=10,
+    ...     preload_nchunks=4,
+    ...     batch_size=10,
+    ...     classes=classes,
+    ...     num_samples=1000,
+    ... )
+    >>> loader = Loader(batch_sampler=sampler).use_collection(collection)
+
     Parameters
     ----------
     chunk_size
@@ -87,9 +102,11 @@ class ClassSampler(Sampler):
         by it; it need not divide or be a multiple of ``chunk_size``.
     classes
         A :class:`pandas.Categorical` with one entry per observation, e.g.
-        ``df["cell_type"].astype("category")`` or ``df["cell_type"].values``
-        when the column already has a categorical dtype. Length must equal the
-        loader's ``n_obs``. The obs axis need not be contiguous per class, but
+        ``df["cell_type"].values`` when the column already has a categorical dtype.
+        If loading categories from a :class:`~annbatch.DatasetCollection`, they can be retrieved via
+        ``collection.obs(columns=["cell_type"])["cell_type"].values`` (if the column was stored with categorical dtype)
+        or converted using ``pd.Categorical(collection.obs(columns=["label"])["label"])`` (if stored as integers or strings).
+        Length must equal the loader's ``n_obs``. The obs axis need not be contiguous per class, but
         every run of a non-excluded class must be at least ``chunk_size`` long
         (see the run-length rule above). NA values (``codes == -1``) are not allowed.
     num_samples
