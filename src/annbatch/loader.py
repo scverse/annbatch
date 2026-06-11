@@ -136,8 +136,8 @@ class Loader[
             This option entails greater GPU memory usage, but is faster at least for sparse operations.
             :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of `cupy` internally (which also means `torch` is an optional dep).
             Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data due to memory pressure.
-            For top performance, this should be used in conjuction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to densify.
-            :meth:`cupy.cuda.MemoryPool.free_all_blocks` (i.e., the method of the pool of :func:`cupy.get_default_memory_pool()`) is called aggresively to keep memory usage low.
+            For top performance, this should be used in conjunction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to densify.
+            :meth:`cupy.cuda.MemoryPool.free_all_blocks` (i.e., the method of the pool of :func:`cupy.get_default_memory_pool()`) is called aggressively to keep memory usage low.
             If you are using your own memory pool or allocator, you may have to free blocks on your own.
         to_torch
             Whether to return `torch.Tensor` as the output.
