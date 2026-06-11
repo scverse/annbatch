@@ -613,7 +613,21 @@ class DatasetCollection:
         )
 
     def obs(self, columns: None | list[str] = None) -> pd.DataFrame:
-        """Get the concatenated observations across the collection."""
+        """Get the concatenated observations across the collection.
+
+        Parameters
+        ----------
+            columns
+                List of columns to retrieve. If None, all columns will be retrieved.
+                If an empty list, an empty DataFrame will be returned.
+
+        Returns
+        -------
+            DataFrame containing the concatenated observations.
+        """
+        if columns is not None and len(columns) == 0:
+            return pd.DataFrame()
+
         obs_dfs = []
         if isinstance(self._group, zarr.Group):
             for dataset_key in self._dataset_keys:

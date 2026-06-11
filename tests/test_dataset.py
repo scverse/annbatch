@@ -13,7 +13,7 @@ import pytest
 import scipy.sparse as sp
 import zarr
 
-from annbatch import Loader, write_sharded
+from annbatch import Loader, write_sharded, DatasetCollection
 from annbatch.abc import Sampler
 from annbatch.samplers import SequentialSampler
 
@@ -770,3 +770,59 @@ def test_chunks_deprecation_warning(adata_with_zarr_path_same_var_space: tuple[a
         batches = list(loader)
 
     assert len(batches) == 1
+
+
+def test_dataset_collection_obs_zarr(simple_collection):
+    adata, collection = simple_collection
+
+    # Test obs() with columns=None
+    obs_all = collection.obs()
+    assert not obs_all.empty
+    assert set(["label", "src_path"]).issubset(set(obs_all.columns))
+
+    # Test obs() with a specific column subset
+    obs_subset = collection.obs(columns=["label"])
+    assert list(obs_subset.columns) == ["label"]
+    pd.testing.assert_series_equal(obs_subset["label"], obs_all["label"])
+
+    # Test obs() with columns=[]
+    obs_empty_cols = collection.obs(columns=[])
+    assert obs_empty_cols.empty
+
+
+
+@pytest.mark.parametrize("is_h5ad", [False, True], ids=["zarr", "h5ad"])
+def test_dataset_collection_obs_empty(tmp_path, is_h5ad):
+    if is_h5ad:
+        empty_dir = tmp_path / "empty_h5ad_collection"
+        empty_dir.mkdir()
+        with pytest.warns(UserWarning, match="Loading h5ad is currently not supported"):
+            collection = DatasetCollection(empty_dir, is_collection_h5ad=True)
+    else:
+        collection = DatasetCollection(tmp_path / "empty_collection.zarr")
+    assert collection.obs().empty
+
+
+def test_dataset_collection_obs_multiple_columns(adata_with_h5_path_different_var_space, tmp_path):
+    output_path = tmp_path / "multi_col_collection.zarr"
+    h5_files = sorted(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))
+    multi_col_collection = DatasetCollection(output_path).add_adatas(
+        h5_files,
+        n_obs_per_chunk=10,
+        shard_size=20,
+        dataset_size=60,
+        shuffle_chunk_size=10,
+    )
+
+    # Test columns=None
+    h5_obs_all = multi_col_collection.obs()
+    assert "label" in h5_obs_all.columns
+    assert "store_id" in h5_obs_all.columns
+    assert "numeric" in h5_obs_all.columns
+    assert "src_path" in h5_obs_all.columns
+
+    # Test multiple columns
+    h5_obs_subset = multi_col_collection.obs(columns=["label", "numeric"])
+    assert list(h5_obs_subset.columns) == ["label", "numeric"]
+    pd.testing.assert_series_equal(h5_obs_subset["label"], h5_obs_all["label"])
+    pd.testing.assert_series_equal(h5_obs_subset["numeric"], h5_obs_all["numeric"])
