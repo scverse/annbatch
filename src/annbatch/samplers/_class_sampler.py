@@ -75,6 +75,21 @@ class ClassSampler(Sampler):
     class-coherent but not ordered. Memory scales with the number of runs
     (``<= n_obs // chunk_size``).
 
+    Examples
+    --------
+    >>> from annbatch import Loader
+    >>> from annbatch.samplers import ClassSampler
+    >>> # Get categorical column from collection
+    >>> classes = collection.obs(columns=["categories"])["categories"].values
+    >>> sampler = ClassSampler(
+    ...     chunk_size=10,
+    ...     preload_nchunks=4,
+    ...     batch_size=10,
+    ...     classes=classes,
+    ...     num_samples=1000,
+    ... )
+    >>> loader = Loader(batch_sampler=sampler).use_collection(collection)
+
     Parameters
     ----------
     chunk_size
