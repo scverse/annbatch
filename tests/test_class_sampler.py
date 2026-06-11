@@ -452,4 +452,3 @@ def test_class_sampler_from_collection(simple_collection):
         assert batch["X"].shape == (4, 100)
         labels = batch["obs"]["label"]
         assert len(np.unique(labels)) == 1
-
