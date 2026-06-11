@@ -769,5 +769,3 @@ def test_chunks_deprecation_warning(adata_with_zarr_path_same_var_space: tuple[a
         batches = list(loader)
 
     assert len(batches) == 1
-
-
