@@ -430,7 +430,7 @@ def test_class_sampler_from_collection(simple_collection):
     _, collection = simple_collection
 
     # Get categories from the collection
-    classes = pd.Categorical(collection.obs(columns=["label"])["label"])
+    classes = collection.obs(columns=["src_path"])["src_path"].values
 
     # Create ClassSampler with categories
     sampler = ClassSampler(
@@ -450,5 +450,5 @@ def test_class_sampler_from_collection(simple_collection):
     assert len(batches) == 25  # 100 num_samples / 4 batch_size
     for batch in batches:
         assert batch["X"].shape == (4, 100)
-        labels = batch["obs"]["label"]
+        labels = batch["obs"]["src_path"]
         assert len(np.unique(labels)) == 1

@@ -623,6 +623,14 @@ class DatasetCollection:
         Returns
         -------
             DataFrame containing the concatenated observations.
+
+        Examples
+        --------
+        >>> collection = DatasetCollection("path/to/collection.zarr")
+        >>> # If the column was stored with categorical dtype:
+        >>> classes = collection.obs(columns=["cell_type"])["cell_type"].values
+        >>> # Otherwise (e.g. if stored as integers or strings):
+        >>> classes = pd.Categorical(collection.obs(columns=["label"])["label"])
         """
         if columns is not None and len(columns) == 0:
             return pd.DataFrame()
