@@ -72,7 +72,7 @@ def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) 
     if len(adata.obs.columns) > 0:
         adata.obs = ad.experimental.read_elem_lazy(group["obs"], chunks=(-1,), use_range_index=True)
         for col in adata.obs.columns:
-            # Nullables / categoricals have bad perforamnce characteristics when concatenating using dask
+            # Nullables / categoricals have bad performance characteristics when concatenating using dask
             if pd.api.types.is_extension_array_dtype(adata.obs[col].dtype):
                 adata.obs[col] = adata.obs[col].data
     return adata
@@ -571,7 +571,7 @@ class DatasetCollection:
                     self._group = zarr.open_group(group, mode=mode)
                 else:
                     warnings.warn(
-                        "Loading h5ad is currently not supported and thus we cannot guarantee the funcionality of the ecosystem with h5ad files."
+                        "Loading h5ad is currently not supported and thus we cannot guarantee the functionality of the ecosystem with h5ad files."
                         "DatasetCollection should be able to handle shuffling but we guarantee little else."
                         "Proceed with caution.",
                         stacklevel=2,

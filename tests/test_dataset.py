@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
 skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
+skip_if_no_numba = pytest.mark.skipif(find_spec("numba") is None, reason="Can't test for in-memory without numba")
 
 
 class Data(TypedDict):
@@ -55,6 +56,36 @@ def open_sparse(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata
             "obs": ad.io.read_elem(path["obs"]),
             "var": ad.io.read_elem(path["var"]),
         }
+    if use_anndata:
+        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
+    return data
+
+
+def open_in_memory_sparse(
+    path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata: bool = False
+) -> Data | ad.AnnData:
+    if not isinstance(path, zarr.Group):
+        path = zarr.open(path)
+    data = {
+        "dataset": ad.io.read_elem(path["layers"]["sparse"]),
+        "obs": ad.io.read_elem(path["obs"]),
+        "var": ad.io.read_elem(path["var"]),
+    }
+    if use_anndata:
+        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
+    return data
+
+
+def open_in_memory_dense(
+    path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata: bool = False
+) -> Data | ad.AnnData:
+    if not isinstance(path, zarr.Group):
+        path = zarr.open(path)
+    data = {
+        "dataset": ad.io.read_elem(path["X"]),
+        "obs": ad.io.read_elem(path["obs"]),
+        "var": ad.io.read_elem(path["var"]),
+    }
     if use_anndata:
         return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
     return data
@@ -92,7 +123,11 @@ def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
 
 def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     return (
-        {"datasets": [d["dataset"] for d in datas], "obs": [d["obs"] for d in datas], "var": [d["var"] for d in datas]}
+        {
+            "datasets": [d["dataset"] for d in datas],
+            "obs": [d["obs"] for d in datas],
+            "var": [d["var"] for d in datas],
+        }
         if all(isinstance(d, dict) for d in datas)
         else datas
     )
@@ -122,12 +157,19 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                 )
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
-            marks=[skip_if_no_cupy, pytest.mark.gpu] if preload_to_gpu else [],
+            marks=([skip_if_no_cupy, pytest.mark.gpu] if preload_to_gpu else [])
+            + ([skip_if_no_numba] if open_func is open_in_memory_sparse else []),
         )
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
             for preload_to_gpu in [True, False]
-            for open_func in [open_sparse, open_dense, None]
+            for open_func in [
+                open_sparse,
+                open_dense,
+                open_in_memory_dense,
+                open_in_memory_sparse,
+                None,
+            ]
             for elem in [
                 [
                     1,
@@ -162,7 +204,11 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
     ],
 )
 def test_store_load_dataset(
-    simple_collection: tuple[ad.AnnData, DatasetCollection], *, shuffle: bool, gen_loader, use_zarrs
+    simple_collection: tuple[ad.AnnData, DatasetCollection],
+    *,
+    shuffle: bool,
+    gen_loader,
+    use_zarrs,
 ):
     """
     This test verifies that the DaskDataset works correctly:
@@ -172,8 +218,10 @@ def test_store_load_dataset(
         4. If the dataset is not shuffled, it returns the correct data
     """
     loader: Loader = gen_loader(simple_collection[1], shuffle, use_zarrs)
+    if use_zarrs and loader.dataset_type in {np.ndarray, sp.csr_matrix, sp.csr_array}:
+        pytest.skip("No need to run zarrs with in-memory")
     adata = simple_collection[0]
-    is_dense = loader.dataset_type is zarr.Array
+    is_dense = loader.dataset_type in {zarr.Array, np.ndarray}
     n_elems = 0
     batches = []
     obs = []
@@ -234,14 +282,6 @@ def test_store_load_dataset(
 def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
     with pytest.raises(ValueError, match="must be greater than 1"):
         gen_loader(adata_with_zarr_path_same_var_space[1])
-
-
-def test_bad_adata_X_type(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
-    data = open_dense(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr")))
-    data["dataset"] = data["dataset"][...]
-    ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
-    with pytest.raises(TypeError, match="Cannot add"):
-        ds.add_dataset(**data)
 
 
 def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
@@ -348,10 +388,18 @@ def test_len(
     assert len(loader) == actual_batches
 
 
-def test_bad_adata_X_hdf5(adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path]):
+def test_bad_adata_X_hdf5(
+    adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
+):
     with h5py.File(next(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))) as f:
         data = ad.io.sparse_dataset(f["X"])
-        ds = Loader(shuffle=True, chunk_size=10, preload_nchunks=10, preload_to_gpu=False, to_torch=False)
+        ds = Loader(
+            shuffle=True,
+            chunk_size=10,
+            preload_nchunks=10,
+            preload_to_gpu=False,
+            to_torch=False,
+        )
         with pytest.raises(TypeError, match="Cannot add"):
             ds.add_dataset(data)
 
@@ -375,7 +423,9 @@ def _custom_collate_fn(elems):
 @skip_if_no_torch
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
 def test_torch_multiprocess_dataloading_zarr(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], open_func, use_zarrs: bool
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    open_func,
+    use_zarrs: bool,
 ):
     """
     Test that Loader can be used with PyTorch's DataLoader in a multiprocess context and that each element of
@@ -383,7 +433,13 @@ def test_torch_multiprocess_dataloading_zarr(
     """
     from torch.utils.data import DataLoader
 
-    ds = Loader(chunk_size=10, preload_nchunks=4, shuffle=True, return_index=True, preload_to_gpu=False)
+    ds = Loader(
+        chunk_size=10,
+        preload_nchunks=4,
+        shuffle=True,
+        return_index=True,
+        preload_to_gpu=False,
+    )
     ds.add_datasets(
         **concat([open_func(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
     )
@@ -393,7 +449,11 @@ def test_torch_multiprocess_dataloading_zarr(
         x_ref = adata_with_zarr_path_same_var_space[0].X
 
     dataloader = DataLoader(
-        ds, batch_size=32, num_workers=4, collate_fn=_custom_collate_fn, multiprocessing_context="spawn"
+        ds,
+        batch_size=32,
+        num_workers=4,
+        collate_fn=_custom_collate_fn,
+        multiprocessing_context="spawn",
     )
     x_list, idx_list = [], []
     for batch in dataloader:
@@ -408,11 +468,20 @@ def test_torch_multiprocess_dataloading_zarr(
 
 
 @pytest.mark.parametrize(
-    "preload_to_gpu", [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])], ids=["no_cupy", "cupy"]
+    "preload_to_gpu",
+    [False, pytest.param(True, marks=[pytest.mark.gpu, skip_if_no_cupy])],
+    ids=["no_cupy", "cupy"],
 )
-@pytest.mark.parametrize("to_torch", [False, pytest.param(True, marks=[skip_if_no_torch])], ids=["no_torch", "torch"])
+@pytest.mark.parametrize(
+    "to_torch",
+    [False, pytest.param(True, marks=[skip_if_no_torch])],
+    ids=["no_torch", "torch"],
+)
 def test_3d(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], use_zarrs: bool, preload_to_gpu: bool, to_torch: bool
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    use_zarrs: bool,
+    preload_to_gpu: bool,
+    to_torch: bool,
 ):
     ds = Loader(
         chunk_size=10,
@@ -449,21 +518,38 @@ def test_3d(
 
 
 @pytest.mark.skipif(
-    find_spec("cupy") is not None, reason="Can't test for preload_to_gpu True ImportError with cupy installed"
+    find_spec("cupy") is not None,
+    reason="Can't test for preload_to_gpu True ImportError with cupy installed",
 )
 def test_no_cupy():
     with pytest.raises(
-        ImportError, match=r"Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy."
+        ImportError,
+        match=r"Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.",
     ):
         Loader(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
 
 
 @pytest.mark.skipif(
-    find_spec("torch") is not None, reason="Can't test for to_torch True ImportError with torch installed"
+    find_spec("torch") is not None,
+    reason="Can't test for to_torch True ImportError with torch installed",
 )
 def test_no_torch():
     with pytest.raises(ImportError, match=r"Try `pip install torch`."):
         Loader(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
+
+
+@pytest.mark.skipif(
+    find_spec("numba") is not None,
+    reason="Can't test for sparse in-memory ImportError with numba installed",
+)
+def test_no_numba_in_memory_sparse(monkeypatch: pytest.MonkeyPatch):
+    loader = Loader(chunk_size=10, preload_nchunks=4, to_torch=False, preload_to_gpu=False)
+    sparse_data = sp.csr_matrix(np.eye(10, dtype=np.float32))
+    with pytest.raises(
+        ImportError,
+        match=r"numba must be installed for in-memory sparse data",
+    ):
+        loader.add_dataset(sparse_data)
 
 
 def get_default_dense() -> type:
@@ -492,11 +578,18 @@ def get_default_sparse() -> type:
     ),
 )
 def test_default_data_structures(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], expected_cls: type, kwargs: dict
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    expected_cls: type,
+    kwargs: dict,
 ):
     # format is a smoke test for sparse
     ds = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, return_index=False, **kwargs
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=20,
+        shuffle=True,
+        return_index=False,
+        **kwargs,
     ).add_dataset(
         **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
             list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
@@ -566,26 +659,43 @@ def test_mismatched_var_raises_error(tmp_path: Path, subtests):
     with subtests.test(msg="add_datasets"):
         loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
-            loader.add_datasets([adata1_on_disk.X, adata2_on_disk.X], var=[adata1_on_disk.var, adata2_on_disk.var])
+            loader.add_datasets(
+                [adata1_on_disk.X, adata2_on_disk.X],
+                var=[adata1_on_disk.var, adata2_on_disk.var],
+            )
 
 
 @pytest.mark.gpu
 @skip_if_no_cupy
 @pytest.mark.parametrize(
     ("dtype_in", "expected"),
-    [(np.int16, np.float32), (np.int32, np.float64), (np.float32, np.float32), (np.float64, np.float64)],
+    [
+        (np.int16, np.float32),
+        (np.int32, np.float64),
+        (np.float32, np.float32),
+        (np.float64, np.float64),
+    ],
 )
 def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
     z = zarr.open(tmp_path / "foo.zarr")
-    write_sharded(z, ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr", rng=np.random.default_rng())))
-    adata = ad.AnnData(X=ad.io.sparse_dataset(z["X"]))
-    loader = Loader(preload_to_gpu=True, batch_size=10, chunk_size=10, preload_nchunks=2, to_torch=False).add_adata(
-        adata
+    write_sharded(
+        z,
+        ad.AnnData(X=sp.random(100, 10, dtype=dtype_in, format="csr", rng=np.random.default_rng())),
     )
+    adata = ad.AnnData(X=ad.io.sparse_dataset(z["X"]))
+    loader = Loader(
+        preload_to_gpu=True,
+        batch_size=10,
+        chunk_size=10,
+        preload_nchunks=2,
+        to_torch=False,
+    ).add_adata(adata)
     assert next(iter(loader))["X"].dtype == expected
 
 
-def test_add_dataset_validation_failure_preserves_state(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def test_add_dataset_validation_failure_preserves_state(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+):
     """Test that failed validation in add_dataset doesn't modify internal state."""
 
     class FailOnSecondValidateSampler(Sampler):
@@ -686,10 +796,20 @@ def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
 
 def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     ds1 = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=20,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+        to_torch=False,
     )
     ds2 = Loader(
-        chunk_size=10, preload_nchunks=4, batch_size=20, shuffle=True, rng=np.random.default_rng(0), to_torch=False
+        chunk_size=10,
+        preload_nchunks=4,
+        batch_size=20,
+        shuffle=True,
+        rng=np.random.default_rng(0),
+        to_torch=False,
     )
     ds1.use_collection(
         simple_collection[1],
@@ -712,7 +832,9 @@ class _FixedRequestSampler(SequentialSampler):
         yield {"requests": self._requests, "splits": self._splits}
 
 
-def test_splits_are_chunk_order_across_datasets(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def test_splits_are_chunk_order_across_datasets(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+):
     """Splits index in chunk order; the loader undoes its dataset-grouped buffer layout.
 
     The request lists a chunk from dataset 1 *before* a chunk from dataset 0, so the loader's
@@ -750,7 +872,9 @@ def test_splits_are_chunk_order_across_datasets(adata_with_zarr_path_same_var_sp
     np.testing.assert_array_equal(np.asarray(batches[1]["X"]), np.asarray(data0["dataset"][0:10]))
 
 
-def test_chunks_deprecation_warning(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+def test_chunks_deprecation_warning(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+):
     paths = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     data0 = open_dense(paths[0])
 

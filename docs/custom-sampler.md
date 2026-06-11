@@ -41,7 +41,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   Note: The slices are purely virtual and are defined by the user through the `requests` argument.
   They don't necessarily need to with the underlying zarr chunks.
 
-  **Important:** The number of samples that get loaded into memory at once, must be devisible by the batch size.
+  **Important:** The number of samples that get loaded into memory at once, must be divisible by the batch size.
   Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
 
 - **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.

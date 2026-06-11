@@ -11,7 +11,7 @@ from zarr import Array as ZarrArray
 from .compat import CupyArray, CupyCSRMatrix, Tensor
 from .utils import CSRContainer
 
-type BackingArray_T = ad.abc.CSRDataset | ZarrArray
+type BackingArray_T = ad.abc.CSRDataset | ZarrArray | sp.csr_array | sp.csr_matrix | np.ndarray
 type InputInMemoryArray_T = CSRContainer | np.ndarray
 type OutputInMemoryArray_T = sp.csr_matrix | np.ndarray | CupyCSRMatrix | CupyArray | Tensor
 

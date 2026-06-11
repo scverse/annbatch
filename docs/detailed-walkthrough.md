@@ -3,7 +3,7 @@
 This page walks through how `annbatch` works in depth.
 For a hands-on, runnable version, see the {doc}`quickstart notebook <notebooks/example>`.
 
-## Preprocessing
+## Preprocessing of On-Disk Data
 
 ```python
 collection = DatasetCollection("path/to/output/store.zarr").add_adatas(
@@ -21,6 +21,7 @@ Shuffling is important to ensure model convergence, especially because of our co
 The output is a collection of sharded zarr anndata files, meant to reduce the burden on file systems of indexing.
 See the [zarr docs on sharding][] for more information.
 For performance considerations, see our dedicated docs page: {doc}`preshuffling`.
+If your data fits in-memory, consider simply shuffling in-memory and passing it to the loader.
 
 [zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
 
@@ -44,8 +45,9 @@ for batch in ds:
 
 The data loader implements a chunked fetching strategy where `preload_nchunks` number of contiguous-chunks of size `chunk_size` are loaded.
 `chunk_size` corresponds the number of rows of `anndata` store to load sequentially.
+This number can be quite large for pre-shuffled data but not for un-shuffled data.
 
-For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader`.
+For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader` regardless of matrix type.
 Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
 In order to take advantage of the sharded zarr files performance, though, locally, you *must* set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
@@ -108,4 +110,5 @@ Thus, as a first step to assessing your needs, if your data fits in memory, load
 To accelerate reading the data into memory, you may still find {doc}`zarrs-python <zarrs:index>` in conjunction with sharding still helpful in the same way it accelerates io here.
 To this end, please have a look at [this gist](https://gist.github.com/ilan-gold/c73383def3798df2724405aa64e40c3d) comparing file loading speeds between {func}`anndata.io.read_zarr` and {func}`anndata.io.read_h5ad`.
 It highlights how {doc}`zarrs-python <zarrs:index>` and sharding can help there as well.
-However, once you have too much data to fit into memory, for whatever reason, the data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.
+`annbatch` natively supports in-memory data with unified `var` spaces (sparse and dense).
+Once you have too much data to fit into memory, for whatever reason, the on-disk data loading functionality offered here can provide significant speedups over state of the art out-of-core dataloaders.

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning][].
 ### Feature
 - Add a `merge` argument to {meth}`annbatch.DatasetCollection.add_adatas` to handle how columns in {attr}`~anndata.AnnData.var` are handled when creating the on-disk dataset.
 - Now {attr}`annbatch.types.LoadRequest.requests` (formerly `annbatch.types.LoadRequest.chunks`) can also be a numpy array of integers.
+- Support in memory matrices ({class}`scipy.sparse.csr_matrix`, {class}`scipy.sparse.csr_array`, {class}`numpy.ndarray`) requiring `numba` for the sparse cases (new additional dependency group for `numba` included).
 - Added {class}`annbatch.samplers.ClassSampler`: a replacement sampler that takes a {class}`pandas.Categorical` (e.g. `adata.obs["cell_type"].astype("category")`). Sampling is with replacement; for each batch, classes are drawn by `class_weights` (uniform by default).
 
 ### Breaking
@@ -85,7 +86,7 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.8]
 
-- {class}`~annbatch.Loader` acccepts an `rng` argument now
+- {class}`~annbatch.Loader` accepts an `rng` argument now
 
 ## [0.0.7]
 
