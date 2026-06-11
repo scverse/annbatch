@@ -29,7 +29,7 @@ Please refer to the [documentation][], in particular, the [API documentation][].
 pip install annbatch
 ```
 
-Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones. `numba` is needed for in-memory sparse data.
+Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones. [`numba`][] is needed for in-memory sparse data.
 
 ## Performance
 
@@ -168,3 +168,5 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 [in-depth section of our docs]: https://annbatch.readthedocs.io/en/stable/notebooks/example.html
 
 [installation]: https://annbatch.readthedocs.io/en/stable/installation.html
+
+[`numba`]: https://numba.readthedocs.io/en/stable/
