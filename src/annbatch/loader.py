@@ -176,9 +176,10 @@ class Loader[
     _shapes: list[tuple[int, int]]
     _preload_to_gpu: bool = True
     _to_torch: bool = True
-    _dataset_elem_cache: dict[int, CSRDatasetElems]
+    _sparse_dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _collection_added: bool = False
+    _dtypes_homogeneous: bool = True
 
     def __init__(
         self,
@@ -231,7 +232,7 @@ class Loader[
         self._to_torch = to_torch
         self._train_datasets = []
         self._shapes = []
-        self._dataset_elem_cache = {}
+        self._sparse_dataset_elem_cache = {}
 
     def __len__(self) -> int:
         return self._batch_sampler.n_batches(self.n_obs)
@@ -480,6 +481,14 @@ class Loader[
             raise TypeError("var must be a pandas DataFrame")
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
+        self._dtypes_homogeneous = self._datasets_share_dtype(datasets)
+        if self._train_datasets and not self._dtypes_homogeneous:
+            warn(
+                f"Adding dataset with dtype {dataset.dtype!r} that differs from the existing dataset dtype(s) "
+                f"(first dataset: {self._train_datasets[0].dtype!r}). Heterogeneous dtypes incur extra per-batch "
+                "allocation and dtype promotion in the loader; consider casting all datasets to a common dtype.",
+                stacklevel=2,
+            )
         self._shapes = self._shapes + [dataset.shape]
         self._train_datasets = datasets
         if self._obs is not None:  # obs exist
@@ -537,6 +546,13 @@ class Loader[
             result[ds] = global_index[order[gs:ge]] - starts[ds]
         return result, order
 
+    def _alloc(self, shape: tuple[int, ...], dtype: np.dtype, *, use_pinned: bool) -> np.ndarray:
+        if use_pinned:
+            import cupyx as cpx
+
+            return cpx.empty_pinned(shape, dtype)
+        return np.empty(shape, dtype)
+
     def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and rows.
 
@@ -550,17 +566,10 @@ class Loader[
         """
         total_rows = sum(len(rows) for rows in dataset_index_to_rows.values())
 
-        def _alloc(shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
-            if self._preload_to_gpu:
-                import cupyx as cpx
-
-                return cpx.empty_pinned(shape, dtype)
-            return np.empty(shape, dtype)
-
         if (is_backed := issubclass(self.dataset_type, ad.abc.CSRDataset)) or issubclass(
             self.dataset_type, sp.csr_array | sp.csr_matrix
         ):
-            datasets = self._dataset_elem_cache if is_backed else self._train_datasets
+            datasets = self._sparse_dataset_elem_cache if is_backed else self._train_datasets
             total_nnz = sum(
                 int((datasets[idx].indptr[rows + 1] - datasets[idx].indptr[rows]).sum())
                 for idx, rows in dataset_index_to_rows.items()
@@ -571,8 +580,8 @@ class Loader[
             indptr_dtype = datasets[first_idx].indptr.dtype
             return CSRContainer(
                 elems=(
-                    _alloc((total_nnz,), data_dtype),
-                    _alloc((total_nnz,), indices_dtype),
+                    self._alloc((total_nnz,), data_dtype, use_pinned=self._preload_to_gpu),
+                    self._alloc((total_nnz,), indices_dtype, use_pinned=self._preload_to_gpu),
                     np.empty(total_rows + 1, dtype=indptr_dtype),
                 ),
                 shape=(total_rows, self.n_var),
@@ -582,7 +591,91 @@ class Loader[
             first_idx = next(iter(dataset_index_to_rows))
             dtype = self._train_datasets[first_idx].dtype
             shape_res = self._train_datasets[first_idx].shape[1:]
-            return _alloc((total_rows, *shape_res), dtype)
+            return self._alloc((total_rows, *shape_res), dtype, use_pinned=self._preload_to_gpu)
+
+    @staticmethod
+    def _datasets_share_dtype(datasets: list[BackingArray]) -> bool:
+        """Whether all given dataset-like objects share the same dtype(s)."""
+        if len(datasets) <= 1:
+            return True
+
+        def dtypes_of(d):
+            if isinstance(d, ad.abc.CSRDataset):
+                return (d.group["data"].dtype, d.group["indices"].dtype)
+            if hasattr(d, "data") and hasattr(d, "indices"):
+                return (d.data.dtype, d.indices.dtype)
+            return (d.dtype,)
+
+        first = dtypes_of(datasets[0])
+        return all(dtypes_of(d) == first for d in datasets[1:])
+
+    def _allocate_per_dataset_outs(
+        self, dataset_index_to_rows: OrderedDict[int, np.ndarray]
+    ) -> OrderedDict[int, CSRContainer | np.ndarray]:
+        """Allocate one output buffer per dataset, each using that dataset's native dtype(s).
+
+        Used when datasets have differing dtypes — the per-dataset buffers are concatenated
+        into a final buffer of the promoted dtype by :meth:`_concatenate_outs`.
+        Must be called after :meth:`_ensure_sparse_cache` for backed-sparse datasets.
+        """
+        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
+        outs: OrderedDict[int, CSRContainer | np.ndarray] = OrderedDict()
+        if is_sparse:
+            datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
+            for idx, rows in dataset_index_to_rows.items():
+                ds = datasets[idx]
+                nnz = int((ds.indptr[rows + 1] - ds.indptr[rows]).sum())
+                outs[idx] = CSRContainer(
+                    elems=(
+                        self._alloc((nnz,), ds.data.dtype, use_pinned=False),
+                        self._alloc((nnz,), ds.indices.dtype, use_pinned=False),
+                        self._alloc((len(rows) + 1,), np.min_scalar_type(nnz), use_pinned=False),
+                    ),
+                    shape=(len(rows), self.n_var),
+                    dtype=ds.data.dtype,
+                )
+        else:
+            for idx, rows in dataset_index_to_rows.items():
+                ds = self._train_datasets[idx]
+                outs[idx] = self._alloc((len(rows), *ds.shape[1:]), ds.dtype, use_pinned=False)
+        return outs
+
+    def _concatenate_outs(self, outs: OrderedDict[int, CSRContainer | np.ndarray]) -> CSRContainer | np.ndarray:
+        """Concatenate per-dataset buffers into a single buffer with promoted dtype(s)."""
+        values = list(outs.values())
+        if isinstance(values[0], CSRContainer):
+            data_dtype = np.result_type(*[o.elems[0].dtype for o in values])
+            indices_dtype = np.result_type(*[o.elems[1].dtype for o in values])
+            total_nnz = sum(o.elems[0].size for o in values)
+            total_rows = sum(o.shape[0] for o in values)
+            data = self._alloc((total_nnz,), data_dtype, use_pinned=self._preload_to_gpu)
+            indices = self._alloc((total_nnz,), indices_dtype, use_pinned=self._preload_to_gpu)
+            indptr = self._alloc((total_rows + 1,), np.min_scalar_type(total_nnz), use_pinned=self._preload_to_gpu)
+            indptr[0] = 0
+            nnz_offset = 0
+            row_offset = 0
+            for o in values:
+                n = o.elems[0].size
+                r = o.shape[0]
+                data[nnz_offset : nnz_offset + n] = o.elems[0]
+                indices[nnz_offset : nnz_offset + n] = o.elems[1]
+                indptr[row_offset + 1 : row_offset + r + 1] = o.elems[2][1:] + nnz_offset
+                nnz_offset += n
+                row_offset += r
+            return CSRContainer(
+                elems=(data, indices, indptr),
+                shape=(total_rows, self.n_var),
+                dtype=data_dtype,
+            )
+        dtype = np.result_type(*[o.dtype for o in values])
+        total_rows = sum(o.shape[0] for o in values)
+        out = self._alloc((total_rows, *values[0].shape[1:]), dtype, use_pinned=self._preload_to_gpu)
+        offset = 0
+        for o in values:
+            out[offset : offset + o.shape[0]] = o
+            offset += o.shape[0]
+        return out
 
     @singledispatchmethod
     async def _fetch_data(
@@ -658,16 +751,16 @@ class Loader[
 
     async def _ensure_sparse_cache(self) -> None:
         """Build up the cache of datasets i.e., in-memory indptr, and backed indices and data."""
-        arr_idxs = [idx for idx in range(len(self._train_datasets)) if idx not in self._dataset_elem_cache]
+        arr_idxs = [idx for idx in range(len(self._train_datasets)) if idx not in self._sparse_dataset_elem_cache]
         all_elems: list[CSRDatasetElems] = await asyncio.gather(
             *(
                 self._create_sparse_elems(idx)
                 for idx in range(len(self._train_datasets))
-                if idx not in self._dataset_elem_cache
+                if idx not in self._sparse_dataset_elem_cache
             )
         )
         for idx, elems in zip(arr_idxs, all_elems, strict=True):
-            self._dataset_elem_cache[idx] = elems
+            self._sparse_dataset_elem_cache[idx] = elems
 
     def _get_elem_from_cache(self, dataset_idx: int) -> CSRDatasetElems | ZarrArray:
         """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
@@ -681,9 +774,9 @@ class Loader[
         -------
             The arrays representing the sparse data.
         """
-        if dataset_idx not in self._dataset_elem_cache:
+        if dataset_idx not in self._sparse_dataset_elem_cache:
             raise ValueError("Cache not prepared")
-        return self._dataset_elem_cache[dataset_idx]
+        return self._sparse_dataset_elem_cache[dataset_idx]
 
     @_fetch_data.register
     async def _fetch_data_csr_matrix(
@@ -768,6 +861,27 @@ class Loader[
         if is_backed_sparse:
             await self._ensure_sparse_cache()
 
+        if not self._dtypes_homogeneous:
+            per_dataset_outs = self._allocate_per_dataset_outs(dataset_index_to_rows)
+            tasks = [
+                self._fetch_data(
+                    self._get_elem_from_cache(dataset_idx) if is_backed_sparse else self._train_datasets[dataset_idx],
+                    rows,
+                    per_dataset_outs[dataset_idx],
+                )
+                for dataset_idx, rows in dataset_index_to_rows.items()
+            ]
+            await asyncio.gather(*tasks)
+            if is_sparse:
+                datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
+                for dataset_idx, rows in dataset_index_to_rows.items():
+                    sub_out = per_dataset_outs[dataset_idx]
+                    cached_indptr = datasets[dataset_idx].indptr
+                    per_row_nnz = cached_indptr[rows + 1] - cached_indptr[rows]
+                    sub_out.elems[2][0] = 0
+                    np.cumsum(per_row_nnz, out=sub_out.elems[2][1:])
+            return self._concatenate_outs(per_dataset_outs)
+
         out = self._allocate_out(dataset_index_to_rows)
 
         tasks = []
@@ -777,7 +891,7 @@ class Loader[
         for dataset_idx, rows in dataset_index_to_rows.items():
             nrows = len(rows)
             if is_sparse:
-                datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
+                datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
                 cached_indptr = datasets[dataset_idx].indptr
                 nnz = int((cached_indptr[rows + 1] - cached_indptr[rows]).sum())
                 out_view: CSRContainer | np.ndarray = CSRContainer(
@@ -805,7 +919,7 @@ class Loader[
         await asyncio.gather(*tasks)
 
         if is_sparse:
-            datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
+            datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
             running_nnz = 0
             row_pos = 0
             out.elems[2][0] = 0
