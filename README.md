@@ -17,7 +17,7 @@
 
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
-A data loader and io utilities for mini-batched data loading of on-disk AnnData files, co-developed by [Lamin Labs][] and [scverse][]
+A data loader and io utilities for mini-batched data loading of on-disk AnnData files as well as in-memory data, co-developed by [Lamin Labs][] and [scverse][]
 
 ## Getting started
 
@@ -29,7 +29,7 @@ Please refer to the [documentation][], in particular, the [API documentation][].
 pip install annbatch
 ```
 
-Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones.
+Please see our [installation][] page for full documentation about extras, especially [`zarrs-python`][] which is essential for local filesystems but not for remote ones. `numba` is needed for in-memory sparse data.
 
 ## Performance
 
