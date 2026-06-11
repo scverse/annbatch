@@ -553,6 +553,20 @@ def test_no_torch():
         Loader(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
 
 
+@pytest.mark.skipif(
+    find_spec("numba") is not None,
+    reason="Can't test for sparse in-memory ImportError with numba installed",
+)
+def test_no_numba_in_memory_sparse(monkeypatch: pytest.MonkeyPatch):
+    loader = Loader(chunk_size=10, preload_nchunks=4, to_torch=False, preload_to_gpu=False)
+    sparse_data = sp.csr_matrix(np.eye(10, dtype=np.float32))
+    with pytest.raises(
+        ImportError,
+        match=r"numba must be installed for in-memory sparse data",
+    ):
+        loader.add_dataset(sparse_data)
+
+
 def get_default_dense() -> type:
     if find_spec("torch"):
         from torch import Tensor as expected_dense
