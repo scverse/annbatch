@@ -627,9 +627,9 @@ class DatasetCollection:
         Examples
         --------
         >>> collection = DatasetCollection("path/to/collection.zarr")
-        >>> # If the column was stored with categorical dtype:
+        >>> # If the column was stored with categorical dtype and you need the `pd.Categorical` type for `ClassSampler`:
         >>> classes = collection.obs(columns=["cell_type"])["cell_type"].values
-        >>> # Otherwise (e.g. if stored as integers or strings):
+        >>> # If you want to use `ClassSampler` but the on-disk type isn't categorical
         >>> classes = pd.Categorical(collection.obs(columns=["label"])["label"])
         """
         if columns is not None and len(columns) == 0:
