@@ -53,6 +53,34 @@ class CSRDatasetElems(NamedTuple):
     data: zarr.AsyncArray
 
 
+if find_spec("numba"):
+    import numba
+
+    @numba.njit(parallel=True, cache=True, nogil=True)
+    def _csr_subset_rows(src_data, src_indices, src_indptr, rows, out_data, out_indices):  # type: ignore
+        n_rows = rows.shape[0]
+        row_nnz = np.empty(n_rows, dtype=np.int64)
+        for i in range(n_rows):
+            r = rows[i]
+            row_nnz[i] = src_indptr[r + 1] - src_indptr[r]
+        out_offsets = np.empty(n_rows + 1, dtype=np.int64)
+        out_offsets[0] = 0
+        for i in range(n_rows):
+            out_offsets[i + 1] = out_offsets[i] + row_nnz[i]
+        for i in numba.prange(n_rows):
+            r = rows[i]
+            src_start = src_indptr[r]
+            dst_start = out_offsets[i]
+            n = row_nnz[i]
+            for j in range(n):
+                out_data[dst_start + j] = src_data[src_start + j]
+                out_indices[dst_start + j] = src_indices[src_start + j]
+else:
+
+    def _csr_subset_rows(src_data, src_indices, src_indptr, rows, out_data, out_indices):
+        raise ImportError("numba must be installed for in-memory data: `pip install annbatch[numba]`")
+
+
 def _cupy_dtype(dtype: np.dtype) -> np.dtype:
     if dtype in {np.dtype("float32"), np.dtype("float64"), np.dtype("bool")}:
         return dtype
@@ -391,7 +419,10 @@ class Loader[
 
     @validate_sampler
     def add_dataset(
-        self, dataset: BackingArray, obs: pd.DataFrame | None = None, var: pd.DataFrame | None = None
+        self,
+        dataset: BackingArray,
+        obs: pd.DataFrame | None = None,
+        var: pd.DataFrame | None = None,
     ) -> Self:
         """Append a dataset to this dataset.
 
@@ -409,7 +440,10 @@ class Loader[
         return self
 
     def _add_dataset_unchecked(
-        self, dataset: BackingArray, obs: pd.DataFrame | None = None, var: pd.DataFrame | None = None
+        self,
+        dataset: BackingArray,
+        obs: pd.DataFrame | None = None,
+        var: pd.DataFrame | None = None,
     ) -> Self:
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
@@ -480,7 +514,11 @@ class Loader[
             global_index = np.concatenate([np.arange(s.start, s.stop) for s in requests])
 
         # Locate each requested row in its dataset by binary-searching the dataset boundaries,
-        sizes = np.fromiter((shape[0] for shape in self._shapes), dtype=np.int64, count=len(self._shapes))
+        sizes = np.fromiter(
+            (shape[0] for shape in self._shapes),
+            dtype=np.int64,
+            count=len(self._shapes),
+        )
         ends = np.cumsum(sizes)
         starts = ends - sizes
         dataset_of_row = np.searchsorted(ends, global_index, side="right")
@@ -517,15 +555,18 @@ class Loader[
                 return cpx.empty_pinned(shape, dtype)
             return np.empty(shape, dtype)
 
-        if issubclass(self.dataset_type, ad.abc.CSRDataset):
+        if (is_backed := issubclass(self.dataset_type, ad.abc.CSRDataset)) or issubclass(
+            self.dataset_type, sp.csr_array | sp.csr_matrix
+        ):
+            datasets = self._dataset_elem_cache if is_backed else self._train_datasets
             total_nnz = sum(
-                int((self._dataset_elem_cache[idx].indptr[rows + 1] - self._dataset_elem_cache[idx].indptr[rows]).sum())
+                int((datasets[idx].indptr[rows + 1] - datasets[idx].indptr[rows]).sum())
                 for idx, rows in dataset_index_to_rows.items()
             )
             first_idx = next(iter(dataset_index_to_rows))
-            data_dtype = self._dataset_elem_cache[first_idx].data.dtype
-            indices_dtype = self._dataset_elem_cache[first_idx].indices.dtype
-            indptr_dtype = self._dataset_elem_cache[first_idx].indptr.dtype
+            data_dtype = datasets[first_idx].data.dtype
+            indices_dtype = datasets[first_idx].indices.dtype
+            indptr_dtype = datasets[first_idx].indptr.dtype
             return CSRContainer(
                 elems=(
                     _alloc((total_nnz,), data_dtype),
@@ -643,6 +684,31 @@ class Loader[
         return self._dataset_elem_cache[dataset_idx]
 
     @_fetch_data.register
+    async def _fetch_data_csr_matrix(
+        self,
+        dataset: np.ndarray,
+        rows: np.ndarray,
+        out: np.ndarray,
+    ) -> None:
+        out[:] = dataset[rows]
+
+    @_fetch_data.register
+    async def _fetch_data_csr_matrix(
+        self,
+        dataset: sp.csr_matrix | sp.csr_array,
+        rows: np.ndarray,
+        out: CSRContainer,
+    ) -> None:
+        _csr_subset_rows(
+            dataset.data,
+            dataset.indices,
+            dataset.indptr,
+            np.ascontiguousarray(rows),
+            out.elems[0],
+            out.elems[1],
+        )
+
+    @_fetch_data.register
     async def _fetch_data_sparse(
         self,
         dataset: CSRDatasetElems,
@@ -695,8 +761,9 @@ class Loader[
             dataset_index_to_rows
                 A lookup of the list-placement index of a dataset to the sorted row indices to fetch.
         """
-        is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
-        if is_sparse:
+        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
+        if is_backed_sparse:
             await self._ensure_sparse_cache()
 
         out = self._allocate_out(dataset_index_to_rows)
@@ -708,7 +775,8 @@ class Loader[
         for dataset_idx, rows in dataset_index_to_rows.items():
             nrows = len(rows)
             if is_sparse:
-                cached_indptr = self._dataset_elem_cache[dataset_idx].indptr
+                datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
+                cached_indptr = datasets[dataset_idx].indptr
                 nnz = int((cached_indptr[rows + 1] - cached_indptr[rows]).sum())
                 out_view: CSRContainer | np.ndarray = CSRContainer(
                     elems=(
@@ -725,7 +793,7 @@ class Loader[
 
             tasks.append(
                 self._fetch_data(
-                    self._get_elem_from_cache(dataset_idx) if is_sparse else self._train_datasets[dataset_idx],
+                    self._get_elem_from_cache(dataset_idx) if is_backed_sparse else self._train_datasets[dataset_idx],
                     rows,
                     out_view,
                 )
@@ -735,11 +803,12 @@ class Loader[
         await asyncio.gather(*tasks)
 
         if is_sparse:
+            datasets = self._dataset_elem_cache if is_backed_sparse else self._train_datasets
             running_nnz = 0
             row_pos = 0
             out.elems[2][0] = 0
             for dataset_idx, rows in dataset_index_to_rows.items():
-                cached_indptr = self._dataset_elem_cache[dataset_idx].indptr
+                cached_indptr = datasets[dataset_idx].indptr
                 per_row_nnz = cached_indptr[rows + 1] - cached_indptr[rows]
                 dest = out.elems[2][row_pos + 1 : row_pos + len(rows) + 1]
                 np.cumsum(per_row_nnz, out=dest)
@@ -766,7 +835,7 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-        is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
+        is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array)
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):

@@ -28,6 +28,7 @@ Otherwise, be sure to install the `[remote]` extra for `zarr-python` to be able 
 | `torch` | Yields batches as 0-copy {class}`torch.Tensor`s. |
 | `cupy-cuda12` | GPU acceleration via `cupy` for CUDA 12, highly recommended for CUDA systems. |
 | `cupy-cuda13` | GPU acceleration via `cupy` for CUDA 13, highly recommended for CUDA systems. |
+| `numba` | CPU acceleration for indexing of in-memory sparse matrices i.e., when {meth}`Loader.add_adatas` is called on an {class}`~anndata.AnnData` object with a {class}`~scipy.sparse.csr_matrix` in-memory. |
 
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk, and does not need to be used in conjunction with `torch`.
 `cupy` is also compatible with `rocm` (AMD) devices, although we do not provide an extra for installing.
