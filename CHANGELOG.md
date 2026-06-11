@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning][].
 ### Feature
 - Add a `merge` argument to {meth}`annbatch.DatasetCollection.add_adatas` to handle how columns in {attr}`~anndata.AnnData.var` are handled when creating the on-disk dataset.
 - Now {attr}`annbatch.types.LoadRequest.requests` (formerly `annbatch.types.LoadRequest.chunks`) can also be a numpy array of integers.
-- Added {class}`annbatch.samplers.ClassSampler`: a replacement sampler that takes a {class}`pandas.Categorical` (e.g. `adata.obs["cell_type"].astype("category")`). Sampling is with replacement; for each batch, categories are drawn by `category_weights` (uniform by default).
+- Added {class}`annbatch.samplers.ClassSampler`: a replacement sampler that takes a {class}`pandas.Categorical` (e.g. `adata.obs["cell_type"].astype("category")`). Sampling is with replacement; for each batch, classes are drawn by `class_weights` (uniform by default).
 
 ### Breaking
 - Removal of deprecated `annbatch.ChunkSampler`
