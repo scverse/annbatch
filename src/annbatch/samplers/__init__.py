@@ -1,10 +1,10 @@
-from ._categorical_sampler import CategoricalSampler
+from ._class_sampler import ClassSampler
 from ._distributed_sampler import DistributedSampler
 from ._random_sampler import RandomSampler
 from ._sequential_sampler import SequentialSampler
 
 __all__ = [
-    "CategoricalSampler",
+    "ClassSampler",
     "DistributedSampler",
     "RandomSampler",
     "SequentialSampler",
