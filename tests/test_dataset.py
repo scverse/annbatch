@@ -801,10 +801,19 @@ def test_dataset_collection_obs_empty(tmp_path, is_h5ad):
     assert collection.obs().empty
 
 
-def test_dataset_collection_obs_multiple_columns(adata_with_h5_path_different_var_space, tmp_path):
-    output_path = tmp_path / "multi_col_collection.zarr"
+@pytest.mark.parametrize("is_h5ad", [False, True], ids=["zarr", "h5ad"])
+def test_dataset_collection_obs_multiple_columns(adata_with_h5_path_different_var_space, tmp_path, is_h5ad):
+    if is_h5ad:
+        output_path = tmp_path / "multi_col_collection"
+        with pytest.warns(UserWarning, match="Loading h5ad is currently not supported"):
+            collection = DatasetCollection(output_path, is_collection_h5ad=True)
+    else:
+        output_path = tmp_path / "multi_col_collection.zarr"
+        collection = DatasetCollection(output_path)
+
     h5_files = sorted(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))
-    multi_col_collection = DatasetCollection(output_path).add_adatas(
+
+    collection.add_adatas(
         h5_files,
         n_obs_per_chunk=10,
         shard_size=20,
@@ -813,14 +822,14 @@ def test_dataset_collection_obs_multiple_columns(adata_with_h5_path_different_va
     )
 
     # Test columns=None
-    h5_obs_all = multi_col_collection.obs()
+    h5_obs_all = collection.obs()
     assert "label" in h5_obs_all.columns
     assert "store_id" in h5_obs_all.columns
     assert "numeric" in h5_obs_all.columns
     assert "src_path" in h5_obs_all.columns
 
     # Test multiple columns
-    h5_obs_subset = multi_col_collection.obs(columns=["label", "numeric"])
+    h5_obs_subset = collection.obs(columns=["label", "numeric"])
     assert list(h5_obs_subset.columns) == ["label", "numeric"]
     pd.testing.assert_series_equal(h5_obs_subset["label"], h5_obs_all["label"])
     pd.testing.assert_series_equal(h5_obs_subset["numeric"], h5_obs_all["numeric"])
