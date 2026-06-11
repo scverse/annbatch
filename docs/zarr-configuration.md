@@ -7,7 +7,7 @@ import zarr
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 ```
 
-Otherwise normal use {mod}`zarr` without {doc}`zarrs-python <zarrs:index>` (wich does not support, for example, remote stores).
+Otherwise normal use {mod}`zarr` without {doc}`zarrs-python <zarrs:index>` (which does not support, for example, remote stores).
 
 ## `zarrs` Performance
 

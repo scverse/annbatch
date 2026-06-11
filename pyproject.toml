@@ -152,6 +152,10 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
+[tool.codespell]
+ignore-words-list = "theis,coo,homogenous,GroupT,datas"
+skip = ".git,*.pdf,*.svg"
+
 [tool.mypy]
 [[tool.mypy.overrides]]
 overrides = [ { module = [ "anndata.*", "cupy.*", "cupyx.*", "h5py.*", "torch.*" ], ignore_missing_imports = true } ]

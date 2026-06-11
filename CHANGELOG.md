@@ -86,7 +86,7 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.8]
 
-- {class}`~annbatch.Loader` acccepts an `rng` argument now
+- {class}`~annbatch.Loader` accepts an `rng` argument now
 
 ## [0.0.7]
 

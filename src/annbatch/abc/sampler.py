@@ -106,7 +106,7 @@ class Sampler(ABC):
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests given the total number of observations.
 
-        Base implemention simply calls :meth:`~annbatch.abc.Sampler.validate` and then yields via :meth:`~annbatch.abc.Sampler._sample`.
+        Base implementation simply calls :meth:`~annbatch.abc.Sampler.validate` and then yields via :meth:`~annbatch.abc.Sampler._sample`.
 
         Parameters
         ----------
