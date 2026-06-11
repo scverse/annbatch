@@ -537,8 +537,8 @@ class Loader[
             result[ds] = global_index[order[gs:ge]] - starts[ds]
         return result, order
 
-    def _alloc(self, shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
-        if self._preload_to_gpu:
+    def _alloc(self, shape: tuple[int, ...], dtype: np.dtype, *, use_pinned: bool) -> np.ndarray:
+        if use_pinned:
             import cupyx as cpx
 
             return cpx.empty_pinned(shape, dtype)
@@ -571,8 +571,8 @@ class Loader[
             indptr_dtype = datasets[first_idx].indptr.dtype
             return CSRContainer(
                 elems=(
-                    self._alloc((total_nnz,), data_dtype),
-                    self._alloc((total_nnz,), indices_dtype),
+                    self._alloc((total_nnz,), data_dtype, use_pinned=self._preload_to_gpu),
+                    self._alloc((total_nnz,), indices_dtype, use_pinned=self._preload_to_gpu),
                     np.empty(total_rows + 1, dtype=indptr_dtype),
                 ),
                 shape=(total_rows, self.n_var),
@@ -582,7 +582,7 @@ class Loader[
             first_idx = next(iter(dataset_index_to_rows))
             dtype = self._train_datasets[first_idx].dtype
             shape_res = self._train_datasets[first_idx].shape[1:]
-            return self._alloc((total_rows, *shape_res), dtype)
+            return self._alloc((total_rows, *shape_res), dtype, use_pinned=self._preload_to_gpu)
 
     def _dtypes_homogeneous(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> bool:
         """Whether all requested datasets share the same dtype(s).
@@ -624,9 +624,9 @@ class Loader[
                 nnz = int((ds.indptr[rows + 1] - ds.indptr[rows]).sum())
                 outs[idx] = CSRContainer(
                     elems=(
-                        self._alloc((nnz,), ds.data.dtype),
-                        self._alloc((nnz,), ds.indices.dtype),
-                        np.empty(len(rows) + 1, dtype=ds.indptr.dtype),
+                        self._alloc((nnz,), ds.data.dtype, use_pinned=False),
+                        self._alloc((nnz,), ds.indices.dtype, use_pinned=False),
+                        self._alloc((len(rows) + 1,), np.min_scalar_type(nnz), use_pinned=False),
                     ),
                     shape=(len(rows), self.n_var),
                     dtype=ds.data.dtype,
@@ -634,7 +634,7 @@ class Loader[
         else:
             for idx, rows in dataset_index_to_rows.items():
                 ds = self._train_datasets[idx]
-                outs[idx] = self._alloc((len(rows), *ds.shape[1:]), ds.dtype)
+                outs[idx] = self._alloc((len(rows), *ds.shape[1:]), ds.dtype, use_pinned=False)
         return outs
 
     def _concatenate_outs(self, outs: OrderedDict[int, CSRContainer | np.ndarray]) -> CSRContainer | np.ndarray:
@@ -643,12 +643,11 @@ class Loader[
         if isinstance(values[0], CSRContainer):
             data_dtype = np.result_type(*[o.elems[0].dtype for o in values])
             indices_dtype = np.result_type(*[o.elems[1].dtype for o in values])
-            indptr_dtype = np.result_type(*[o.elems[2].dtype for o in values])
             total_nnz = sum(o.elems[0].size for o in values)
             total_rows = sum(o.shape[0] for o in values)
-            data = self._alloc((total_nnz,), data_dtype)
-            indices = self._alloc((total_nnz,), indices_dtype)
-            indptr = np.empty(total_rows + 1, dtype=indptr_dtype)
+            data = self._alloc((total_nnz,), data_dtype, use_pinned=self._preload_to_gpu)
+            indices = self._alloc((total_nnz,), indices_dtype, use_pinned=self._preload_to_gpu)
+            indptr = self._alloc((total_rows + 1,), np.min_scalar_type(total_nnz), use_pinned=self._preload_to_gpu)
             indptr[0] = 0
             nnz_offset = 0
             row_offset = 0
@@ -667,7 +666,7 @@ class Loader[
             )
         dtype = np.result_type(*[o.dtype for o in values])
         total_rows = sum(o.shape[0] for o in values)
-        out = self._alloc((total_rows, *values[0].shape[1:]), dtype)
+        out = self._alloc((total_rows, *values[0].shape[1:]), dtype, use_pinned=self._preload_to_gpu)
         offset = 0
         for o in values:
             out[offset : offset + o.shape[0]] = o
