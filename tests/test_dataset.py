@@ -158,7 +158,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
             ),
             id=f"chunk_size={chunk_size}-preload_nchunks={preload_nchunks}-open_func={open_func.__name__[5:] if open_func is not None else 'None'}-batch_size={batch_size}{'-cupy' if preload_to_gpu else ''}",  # type: ignore[attr-defined]
             marks=([skip_if_no_cupy, pytest.mark.gpu] if preload_to_gpu else [])
-            + ([skip_if_no_numba] if open_func is open_sparse else []),
+            + ([skip_if_no_numba] if open_func is open_in_memory_sparse else []),
         )
         for chunk_size, preload_nchunks, open_func, batch_size, preload_to_gpu in [
             elem
