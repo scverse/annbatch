@@ -692,3 +692,55 @@ def test_string_size_params_end_to_end(tmp_path: Path, shard_size: int | str, da
                     f"dataset {dataset_grp.name} data is {total_data_bytes}B, "
                     f"expected >= {budget * 0.9:.0f}B (90% of budget)"
                 )
+
+
+@pytest.mark.parametrize("is_h5ad", [False, True], ids=["zarr", "h5ad"])
+def test_dataset_collection_obs_empty(tmp_path, is_h5ad):
+    if is_h5ad:
+        empty_dir = tmp_path / "empty_h5ad_collection"
+        empty_dir.mkdir()
+        with pytest.warns(UserWarning, match="Loading h5ad is currently not supported"):
+            collection = DatasetCollection(empty_dir, is_collection_h5ad=True)
+    else:
+        collection = DatasetCollection(tmp_path / "empty_collection.zarr")
+    assert collection.obs().empty
+
+
+@pytest.mark.parametrize("is_h5ad", [False, True], ids=["zarr", "h5ad"])
+@pytest.mark.parametrize(
+    ("columns", "expected"),
+    [
+        pytest.param(None, ["label", "store_id", "numeric", "src_path"], id="all_columns"),
+        pytest.param(["label"], ["label"], id="one_column"),
+        pytest.param(["label", "numeric"], ["label", "numeric"], id="multiple_columns"),
+        pytest.param([], [], id="empty_columns"),
+    ],
+)
+def test_dataset_collection_obs_columns(adata_with_h5_path_different_var_space, tmp_path, is_h5ad, columns, expected):
+    if is_h5ad:
+        output_path = tmp_path / "multi_col_collection"
+        with pytest.warns(UserWarning, match="Loading h5ad is currently not supported"):
+            collection = DatasetCollection(output_path, is_collection_h5ad=True)
+    else:
+        output_path = tmp_path / "multi_col_collection.zarr"
+        collection = DatasetCollection(output_path)
+
+    h5_files = sorted(adata_with_h5_path_different_var_space[1].glob("*.h5ad"))
+
+    collection.add_adatas(
+        h5_files,
+        n_obs_per_chunk=10,
+        shard_size=20,
+        dataset_size=60,
+        shuffle_chunk_size=10,
+    )
+
+    h5_obs_all = collection.obs()
+    res = collection.obs(columns=columns)
+
+    if columns is None:
+        assert set(expected).issubset(set(res.columns))
+    else:
+        assert set(res.columns) == set(expected)
+        for col in expected:
+            pd.testing.assert_series_equal(res[col], h5_obs_all[col])

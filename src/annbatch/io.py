@@ -46,6 +46,15 @@ def _ds_to_memory(ds: Dataset2D) -> pd.DataFrame:
     return df
 
 
+def _read_obs_dataframe(obs_group: zarr.Group | h5py.Group, columns: None | list[str] = None) -> pd.DataFrame:
+    all_cols = obs_group.attrs.get("column-order", [])
+    cols_to_read = all_cols if columns is None else [c for c in columns if c in all_cols]
+    index_key = obs_group.attrs.get("_index", "_index")
+    index_data = ad.io.read_elem(obs_group[index_key])
+    col_data = {col: ad.io.read_elem(obs_group[col]) for col in cols_to_read}
+    return pd.DataFrame(col_data, index=index_data)
+
+
 def _default_load_adata[T: zarr.Group | h5py.Group | PathLike[str] | str](x: T) -> ad.AnnData:
     # https://github.com/scverse/anndata/issues/2475 for load_annotation_index
     adata = ad.experimental.read_lazy(x, load_annotation_index=Version(version("pandas")) >= Version("3"))
@@ -601,6 +610,47 @@ class DatasetCollection:
             if isinstance(self._group, zarr.Group)
             else (len(list(self._group.iterdir())) == 0)
         )
+
+    def obs(self, columns: None | list[str] = None) -> pd.DataFrame:
+        """Get the concatenated observations annotations as a {class}`pandas.DataFrame` across the collection.
+
+        Parameters
+        ----------
+            columns
+                List of columns to retrieve. If None, all columns will be retrieved.
+                If an empty list, an empty DataFrame will be returned.
+
+        Returns
+        -------
+            DataFrame containing the concatenated observations.
+
+        Examples
+        --------
+        >>> collection = DatasetCollection("path/to/collection.zarr")
+        >>> # If the column was stored with categorical dtype and you need the `pd.Categorical` type for `ClassSampler`:
+        >>> classes = collection.obs(columns=["cell_type"])["cell_type"].values
+        >>> # If you want to use `ClassSampler` but the on-disk type isn't categorical
+        >>> classes = pd.Categorical(collection.obs(columns=["label"])["label"])
+        """
+        if columns is not None and len(columns) == 0:
+            return pd.DataFrame()
+
+        obs_dfs = []
+        if isinstance(self._group, zarr.Group):
+            for dataset_key in self._dataset_keys:
+                obs_dfs.append(_read_obs_dataframe(self._group[dataset_key]["obs"], columns))
+        else:
+            h5ad_files = sorted(
+                self._group.glob(f"{DATASET_PREFIX}_*.h5ad"),
+                key=lambda x: int(x.stem.split("_")[1]),
+            )
+            for file_path in h5ad_files:
+                with h5py.File(file_path, "r") as f:
+                    obs_dfs.append(_read_obs_dataframe(f["obs"], columns))
+
+        if len(obs_dfs) == 0:
+            return pd.DataFrame()
+        return pd.concat(obs_dfs)
 
     @_with_settings
     def add_adatas(
