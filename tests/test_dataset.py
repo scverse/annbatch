@@ -771,24 +771,6 @@ def test_chunks_deprecation_warning(adata_with_zarr_path_same_var_space: tuple[a
     assert len(batches) == 1
 
 
-def test_dataset_collection_obs_zarr(simple_collection):
-    adata, collection = simple_collection
-
-    # Test obs() with columns=None
-    obs_all = collection.obs()
-    assert not obs_all.empty
-    assert {"label", "src_path"}.issubset(set(obs_all.columns))
-
-    # Test obs() with a specific column subset
-    obs_subset = collection.obs(columns=["label"])
-    assert list(obs_subset.columns) == ["label"]
-    pd.testing.assert_series_equal(obs_subset["label"], obs_all["label"])
-
-    # Test obs() with columns=[]
-    obs_empty_cols = collection.obs(columns=[])
-    assert obs_empty_cols.empty
-
-
 @pytest.mark.parametrize("is_h5ad", [False, True], ids=["zarr", "h5ad"])
 def test_dataset_collection_obs_empty(tmp_path, is_h5ad):
     if is_h5ad:
@@ -823,13 +805,15 @@ def test_dataset_collection_obs_multiple_columns(adata_with_h5_path_different_va
 
     # Test columns=None
     h5_obs_all = collection.obs()
-    assert "label" in h5_obs_all.columns
-    assert "store_id" in h5_obs_all.columns
-    assert "numeric" in h5_obs_all.columns
-    assert "src_path" in h5_obs_all.columns
+    expected_cols = {"label", "store_id", "numeric", "src_path"}
+    assert expected_cols.issubset(set(h5_obs_all.columns))
 
     # Test multiple columns
     h5_obs_subset = collection.obs(columns=["label", "numeric"])
     assert list(h5_obs_subset.columns) == ["label", "numeric"]
     pd.testing.assert_series_equal(h5_obs_subset["label"], h5_obs_all["label"])
     pd.testing.assert_series_equal(h5_obs_subset["numeric"], h5_obs_all["numeric"])
+
+    # Test obs() with columns=[]
+    obs_empty_cols = collection.obs(columns=[])
+    assert obs_empty_cols.empty
