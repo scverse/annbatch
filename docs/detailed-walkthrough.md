@@ -60,6 +60,7 @@ Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of n
 :::{important}
 As mentioned above, ensuring uniform dtypes across your training collection is important for performance.
 For in-memory data, this transformation should be trivial.
+:::
 
 ### User configurable sampling strategy
 
