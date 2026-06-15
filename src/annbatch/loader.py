@@ -998,7 +998,9 @@ class Loader[
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
             for split in splits:
                 sel = inv[split]
-                if len(sel) > 0 and np.all(np.diff(sel) == 1):
+
+                # Use basic slicing for contiguous selections to avoid costly fancy indexing on the loaded memory
+                if len(sel) > 0 and ((sel[-1] - sel[0] == len(sel) - 1 and  np.all(np.diff(sel) == 1))):
                     sel = slice(sel[0], sel[-1] + 1)
 
                 data = in_memory_data[sel]
