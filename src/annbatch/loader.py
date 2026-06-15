@@ -1000,7 +1000,7 @@ class Loader[
                 sel = inv[split]
 
                 # Use basic slicing for contiguous selections to avoid costly fancy indexing on the loaded memory
-                if len(sel) > 0 and ((sel[-1] - sel[0] == len(sel) - 1 and  np.all(np.diff(sel) == 1))):
+                if len(sel) > 0 and (sel[-1] - sel[0] == len(sel) - 1 and np.all(np.diff(sel) == 1)):
                     sel = slice(sel[0], sel[-1] + 1)
 
                 data = in_memory_data[sel]
