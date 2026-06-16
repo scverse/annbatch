@@ -996,7 +996,7 @@ class Loader[
                 raw_out_arr = self._np_module.asarray(raw_out)
                 needed_len = len(concat_splits)
                 feature_shape = raw_out_arr.shape[1:]
-                if self._dense_split_buffer is None:
+                if self._dense_split_buffer is None or self._dense_split_buffer.dtype != raw_out_arr.dtype:
                     self._dense_split_buffer = self._np_module.empty(
                         (needed_len, *feature_shape),
                         raw_out_arr.dtype,
