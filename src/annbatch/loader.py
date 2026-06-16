@@ -1023,7 +1023,7 @@ class Loader[
             for split in splits:
                 end = start + len(split)
                 # if data is sparse splits isn't applied to it yet
-                data = in_memory_data[sel] if is_sparse else in_memory_data[slice(start, end)]
+                data = in_memory_data[inv[split]] if is_sparse else in_memory_data[slice(start, end)]
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                     "obs": concatenated_obs.iloc[start:end] if concatenated_obs is not None else None,
