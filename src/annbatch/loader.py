@@ -95,13 +95,11 @@ class Loader[
 ](IterableDataset):
     """A loader for on-disk data anndata stores.
 
-    This loader batches together slice requests to the underlying stores to achieve higher performance.
-    This custom code to do this task will be upstreamed into anndata at some point and no longer rely on private zarr apis.
+    This loader by default batches together slice requests (`chunk_size` parameter) to the underlying stores to achieve higher performance.
+    You can also use `chunk_size==1` for perfect random sampling (for relevant samplers), although this comes at a performance penalty for on-disk (and likely in-memory) data as well.
+    Custom samplers are supported via the `batch_sampler` argument.
+    We thus recommend using {class}`~annbatch.DatasetCollection` to preshuffle your data (or pre-shuffling in-memory).
     The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
-
-    The dataset class on its own is quite performant for "chunked loading" i.e., `chunk_size > 1`.
-    When `chunk_size == 1`, a :class:`torch.utils.data.DataLoader` should wrap the dataset object.
-    In this case, be sure to use `spawn` multiprocessing in the wrapping loader.
 
     If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
     If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
