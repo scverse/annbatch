@@ -995,7 +995,6 @@ class Loader[
                     shape=raw_out.shape,
                     dtype=_cupy_dtype(raw_out.dtype) if self._preload_to_gpu else raw_out.dtype,
                 )
-                in_memory_data = in_memory_data[sel]
             else:
                 raw_out_arr = self._np_module.asarray(raw_out)
                 needed_len = len(concat_splits)
@@ -1026,7 +1025,8 @@ class Loader[
             start = 0
             for split in splits:
                 end = start + len(split)
-                data = in_memory_data[start:end]
+                # if data is sparse splits isn't applied to it yet
+                data = in_memory_data[sel] if is_sparse else in_memory_data[slice(start, end)] 
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                     "obs": concatenated_obs.iloc[start:end] if concatenated_obs is not None else None,
