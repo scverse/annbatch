@@ -982,8 +982,7 @@ class Loader[
             inv = inv_buffer[:n]
             inv[order] = positions[:n]
             concat_splits = np.concatenate(splits)
-            sel = inv[concat_splits] # same as inv = positions[order] but reuses preallocated buffer
-
+            sel = inv[concat_splits]  # same as inv = positions[order] but reuses preallocated buffer
 
             raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
 
@@ -1009,7 +1008,7 @@ class Loader[
                     sel,
                     axis=0,
                     out=in_memory_data,
-                    **({"mode": "clip"} if not self._preload_to_gpu else {}), # cp.take doesn't have mode kwarg
+                    **({"mode": "clip"} if not self._preload_to_gpu else {}),  # cp.take doesn't have mode kwarg
                 )
 
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_rows)
@@ -1024,7 +1023,7 @@ class Loader[
             for split in splits:
                 end = start + len(split)
                 # if data is sparse splits isn't applied to it yet
-                data = in_memory_data[sel] if is_sparse else in_memory_data[slice(start, end)] 
+                data = in_memory_data[sel] if is_sparse else in_memory_data[slice(start, end)]
                 yield {
                     "X": data if not self._to_torch else to_torch(data, self._preload_to_gpu),
                     "obs": concatenated_obs.iloc[start:end] if concatenated_obs is not None else None,
