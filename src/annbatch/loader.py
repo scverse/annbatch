@@ -98,7 +98,7 @@ class Loader[
     This loader by default batches together slice requests (`chunk_size` parameter) to the underlying stores to achieve higher performance.
     You can also use `chunk_size==1` for perfect random sampling (for relevant samplers), although this comes at a performance penalty for on-disk (and likely in-memory) data as well.
     Custom samplers are supported via the `batch_sampler` argument.
-    We thus recommend using {class}`~annbatch.DatasetCollection` to preshuffle your data (or pre-shuffling in-memory).
+    We thus recommend using :class:`~annbatch.DatasetCollection` to preshuffle your data (or pre-shuffling in-memory).
     The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
 
     If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
