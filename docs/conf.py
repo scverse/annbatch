@@ -103,6 +103,7 @@ intersphinx_mapping = {
     "zarrs": ("https://zarrs-python.readthedocs.io/en/latest/", None),
     "pandas": ("https://pandas.pydata.org/pandas-docs/version/2.3", None),
     "h5py": ("https://docs.h5py.org/en/latest", None),
+    "cellink": ("https://cellink-docs.readthedocs.io/en/latest", None),
 }
 
 # List of patterns, relative to source directory, that match files and
