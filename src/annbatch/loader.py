@@ -997,10 +997,9 @@ class Loader[
                 needed_len = len(concat_splits)
                 feature_shape = raw_out_arr.shape[1:]
                 if self._dense_split_buffer is None:
-                    self._dense_split_buffer = self._alloc(
+                    self._dense_split_buffer = self._np_module.empty(
                         (needed_len, *feature_shape),
                         raw_out_arr.dtype,
-                        use_pinned=self._preload_to_gpu,
                     )
                 in_memory_data = self._dense_split_buffer[:needed_len]
                 self._np_module.take(
