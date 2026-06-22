@@ -171,6 +171,7 @@ ini_options.xfail_strict = true
 ini_options.filterwarnings = [
   "error",
   "ignore:(Observation|Variable) names are not unique. To make them unique:UserWarning",
+  "ignore:.* argument is deprecated and will be removed in the future:DeprecationWarning",
   "ignore:.*FixedLengthUTF32:zarr.core.dtype.common.UnstableSpecificationWarning",
   "ignore:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
   "ignore::anndata._warnings.ImplicitModificationWarning",
@@ -195,5 +196,5 @@ skip = [
   "docs/changelog.md",
   "docs/references.bib",
   "docs/references.md",
-  "docs/notebooks/example.ipynb",
+  "docs/tutorials/quickstart.ipynb",
 ]
