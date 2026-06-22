@@ -39,11 +39,11 @@ New to *annbatch*? Check out the installation guide and pick the right extras.
 A hands-on notebook: convert your `.h5ad` files and stream shuffled mini-batches.
 :::
 
-:::{grid-item-card} {octicon}`list-unordered;1.5em;sd-mr-1` Guides by data type
+:::{grid-item-card} {octicon}`list-unordered;1.5em;sd-mr-1` Tutorials
 :link: tutorials/scrnaseq
 :link-type: doc
 
-End-to-end runnable guides: scRNA-seq, genetics (VCF), microscopy images, and multi-GPU training.
+End-to-end runnable tutorials: scRNA-seq, genetics (VCF), microscopy images, and multi-GPU training.
 :::
 
 :::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` User guide
@@ -100,13 +100,6 @@ references
 :maxdepth: 1
 
 tutorials/quickstart
-```
-
-```{toctree}
-:caption: Guides by data type
-:hidden:
-:maxdepth: 1
-
 tutorials/scrnaseq
 tutorials/genetics
 tutorials/images
