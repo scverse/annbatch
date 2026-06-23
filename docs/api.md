@@ -5,7 +5,7 @@
 ```
 
 (loaders)=
-## Loaders
+## Loader
 
 ```{eval-rst}
 .. autosummary::
