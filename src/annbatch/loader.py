@@ -777,7 +777,7 @@ class Loader[
         return self._sparse_dataset_elem_cache[dataset_idx]
 
     @_fetch_data.register
-    async def _fetch_data_csr_matrix(
+    async def _fetch_data_numpy_matrix(
         self,
         dataset: np.ndarray,
         rows: np.ndarray,

@@ -16,8 +16,21 @@
     Loader.__iter__
 ```
 
-(samplers)=
+(io-helpers)=
+## io helpers
 
+```{eval-rst}
+.. module:: annbatch
+   :no-index:
+
+.. autosummary::
+   :toctree: generated/
+
+    write_sharded
+    DatasetCollection
+```
+
+(samplers)=
 ## Samplers
 
 ```{eval-rst}
@@ -30,21 +43,6 @@
     RandomSampler
     SequentialSampler
     DistributedSampler
-```
-
-(io-helpers)=
-
-## io helpers
-
-```{eval-rst}
-.. module:: annbatch
-   :no-index:
-
-.. autosummary::
-   :toctree: generated/
-
-    write_sharded
-    DatasetCollection
 ```
 
 (abc)=
