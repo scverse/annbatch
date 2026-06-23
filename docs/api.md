@@ -5,7 +5,6 @@
 ```
 
 (loaders)=
-
 ## Loaders
 
 ```{eval-rst}
@@ -47,20 +46,25 @@
 
 (abc)=
 ## abc
+
 ```{eval-rst}
+.. module:: annbatch.abc
+
 .. autosummary::
    :toctree: generated/
 
-    abc.Sampler
+    Sampler
 ```
 
 (types)=
 ## types
 
 ```{eval-rst}
+.. module:: annbatch.types
+
 .. autosummary::
    :toctree: generated/
 
-    types.LoaderOutput
-    types.LoadRequest
+    LoaderOutput
+    LoadRequest
 ```
