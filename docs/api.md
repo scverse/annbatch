@@ -5,8 +5,7 @@
 ```
 
 (loaders)=
-
-## Loaders
+## Loader
 
 ```{eval-rst}
 .. autosummary::
@@ -16,8 +15,21 @@
     Loader.__iter__
 ```
 
-(samplers)=
+(io-helpers)=
+## io helpers
 
+```{eval-rst}
+.. module:: annbatch
+   :no-index:
+
+.. autosummary::
+   :toctree: generated/
+
+    write_sharded
+    DatasetCollection
+```
+
+(samplers)=
 ## Samplers
 
 ```{eval-rst}
@@ -32,37 +44,27 @@
     DistributedSampler
 ```
 
-(io-helpers)=
-
-## io helpers
-
-```{eval-rst}
-.. module:: annbatch
-   :no-index:
-
-.. autosummary::
-   :toctree: generated/
-
-    write_sharded
-    DatasetCollection
-```
-
 (abc)=
 ## abc
+
 ```{eval-rst}
+.. module:: annbatch.abc
+
 .. autosummary::
    :toctree: generated/
 
-    abc.Sampler
+    Sampler
 ```
 
 (types)=
 ## types
 
 ```{eval-rst}
+.. module:: annbatch.types
+
 .. autosummary::
    :toctree: generated/
 
-    types.LoaderOutput
-    types.LoadRequest
+    LoaderOutput
+    LoadRequest
 ```
