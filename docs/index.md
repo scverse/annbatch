@@ -10,6 +10,7 @@ into memory, while keeping your GPU fed with high-throughput, shuffled mini-batc
 ```{note}
 You can also use the {class}`annbatch.Loader` on raw {class}`zarr.Array` objects via {meth}`~annbatch.Loader.add_datasets` if your object does not fit the {class}`anndata.AnnData` class object cleanly, as long as the data is semantically row-wise oriented on-disk.
 The {meth}`annbatch.Loader.__iter__` fetching of (contiguous) data is simply done along the first (0th) axis of your data i.e., on-disk zarr with potentially more than two dimensions.
+See the {doc}`single-cell microscopy images tutorial <tutorials/images>` for an example that streams a 4-dimensional image stack this way.
 {class}`~anndata.AnnData` simply provides a convenient wrapper for providing *annotated data* with two dimensions.
 
 Note that the preshuffler {class}`~annbatch.DatasetCollection` requires `AnnData` inputs, and that preshuffling is **highly** recommended for top performance.
@@ -33,10 +34,17 @@ New to *annbatch*? Check out the installation guide and pick the right extras.
 :::
 
 :::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Quickstart
-:link: notebooks/example
+:link: tutorials/quickstart
 :link-type: doc
 
 A hands-on notebook: convert your `.h5ad` files and stream shuffled mini-batches.
+:::
+
+:::{grid-item-card} {octicon}`list-unordered;1.5em;sd-mr-1` Tutorials
+:link: tutorials/scrnaseq
+:link-type: doc
+
+End-to-end runnable tutorials: scRNA-seq, genetics (VCF), microscopy images, and multi-GPU training.
 :::
 
 :::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` User guide
@@ -92,7 +100,11 @@ references
 :hidden:
 :maxdepth: 1
 
-notebooks/example
+tutorials/quickstart
+tutorials/scrnaseq
+tutorials/genetics
+tutorials/images
+tutorials/distributed
 ```
 
 ```{toctree}
