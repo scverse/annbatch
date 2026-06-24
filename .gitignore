@@ -26,3 +26,7 @@ __pycache__/
 
 # test-time
 pre-deps.txt
+
+# test datasets
+*.zarr
+*.h5ad
