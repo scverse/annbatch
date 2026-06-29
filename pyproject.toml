@@ -167,10 +167,6 @@ overrides = [ { module = [ "anndata.*", "cupy.*", "cupyx.*", "h5py.*", "torch.*"
 ini_options.testpaths = [ "tests" ]
 ini_options.markers = [ "gpu: mark test to run on GPU" ]
 ini_options.xfail_strict = true
-# https://github.com/pytest-dev/pytest/issues/10965
-# addopts = [
-#   "--import-mode=importlib", # allow using test files with same name
-# ]
 ini_options.filterwarnings = [
   "error",
   "ignore:(Observation|Variable) names are not unique. To make them unique:UserWarning",
@@ -181,6 +177,10 @@ ini_options.filterwarnings = [
   "ignore:Consolidated metadata is:UserWarning",
   "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
 ]
+# https://github.com/pytest-dev/pytest/issues/10965
+# addopts = [
+#   "--import-mode=importlib", # allow using test files with same name
+# ]
 
 [tool.coverage]
 run.omit = [
