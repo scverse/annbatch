@@ -228,7 +228,7 @@ class Loader[
                 )
             else:
                 self._batch_sampler = SequentialSampler(**resolved_core_args)
-        if to is None:
+        if to is Default:
             if to_torch is None:
                 to_torch = find_spec("torch") is not None
                 if to_torch:
