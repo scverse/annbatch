@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import random
+import subprocess
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,6 +19,11 @@ from annbatch.io import DatasetCollection
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+if find_spec("jax"):
+    import jax
+
+    jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture(params=[False, True], ids=["zarr-python", "zarrs"])
@@ -168,3 +175,17 @@ def maybe_mixed_dtype_collection(
             "mixed-dtype fixture failed to produce differing sparse layer dtypes"
         )
     return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection, is_mixed
+
+
+def pytest_itemcollected(item: pytest.Item) -> None:
+    """Define behavior of pytest.mark.{gpu,array_api}."""
+    is_marked = len(list(item.iter_markers(name="gpu"))) > 0
+    if is_marked:
+        try:
+            has_gpu = (
+                subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            )
+        except FileNotFoundError:
+            has_gpu = False
+        if not has_gpu:
+            item.add_marker(pytest.mark.skip())

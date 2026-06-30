@@ -62,6 +62,13 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+optional-dependencies.jax = [ "jax" ]
+optional-dependencies.jax-cuda12 = [
+  "jax[cuda12]",
+]
+optional-dependencies.jax-cuda13 = [
+  "jax[cuda13]",
+]
 optional-dependencies.numba = [
   "numba",
 ]
@@ -92,7 +99,7 @@ envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 envs.hatch-test.python = "3.14"
 envs.hatch-test.features = [ "test" ]
 envs.hatch-test.matrix = [
-  { deps = [ "min-low", "pre", "torch", "min-high", "numba" ] },
+  { deps = [ "min-low", "pre", "torch", "min-high", "numba", "jax" ] },
 ]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
@@ -103,6 +110,7 @@ envs.hatch-test.overrides.matrix.deps.env-vars = [
 envs.hatch-test.overrides.matrix.deps.features = [
   { value = "torch", if = [ "torch" ] },
   { value = "numba", if = [ "numba" ] },
+  { value = "jax", if = [ "jax" ] },
 ]
 envs.hatch-test.overrides.matrix.deps.pre-install-commands = [
   { value = "echo 'zarr @ git+https://github.com/zarr-developers/zarr-python.git' > pre-deps.txt", if = [

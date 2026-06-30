@@ -19,3 +19,10 @@ if TYPE_CHECKING or find_spec("cupyx"):
     from cupyx.scipy.sparse import csr_matrix as CupyCSRMatrix
 else:
     CupyCSRMatrix = type("csr_matrix", (), {"__module__": "cupyx.scipy.sparse"})
+
+if TYPE_CHECKING or find_spec("jax"):
+    from jax import Array as JaxArray
+    from jax.experimental.sparse import CSR as JAXCsrMatrix
+else:
+    JAXCsrMatrix = type("CSR", (), {"__module__": "jax.experimental.sparse"})
+    JaxArray = type("Array", (), {"__module__": "jax"})

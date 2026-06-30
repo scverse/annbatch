@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from importlib.util import find_spec
 from types import NoneType
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import anndata as ad
 import h5py
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
 skip_if_no_torch = pytest.mark.skipif(find_spec("torch") is None, reason="Need torch installed.")
 skip_if_no_numba = pytest.mark.skipif(find_spec("numba") is None, reason="Can't test for in-memory without numba")
+skip_if_no_jax = pytest.mark.skipif(find_spec("jax") is None, reason="Need jax installed.")
 
 
 class Data(TypedDict):
@@ -146,7 +147,7 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     return_index=True,
                     batch_size=batch_size,
                     preload_to_gpu=preload_to_gpu,
-                    to_torch=False,
+                    to=None,
                 ).use_collection(
                     collection,
                     **(
@@ -296,7 +297,9 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
 
 
 @pytest.mark.gpu
-@skip_if_no_torch
+@pytest.mark.parametrize(
+    "to", [pytest.param("torch", marks=skip_if_no_torch), pytest.param("jax", marks=skip_if_no_jax), None]
+)
 @pytest.mark.parametrize(
     "preload_to_gpu",
     [
@@ -309,13 +312,12 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
     ids=["preload_to_gpu", "dont_preload_to_gpu"],
 )
 @pytest.mark.parametrize("open_func", [open_sparse, open_dense])
-def test_to_torch(
+def test_to(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     open_func: Callable[[Path], Data],
     preload_to_gpu: bool,
+    to: Literal["torch", "jax"],
 ):
-    import torch
-
     # batch_size guaranteed to have leftovers to drop
     ds = Loader(
         shuffle=False,
@@ -324,10 +326,22 @@ def test_to_torch(
         batch_size=25,
         preload_to_gpu=preload_to_gpu,
         return_index=True,
-        to_torch=True,
+        to="torch",
     )
     ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
-    assert isinstance(next(iter(ds))["X"], torch.Tensor)
+    if to == "torch":
+        import torch
+
+        assert isinstance(next(iter(ds))["X"], torch.Tensor)
+    elif to == "jax":
+        import jax
+
+        assert isinstance(next(iter(ds))["X"], jax.Array if open_func is open_dense else jax.experimental.sparse.CSR)
+    elif preload_to_gpu:
+        import cupy
+        import cupyx
+
+        assert isinstance(next(iter(ds))["X"], cupy.ndarray if open_func is open_dense else cupyx.sparse.csr_matrix)
 
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
@@ -346,7 +360,7 @@ def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
         preload_to_gpu=False,
         return_index=True,
         drop_last=drop_last,
-        to_torch=False,
+        to=None,
     )
     ds.add_dataset(**open_sparse(zarr_path))
     batches = []
@@ -380,7 +394,7 @@ def test_len(
         shuffle=False,
         batch_size=batch_size,
         preload_to_gpu=False,
-        to_torch=False,
+        to=None,
         drop_last=drop_last,
     )
     loader.add_dataset(**data)
@@ -402,7 +416,7 @@ def test_bad_adata_X_hdf5(
             chunk_size=10,
             preload_nchunks=10,
             preload_to_gpu=False,
-            to_torch=False,
+            to=None,
         )
         with pytest.raises(TypeError, match="Cannot add"):
             ds.add_dataset(data)
@@ -477,15 +491,15 @@ def test_torch_multiprocess_dataloading_zarr(
     ids=["no_cupy", "cupy"],
 )
 @pytest.mark.parametrize(
-    "to_torch",
-    [False, pytest.param(True, marks=[skip_if_no_torch])],
-    ids=["no_torch", "torch"],
+    "to",
+    [None, pytest.param("torch", marks=[skip_if_no_torch]), pytest.param("jax", marks=[skip_if_no_jax])],
+    ids=["no_to", "torch", "jax"],
 )
 def test_3d(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     use_zarrs: bool,
     preload_to_gpu: bool,
-    to_torch: bool,
+    to: Literal["jax", "torch"] | None,
 ):
     ds = Loader(
         chunk_size=10,
@@ -493,7 +507,7 @@ def test_3d(
         shuffle=True,
         return_index=True,
         preload_to_gpu=preload_to_gpu,
-        to_torch=to_torch,
+        to=to,
     )
     ds.add_datasets(
         **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
@@ -503,16 +517,21 @@ def test_3d(
     x_list, idx_list = [], []
     for batch in ds:
         x, idxs = batch["X"], batch["index"]
-        if preload_to_gpu and not to_torch:
+        if preload_to_gpu and to is None:
             import cupy as cp
 
             assert isinstance(x, cp.ndarray)
             x = x.get()
-        if to_torch:
+        elif to == "torch":
             import torch
 
             assert isinstance(x, torch.Tensor)
             x = x.cpu().numpy()
+        elif to == "jax":
+            import jax
+
+            assert isinstance(x, jax.Array)
+            x = np.array(x)
         x_list.append(x)
         idx_list.append(idxs.ravel())
     x = np.vstack(x_list)
@@ -521,25 +540,33 @@ def test_3d(
     assert np.array_equal(x[np.argsort(idxs)], x_ref)
 
 
-@pytest.mark.skipif(
-    find_spec("cupy") is not None,
-    reason="Can't test for preload_to_gpu True ImportError with cupy installed",
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        *(
+            pytest.param(
+                {"to": lib, "preload_to_gpu": False},
+                marks=pytest.mark.skipif(
+                    find_spec(lib) is not None,
+                    reason=f"Can't test for to='{lib}' True ImportError with {lib} installed",
+                ),
+                id=lib,
+            )
+            for lib in ["jax", "torch"]
+        ),
+        pytest.param(
+            {"preload_to_gpu": True},
+            marks=pytest.mark.skipif(
+                find_spec("cupy") is not None,
+                reason="Can't test for preload_to_gpu True ImportError with cupy installed",
+                id="cupy",
+            ),
+        ),
+    ],
 )
-def test_no_cupy():
-    with pytest.raises(
-        ImportError,
-        match=r"Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy.",
-    ):
-        Loader(chunk_size=10, preload_nchunks=4, preload_to_gpu=True, to_torch=False)
-
-
-@pytest.mark.skipif(
-    find_spec("torch") is not None,
-    reason="Can't test for to_torch True ImportError with torch installed",
-)
-def test_no_torch():
-    with pytest.raises(ImportError, match=r"Try `pip install torch`."):
-        Loader(chunk_size=10, preload_nchunks=4, to_torch=True, preload_to_gpu=False)
+def test_missing_gpu_lib(kwargs: dict):
+    with pytest.raises(ImportError, match=rf"Could not find {kwargs['to'] if 'to' in kwargs else 'cupy'}"):
+        Loader(chunk_size=10, preload_nchunks=4, **kwargs)
 
 
 @pytest.mark.skipif(
@@ -547,59 +574,13 @@ def test_no_torch():
     reason="Can't test for sparse in-memory ImportError with numba installed",
 )
 def test_no_numba_in_memory_sparse(monkeypatch: pytest.MonkeyPatch):
-    loader = Loader(chunk_size=10, preload_nchunks=4, to_torch=False, preload_to_gpu=False)
+    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
     sparse_data = sp.csr_matrix(np.eye(10, dtype=np.float32))
     with pytest.raises(
         ImportError,
         match=r"numba must be installed for in-memory sparse data",
     ):
         loader.add_dataset(sparse_data)
-
-
-def get_default_dense() -> type:
-    if find_spec("torch"):
-        from torch import Tensor as expected_dense
-    else:
-        from numpy import ndarray as expected_dense
-    return expected_dense
-
-
-def get_default_sparse() -> type:
-    if find_spec("cupy"):
-        from cupyx.scipy.sparse import csr_matrix as expected_sparse
-    else:
-        from scipy.sparse import csr_matrix as expected_sparse
-
-    return expected_sparse
-
-
-@pytest.mark.gpu
-@pytest.mark.parametrize(
-    ("expected_cls", "kwargs"),
-    (
-        pytest.param(get_default_dense(), {"preload_to_gpu": False}, id="torch"),
-        pytest.param(get_default_sparse(), {"to_torch": False}, id="cupy"),
-    ),
-)
-def test_default_data_structures(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
-    expected_cls: type,
-    kwargs: dict,
-):
-    # format is a smoke test for sparse
-    ds = Loader(
-        chunk_size=10,
-        preload_nchunks=4,
-        batch_size=20,
-        shuffle=True,
-        return_index=False,
-        **kwargs,
-    ).add_dataset(
-        **(open_sparse if issubclass(expected_cls, get_default_sparse()) else open_dense)(
-            list(adata_with_zarr_path_same_var_space[1].iterdir())[0]
-        )
-    )
-    assert isinstance(next(iter(ds))["X"], expected_cls)
 
 
 def test_no_obs_no_var(simple_collection: tuple[ad.AnnData, DatasetCollection]):
@@ -692,7 +673,7 @@ def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
         batch_size=10,
         chunk_size=10,
         preload_nchunks=2,
-        to_torch=False,
+        to=None,
     ).add_adata(adata)
     assert next(iter(loader))["X"].dtype == expected
 
@@ -736,7 +717,7 @@ def test_add_dataset_validation_failure_preserves_state(
     data2 = open_dense(paths[1])
 
     sampler = FailOnSecondValidateSampler()
-    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to_torch=False)
+    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to=None)
 
     # First add succeeds
     loader.add_dataset(**data1)
@@ -775,7 +756,7 @@ def test_given_batch_sampler_samples_subset_of_combined_datasets(
         preload_nchunks=2,
     )
 
-    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to_torch=False, return_index=True)
+    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to=None, return_index=True)
     loader.add_datasets(**concat(datas))
 
     # Collect all yielded indices
@@ -795,7 +776,7 @@ def test_cannot_provide_batch_sampler_with_sampler_args(kwarg):
     """Test that providing batch_sampler with sampler args raises in constructor."""
     chunk_sampler = SequentialSampler(mask=slice(0, 50), batch_size=5, chunk_size=10, preload_nchunks=2)
     with pytest.raises(ValueError, match="Cannot specify.*when providing a custom sampler"):
-        Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to_torch=False, **kwarg)
+        Loader(batch_sampler=chunk_sampler, preload_to_gpu=False, to=None, **kwarg)
 
 
 def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
@@ -805,7 +786,7 @@ def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         batch_size=20,
         shuffle=True,
         rng=np.random.default_rng(0),
-        to_torch=False,
+        to=None,
     )
     ds2 = Loader(
         chunk_size=10,
@@ -813,7 +794,7 @@ def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         batch_size=20,
         shuffle=True,
         rng=np.random.default_rng(0),
-        to_torch=False,
+        to=None,
     )
     ds1.use_collection(
         simple_collection[1],
@@ -863,7 +844,7 @@ def test_splits_are_chunk_order_across_datasets(
         requests=[slice_from_data1, slice_from_data0],
         splits=[split_from_data1, split_from_data0],
     )
-    loader = Loader(batch_sampler=sampler, return_index=True, preload_to_gpu=False, to_torch=False)
+    loader = Loader(batch_sampler=sampler, return_index=True, preload_to_gpu=False, to=None)
     loader.add_dataset(**data0)
     loader.add_dataset(**data1)
 
@@ -890,7 +871,7 @@ def test_chunks_deprecation_warning(
         batch_sampler=ChunksSampler(batch_size=10, preload_nchunks=2, chunk_size=10),
         return_index=True,
         preload_to_gpu=False,
-        to_torch=False,
+        to=None,
     )
     loader.add_dataset(**data0)
 
