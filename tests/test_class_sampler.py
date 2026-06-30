@@ -442,7 +442,7 @@ def test_class_sampler_from_collection(simple_collection):
     )
 
     # Load it to the Loader
-    loader = Loader(batch_sampler=sampler, preload_to_gpu=False)
+    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to=None)
     loader.use_collection(collection)
 
     # Iterate through the loader and verify class-coherence of each batch

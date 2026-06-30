@@ -290,7 +290,7 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 
 
 def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
-    ds = Loader()
+    ds = Loader(to=None)
     ds = ds.use_collection(simple_collection[1])
     with pytest.raises(RuntimeError, match="You should not add multiple collections"):
         ds.use_collection(simple_collection[1])
@@ -556,7 +556,7 @@ def test_3d(
             for lib in ["jax", "torch"]
         ),
         pytest.param(
-            {"preload_to_gpu": True},
+            {"preload_to_gpu": True, "to": None},
             marks=pytest.mark.skipif(
                 find_spec("cupy") is not None,
                 reason="Can't test for preload_to_gpu True ImportError with cupy installed",
@@ -586,11 +586,7 @@ def test_no_numba_in_memory_sparse(monkeypatch: pytest.MonkeyPatch):
 
 def test_no_obs_no_var(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     # No obs loaded is actually None
-    ds = Loader(
-        chunk_size=10,
-        preload_nchunks=4,
-        batch_size=20,
-    ).use_collection(
+    ds = Loader(chunk_size=10, preload_nchunks=4, batch_size=20, to=None).use_collection(
         simple_collection[1],
         load_adata=lambda g: ad.AnnData(X=ad.io.sparse_dataset(g["layers"]["sparse"])),
     )
@@ -626,24 +622,24 @@ def test_mismatched_var_raises_error(tmp_path: Path, subtests):
     )
 
     with subtests.test(msg="add_adata"):
-        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20, to=None)
         loader.add_adata(adata1_on_disk)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
             loader.add_adata(adata2_on_disk)
 
     with subtests.test(msg="add_adatas"):
-        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20, to=None)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
             loader.add_adatas([adata1_on_disk, adata2_on_disk])
 
     with subtests.test(msg="add_dataset"):
-        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20, to=None)
         loader.add_dataset(adata1_on_disk.X, var=adata1_on_disk.var)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
             loader.add_dataset(adata2_on_disk.X, var=adata2_on_disk.var)
 
     with subtests.test(msg="add_datasets"):
-        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20)
+        loader = Loader(chunk_size=10, preload_nchunks=4, batch_size=20, to=None)
         with pytest.raises(ValueError, match="All datasets must have identical var DataFrames"):
             loader.add_datasets(
                 [adata1_on_disk.X, adata2_on_disk.X],
