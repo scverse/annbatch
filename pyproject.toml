@@ -40,11 +40,39 @@ optional-dependencies.cupy-cuda12 = [
 optional-dependencies.cupy-cuda13 = [
   "cupy-cuda13x[ctk]",
 ]
-optional-dependencies.dev = [
+optional-dependencies.jax = [ "jax" ]
+optional-dependencies.jax-cuda12 = [
+  "jax[cuda12]",
+]
+optional-dependencies.jax-cuda13 = [
+  "jax[cuda13]",
+]
+optional-dependencies.numba = [
+  "numba",
+]
+optional-dependencies.torch = [
+  "torch>=2",
+]
+optional-dependencies.zarrs = [
+  "zarrs>=0.2.1",
+]
+# https://docs.pypi.org/project_metadata/#project-urls
+urls.Documentation = "https://annbatch.readthedocs.io/"
+urls.Homepage = "https://github.com/scverse/annbatch"
+urls.Source = "https://github.com/scverse/annbatch"
+
+# Non-runtime dependencies (PEP 735 dependency groups), not published as extras.
+[dependency-groups]
+dev = [
   "pre-commit",
   "twine>=4.0.2",
 ]
-optional-dependencies.doc = [
+test = [
+  "annbatch[zarrs]",
+  "coverage",
+  "pytest",
+]
+doc = [
   "docutils>=0.8,!=0.18.*,!=0.19.*",
   "ipykernel",
   "ipython",
@@ -62,42 +90,16 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.jax = [ "jax" ]
-optional-dependencies.jax-cuda12 = [
-  "jax[cuda12]",
-]
-optional-dependencies.jax-cuda13 = [
-  "jax[cuda13]",
-]
-optional-dependencies.numba = [
-  "numba",
-]
-optional-dependencies.test = [
-  "annbatch[zarrs]",
-  "coverage",
-  "pytest",
-]
-optional-dependencies.torch = [
-  "torch>=2",
-]
-optional-dependencies.zarrs = [
-  "zarrs>=0.2.1",
-]
-# https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://annbatch.readthedocs.io/"
-urls.Homepage = "https://github.com/scverse/annbatch"
-urls.Source = "https://github.com/scverse/annbatch"
 
 [tool.hatch]
 version.source = "vcs"
 envs.default.installer = "uv"
-envs.default.features = [ "dev" ]
-envs.docs.features = [ "doc" ]
+envs.default.dependency-groups = [ "dev" ]
 envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
 envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
 envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+envs.docs.dependency-groups = [ "doc" ]
 envs.hatch-test.python = "3.14"
-envs.hatch-test.features = [ "test" ]
 envs.hatch-test.matrix = [
   { deps = [ "min-low", "pre", "torch", "min-high", "numba", "jax" ] },
 ]
@@ -120,6 +122,7 @@ envs.hatch-test.overrides.matrix.deps.pre-install-commands = [
 envs.hatch-test.overrides.matrix.deps.python = [
   { value = "3.12", if = [ "min-low" ] },
 ]
+envs.hatch-test.dependency-groups = [ "test" ]
 
 [tool.ruff]
 line-length = 120
@@ -172,10 +175,6 @@ overrides = [ { module = [ "anndata.*", "cupy.*", "cupyx.*", "h5py.*", "torch.*"
 ini_options.testpaths = [ "tests" ]
 ini_options.markers = [ "gpu: mark test to run on GPU" ]
 ini_options.xfail_strict = true
-# https://github.com/pytest-dev/pytest/issues/10965
-# addopts = [
-#   "--import-mode=importlib", # allow using test files with same name
-# ]
 ini_options.filterwarnings = [
   "error",
   "ignore:(Observation|Variable) names are not unique. To make them unique:UserWarning",
@@ -186,6 +185,10 @@ ini_options.filterwarnings = [
   "ignore:Consolidated metadata is:UserWarning",
   "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
 ]
+# https://github.com/pytest-dev/pytest/issues/10965
+# addopts = [
+#   "--import-mode=importlib", # allow using test files with same name
+# ]
 
 [tool.coverage]
 run.omit = [
@@ -203,5 +206,5 @@ skip = [
   "docs/changelog.md",
   "docs/references.bib",
   "docs/references.md",
-  "docs/notebooks/example.ipynb",
+  "docs/tutorials/quickstart.ipynb",
 ]

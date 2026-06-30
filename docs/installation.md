@@ -43,7 +43,7 @@ pip install "annbatch[zarrs,torch,cupy-cuda13]"
 (Replace `cupy-cuda13` with the extra matching your local CUDA version.)
 
 :::{important}
-Always quote the package specifier (`"annbatch[zarrs,torch]"`) and do **not** put spaces between
-the extras. Most shells (bash, zsh) treat the square brackets as glob patterns, so an unquoted
+Always quote the package specifier (`"annbatch[zarrs,torch]"`) and do **not** put spaces between the extras.
+Most shells (bash, zsh) treat the square brackets as glob patterns, so an unquoted
 `annbatch[zarrs,torch]` — or one written as `annbatch[zarrs, torch]` — will fail to install.
 :::

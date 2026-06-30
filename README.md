@@ -165,7 +165,7 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 
 [scverse]: https://scverse.org/
 
-[in-depth section of our docs]: https://annbatch.readthedocs.io/en/stable/notebooks/example.html
+[in-depth section of our docs]: https://annbatch.readthedocs.io/en/stable/tutorials/quickstart.html
 
 [installation]: https://annbatch.readthedocs.io/en/stable/installation.html
 
