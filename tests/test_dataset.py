@@ -341,7 +341,9 @@ def test_to(
         import cupy
         import cupyx
 
-        assert isinstance(next(iter(ds))["X"], cupy.ndarray if open_func is open_dense else cupyx.sparse.csr_matrix)
+        assert isinstance(
+            next(iter(ds))["X"], cupy.ndarray if open_func is open_dense else cupyx.scipy.sparse.csr_matrix
+        )
 
 
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
