@@ -326,7 +326,7 @@ def test_to(
         batch_size=25,
         preload_to_gpu=preload_to_gpu,
         return_index=True,
-        to="torch",
+        to=to,
     )
     ds.add_dataset(**open_func(next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))))
     if to == "torch":
