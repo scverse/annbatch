@@ -568,7 +568,7 @@ def test_3d(
     ],
 )
 def test_missing_gpu_lib(kwargs: dict):
-    with pytest.raises(ImportError, match=rf"Could not find {kwargs['to'] if 'to' in kwargs else 'cupy'}"):
+    with pytest.raises(ImportError, match=rf"Could not find {kwargs['to'] if kwargs['to'] is not None else 'cupy'}"):
         Loader(chunk_size=10, preload_nchunks=4, **kwargs)
 
 

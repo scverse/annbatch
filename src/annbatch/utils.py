@@ -163,14 +163,14 @@ def convert(input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["tor
 def _to_jax(input: OutputInMemoryArray_T):
     """Convert to jax"""
     import jax.numpy as jnp
-    from jax.experimental.sparse import BCSR
+    from jax.experimental.sparse import CSR
 
     if isinstance(input, sp.sparse.csr_matrix):
-        return BCSR.from_scipy_sparse(input)
+        return CSR.from_scipy_sparse(input)
     if isinstance(input, CupyArray | np.ndarray):
         return jnp.from_dlpack(input)
     if isinstance(input, CupyCSRMatrix):
-        return BCSR(
+        return CSR(
             (
                 jnp.from_dlpack(input.data),
                 jnp.from_dlpack(input.indices),
