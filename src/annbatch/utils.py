@@ -165,11 +165,9 @@ def _to_jax(input: OutputInMemoryArray_T):
     import jax.numpy as jnp
     from jax.experimental.sparse import CSR
 
-    if isinstance(input, sp.sparse.csr_matrix):
-        return CSR.from_scipy_sparse(input)
     if isinstance(input, CupyArray | np.ndarray):
         return jnp.from_dlpack(input)
-    if isinstance(input, CupyCSRMatrix):
+    if isinstance(input, CupyCSRMatrix | sp.sparse.csr_matrix):
         return CSR(
             (
                 jnp.from_dlpack(input.data),
