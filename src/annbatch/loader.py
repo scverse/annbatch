@@ -149,8 +149,8 @@ class Loader[
                 Use `to` instead
         to
             The output library for which you would like your array output.
-            The default is no-op, but use `None` to smooth the transition for when `to_torch=False` i.e.,
-            if you don't want a warning, have `torch` installed, but don't want :func:`Loader.__iter__` to yield :class:`torch.Tensor`.
+            The default is no-op, but use `None` to smooth the transition for when `to_torch` was implicitly `True` i.e.,
+            if you don't want a warning, have `torch` installed, but don't want :func:`Loader.__iter__` to yield :class:`torch.Tensor`, set this to `None`.
 
 
     Examples
