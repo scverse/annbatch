@@ -5,7 +5,7 @@ import itertools
 import warnings
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Concatenate, Literal, Protocol
+from typing import TYPE_CHECKING, Concatenate, Literal, Protocol, overload
 
 import anndata as ad
 import numpy as np
@@ -13,7 +13,7 @@ import pandas as pd
 import scipy as sp
 import zarr
 
-from .compat import CupyArray, CupyCSRMatrix, Tensor
+from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCSRMatrix, Tensor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -153,14 +153,20 @@ def check_var_shapes(objs: list[SupportsShape]) -> None:
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
-def convert(input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["torch", "jax"]) -> Tensor:
+@overload
+def convert(input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["torch"]) -> Tensor: ...
+@overload
+def convert(input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["jax"]) -> JaxArray | JAXCSRMatrix: ...
+def convert(
+    input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["torch", "jax"]
+) -> Tensor | JaxArray | JAXCSRMatrix:
     """Convert the input array to an output array based on the user's to argument"""
     if to == "torch":
         return _to_torch(input, preload_to_gpu)
     return _to_jax(input)
 
 
-def _to_jax(input: OutputInMemoryArray_T):
+def _to_jax(input: OutputInMemoryArray_T) -> JaxArray | JAXCSRMatrix:
     """Convert to jax"""
     import jax.numpy as jnp
     from jax.experimental.sparse import CSR

@@ -22,7 +22,7 @@ else:
 
 if TYPE_CHECKING or find_spec("jax"):
     from jax import Array as JaxArray
-    from jax.experimental.sparse import CSR as JAXCsrMatrix
+    from jax.experimental.sparse import CSR as JAXCSRMatrix
 else:
-    JAXCsrMatrix = type("CSR", (), {"__module__": "jax.experimental.sparse"})
+    JAXCSRMatrix = type("CSR", (), {"__module__": "jax.experimental.sparse"})
     JaxArray = type("Array", (), {"__module__": "jax"})
