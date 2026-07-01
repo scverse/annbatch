@@ -258,10 +258,8 @@ class Loader[
             raise ImportError(
                 "Could not find cupy dependency. Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy."
             )
-        if to_torch and to is None:
+        if to_torch and to is Default:
             to = "torch"
-        if to is Default:
-            to = None
 
         self._return_index = return_index
         self._preload_to_gpu = preload_to_gpu

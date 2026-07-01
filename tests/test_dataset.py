@@ -359,6 +359,18 @@ def test_to_default_warns(kwargs: dict, match: str):
         Loader(chunk_size=10, preload_nchunks=4, preload_to_gpu=False, **kwargs)
 
 
+@skip_if_no_torch
+def test_legacy_implicit(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    import torch
+
+    with pytest.warns(DeprecationWarning, match="`to_torch`'s implicit"):
+        ds = Loader(chunk_size=10, preload_nchunks=4)
+
+    ds.add_datasets(**concat([open_sparse(p) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]))
+
+    assert isinstance(next(iter(ds))["X"], torch.Tensor)
+
+
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], drop_last: bool):
     # batch_size guaranteed to have last batch to drop
