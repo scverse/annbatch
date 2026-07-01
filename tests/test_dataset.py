@@ -346,6 +346,19 @@ def test_to(
         )
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        pytest.param({}, "implicit use of torch", marks=skip_if_no_torch, id="implicit"),
+        pytest.param({"to_torch": True}, "will be replaced by the explicit", marks=skip_if_no_torch, id="true"),
+        pytest.param({"to_torch": False}, "To explicitly disable torch conversion", id="false"),
+    ],
+)
+def test_to_default_warns(kwargs: dict, match: str):
+    with pytest.warns(DeprecationWarning, match=match):
+        Loader(chunk_size=10, preload_nchunks=4, preload_to_gpu=False, **kwargs)
+
+
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], drop_last: bool):
     # batch_size guaranteed to have last batch to drop
