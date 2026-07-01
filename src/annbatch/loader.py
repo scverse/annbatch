@@ -144,10 +144,13 @@ class Loader[
             Whether to return `torch.Tensor` as the output.
             Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
             Defaults to True if `torch` is installed.
+
             .. deprecated:: 0.2.1
                 Use `to` instead
         to
             The output library for which you would like your array output.
+            The default is no-op, but use `None` to smooth the transition for when `to_torch=False` i.e.,
+            if you don't want a warning, have `torch` installed, but don't want :func:`Loader.__iter__` to yield :class:`torch.Tensor`.
 
 
     Examples
