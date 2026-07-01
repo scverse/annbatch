@@ -8,7 +8,10 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.2.0]
 
+### Feature
+- A new `to` argument will replace `to_torch` (now deprecated) in {class}`~annbatch.Loader`. `to_torch` previously had automatic recognition of `torch` and would yield batches with {class}`torch.Tensor` if it were installed. The new `to` argument requires explicit setting as one of `torch` or `jax` (or `None` to disable automatic `torch` inference until `to_torch` is removed). `preload_to_gpu` will remain an in-memory shuffle-accelerator but now will go 0-copy to jax if `to="jax"` as well using `dlpack` (just as it did for `torch`).
 
 ## [0.2.0]
 
