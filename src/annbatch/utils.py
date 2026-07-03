@@ -5,7 +5,7 @@ import itertools
 import warnings
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Concatenate, Protocol
+from typing import TYPE_CHECKING, Concatenate, Literal, Protocol, overload
 
 import anndata as ad
 import numpy as np
@@ -13,7 +13,7 @@ import pandas as pd
 import scipy as sp
 import zarr
 
-from .compat import CupyArray, CupyCSRMatrix, Tensor
+from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCSRMatrix, Tensor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -153,12 +153,47 @@ def check_var_shapes(objs: list[SupportsShape]) -> None:
         raise ValueError("TODO: All datasets must have same shape along the var axis.")
 
 
-def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
-    """Send the input data to a torch.Tensor"""
+@overload
+def convert(input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["torch"]) -> Tensor: ...
+@overload
+def convert(input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["jax"]) -> JaxArray | JAXCSRMatrix: ...
+def convert(
+    input: OutputInMemoryArray_T, preload_to_gpu: bool, to: Literal["torch", "jax"]
+) -> Tensor | JaxArray | JAXCSRMatrix:
+    """Convert the input array to an output array based on the user's to argument"""
+    if to == "torch":
+        return _to_torch(input, preload_to_gpu)
+    return _to_jax(input)
+
+
+def _to_jax(input: OutputInMemoryArray_T) -> JaxArray | JAXCSRMatrix:
+    """Convert to jax"""
+    import jax.numpy as jnp
+    from jax.experimental.sparse import CSR
+
+    if isinstance(input, CupyArray | np.ndarray):
+        return jnp.from_dlpack(input)
+    if isinstance(input, CupyCSRMatrix | sp.sparse.csr_matrix):
+        return CSR(
+            (
+                jnp.from_dlpack(input.data),
+                jnp.from_dlpack(input.indices),
+                jnp.from_dlpack(input.indptr),
+            ),
+            shape=input.shape,
+        )
+    raise TypeError(f"Cannot convert {type(input)} to jax.Array")
+
+
+def _to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
+    """Convert to torch"""
     import torch
 
-    if isinstance(input, torch.Tensor):
-        return input
+    preload_to_gpu_warning_msg = (
+        "preload_to_gpu will only apply to cupy arrays for in-memory handling in the next minor release."
+        "You will be responsible for cpu-gpu transfers if cupy is not used. We recommend `.cuda(non_blocking=True, **kwargs)"
+    )
+
     if isinstance(input, sp.sparse.csr_matrix):
         # TODO: better way to toggle this off for "production" but on for tests?
         with torch.sparse.check_sparse_tensor_invariants(enable=False):
@@ -183,11 +218,13 @@ def to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
                         size=input.shape,
                     )
             if preload_to_gpu:
+                warnings.warn(preload_to_gpu_warning_msg, FutureWarning, stacklevel=2)
                 return tensor.cuda(non_blocking=True)
             return tensor
     if isinstance(input, np.ndarray):
         tensor = torch.from_numpy(input)
         if preload_to_gpu:
+            warnings.warn(preload_to_gpu_warning_msg, FutureWarning, stacklevel=2)
             return tensor.cuda(non_blocking=True)
         return tensor
     if isinstance(input, CupyArray):

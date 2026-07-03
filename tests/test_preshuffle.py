@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 from contextlib import nullcontext
+from importlib.util import find_spec
 from typing import TYPE_CHECKING, Literal
 
 import anndata as ad
@@ -20,6 +21,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from os import PathLike
     from pathlib import Path
+
+pytestmark = pytest.mark.skipif(
+    any(find_spec(lib) is not None for lib in ["torch", "numba", "jax", "cupy"]),
+    reason="Don't need to test shuffling with extras",
+)
 
 
 @pytest.mark.parametrize(
