@@ -231,23 +231,18 @@ The CI job is defined in `.github/workflows/test.yaml`,
 however the single point of truth for CI jobs is the Hatch test matrix defined in `pyproject.toml`.
 This means that local testing via hatch and remote testing on CI tests against the same python versions and uses the same environments.
 
+## Making a PR
+
+All PRs must either specify they lack release notes for a good reason, or provide a [towncrier][] fragment.
+This fragment's format must be `{pr number}.{type}.md` where the `type` is one of `breaking`, `perf`, `fix`, `feat`, `docs`, or `chore`.
+This `type` must be the leading part of your PR title to generate a [semantic commit][].
+
+[towncrier]: https://towncrier.readthedocs.io/en/stable/
+[semantic commit]: https://www.conventionalcommits.org/en/v1.0.0/
+
 ## Publishing a release
 
-### Updating the version number
-
-Before making a release, you need to update the version number in the `pyproject.toml` file.
-Please adhere to [Semantic Versioning][semver], in brief
-
-> Given a version number MAJOR.MINOR.PATCH, increment the:
->
-> 1. MAJOR version when you make incompatible API changes,
-> 2. MINOR version when you add functionality in a backwards compatible manner, and
-> 3. PATCH version when you make backwards compatible bug fixes.
->
-> Additional labels for pre-release and build metadata are available as extensions to the MAJOR.MINOR.PATCH format.
-
-Once you are done, commit and push your changes and navigate to the "Releases" page of this project on GitHub.
-Specify `vX.X.X` as a tag name and create a release.
+Specify `vX.X.X` as a tag name and create a release on the Github Releases page.
 For more information, see [managing GitHub releases][].
 This will automatically create a git tag and trigger a Github workflow that creates a release on [PyPI][].
 
