@@ -1032,6 +1032,11 @@ class Loader[
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
             for split in splits:
                 sel = inv[split]
+
+                # Use basic slicing for contiguous selections to avoid costly fancy indexing on the loaded memory
+                if len(sel) > 0 and (sel[-1] - sel[0] == len(sel) - 1 and np.all(np.diff(sel) == 1)):
+                    sel = slice(sel[0], sel[-1] + 1)
+
                 data = in_memory_data[sel]
                 yield {
                     "X": data if self._to is None else convert(data, self._preload_to_gpu, self._to),
