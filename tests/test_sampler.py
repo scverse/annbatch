@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import math
+import pickle
 import sys
 from functools import partial
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from annbatch.abc import Sampler
-from annbatch.samplers import DistributedSampler, RandomSampler, SequentialSampler
+from annbatch.samplers import ClassSampler, DistributedSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
 
 if TYPE_CHECKING:
@@ -879,3 +881,75 @@ class TestDistributedSampler:
             for j in range(i + 1, world_size):
                 assert set(all_indices[i]).isdisjoint(set(all_indices[j]))
         assert set().union(*all_indices) == set(range(n_obs))
+
+
+# =============================================================================
+# Serialization / reproducibility (all implemented samplers)
+# =============================================================================
+
+
+def _make_sampler(kind: str, seed: int, n_obs: int) -> Sampler:
+    """Build the sampler identified by ``kind``, seeded with ``seed``, sized for ``n_obs`` obs."""
+    match kind:
+        case "random":
+            return RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5, rng=np.random.default_rng(seed))
+        case "sequential":
+            return SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
+        case "class":
+            # n_obs obs, 5 classes, each a contiguous run of n_obs // 5 (>= chunk_size)
+            classes = pd.Categorical(np.repeat(np.arange(5), n_obs // 5))
+            return ClassSampler(
+                chunk_size=10,
+                preload_nchunks=2,
+                batch_size=5,
+                classes=classes,
+                num_samples=50,
+                rng=np.random.default_rng(seed),
+            )
+        case "distributed":
+            inner = RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5, rng=np.random.default_rng(seed))
+            # dist_info is only called at construction (rank 0 of 1) and is not stored,
+            # so the resulting sampler stays picklable.
+            return DistributedSampler(inner, dist_info=lambda: (0, 1))
+        case _:
+            raise ValueError(f"unknown sampler kind {kind!r}")
+
+
+@pytest.mark.parametrize("kind", ["random", "sequential", "class", "distributed"])
+def test_sampler_is_serializable_and_reproducible(kind: str):
+    """Every sampler pickles and its random *state* (not just the seed) round-trips."""
+    n_obs = 100
+
+    def advance_pickle_indices(seed: int) -> list[int]:
+        sampler = _make_sampler(kind, seed, n_obs)
+        collect_indices(sampler, n_obs)  # advance the rng one pass
+        restored = pickle.loads(pickle.dumps(sampler))
+        indices, _, _ = collect_indices(restored, n_obs)
+        return indices
+
+    sampler = _make_sampler(kind, seed=0, n_obs=n_obs)
+    fresh_indices, _, _ = collect_indices(_make_sampler(kind, seed=0, n_obs=n_obs), n_obs)
+
+    # advance the rng by one full pass, then snapshot via pickle
+    collect_indices(sampler, n_obs)
+    restored = pickle.loads(pickle.dumps(sampler))
+    assert isinstance(restored, type(sampler))
+
+    restored_indices, _, _ = collect_indices(restored, n_obs)
+    original_indices, _, _ = collect_indices(sampler, n_obs)
+    assert restored_indices, "sampler produced no indices"
+
+    assert restored_indices == original_indices
+
+    if restored.shuffle:
+        # tests for the controlled stochastic behavior
+        # without these tests, passing this test becomes
+        # trivial if there is a seed collapse etc.
+
+        # check if the state is not reset: an advanced-then-saved
+        # stochastic sampler must not match a fresh one
+        assert restored_indices != fresh_indices
+        # check if saved state tracks the seed: identical for a
+        # same-seed run, different otherwise
+        assert restored_indices == advance_pickle_indices(seed=0)
+        assert restored_indices != advance_pickle_indices(seed=1)
