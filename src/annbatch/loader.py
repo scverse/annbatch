@@ -25,7 +25,7 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     convert,
-    load_x_and_obs_and_var,
+    load_all_aligned,
     validate_sampler,
 )
 
@@ -354,7 +354,7 @@ class Loader[
         self,
         collection: DatasetCollection,
         *,
-        load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
+        load_adata: Callable[[zarr.Group], ad.AnnData] = load_all_aligned,
     ) -> Self:
         """Load from an existing :class:`annbatch.DatasetCollection`.
 
@@ -366,8 +366,11 @@ class Loader[
             The collection whose on-disk datasets should be used in this loader.
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
-            Default is to just load `X` and all of `obs`.
-            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_adata` argument.
+            The default, :func:`annbatch.utils.load_all_aligned`, currently loads only `X`, `obs`, and `var`,
+            but a future release will additionally load and yield every :attr:`~anndata.AnnData.obsm` and
+            :attr:`~anndata.AnnData.layers` element; a :class:`FutureWarning` is emitted when such elements
+            are present on disk. To keep the current behavior (only `X`/`obs`/`var`) and silence that warning,
+            pass :func:`annbatch.utils.load_x_and_obs_and_var` (or a custom function that keeps only what you need).
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")

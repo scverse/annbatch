@@ -250,3 +250,29 @@ def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
         obs=ad.io.read_elem(g["obs"]),
         var=pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
     )
+
+
+def load_all_aligned(g: zarr.Group) -> ad.AnnData:
+    """Load every observation-axis-aligned element of a group into a (backed) :class:`~anndata.AnnData`.
+
+    This is the default loader for :meth:`~annbatch.Loader.use_collection`.
+
+    .. note::
+        **Transitional behavior.** For now this loads only ``X``, ``obs``, and ``var`` (identical to
+        :func:`load_x_and_obs_and_var`) and *ignores* the other observation-aligned elements
+        (``obsm`` and ``layers``). A future release will additionally load and yield every ``obsm`` and
+        ``layers`` element. When such elements are present on disk, a :class:`FutureWarning` is emitted.
+        To keep the current ``X``/``obs``/``var``-only behavior permanently (and silence the warning),
+        pass ``load_adata=annbatch.utils.load_x_and_obs_and_var`` to :meth:`~annbatch.Loader.use_collection`.
+    """
+    ignored = [f"{elem}/{key}" for elem in ("obsm", "layers") if elem in g for key in g[elem]]
+    if ignored:
+        warnings.warn(
+            "`load_all_aligned` currently loads only `X`, `obs`, and `var`; the following observation-aligned "
+            f"elements are ignored for now: {sorted(ignored)}. A future release will additionally load and yield "
+            "them by default. To keep the current behavior (only `X`/`obs`/`var`) and silence this warning, use "
+            "`load_adata=annbatch.utils.load_x_and_obs_and_var`.",
+            FutureWarning,
+            stacklevel=2,
+        )
+    return load_x_and_obs_and_var(g)

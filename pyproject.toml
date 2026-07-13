@@ -182,6 +182,7 @@ ini_options.filterwarnings = [
   "ignore:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
   "ignore::anndata._warnings.ImplicitModificationWarning",
   "ignore::scipy.sparse.SparseEfficiencyWarning",
+  "ignore:`load_all_aligned` currently loads only:FutureWarning",
   "ignore:Consolidated metadata is:UserWarning",
   "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
 ]

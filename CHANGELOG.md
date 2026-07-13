@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.2.2]
+
+### Feature
+- {meth}`~annbatch.Loader.use_collection` now defaults to the new {func}`annbatch.utils.load_all_aligned` loader. It currently behaves like {func}`annbatch.utils.load_x_and_obs_and_var` (loads only `X`/`obs`/`var`), but a **future release will additionally load and yield every** {attr}`~anndata.AnnData.obsm` **and** {attr}`~anndata.AnnData.layers` **element**. When such elements are present on disk, a {class}`FutureWarning` is emitted. To keep the current `X`/`obs`/`var`-only behavior (and silence the warning), pass `load_adata=annbatch.utils.load_x_and_obs_and_var`.
+
 ## [0.2.1]
 
 ### Feature

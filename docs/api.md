@@ -68,3 +68,16 @@
     LoaderOutput
     LoadRequest
 ```
+
+(utils)=
+## utils
+
+```{eval-rst}
+.. module:: annbatch.utils
+
+.. autosummary::
+   :toctree: generated/
+
+    load_all_aligned
+    load_x_and_obs_and_var
+```
