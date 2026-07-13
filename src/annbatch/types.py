@@ -52,9 +52,14 @@ class LoadRequest(TypedDict):
 
 
 class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
-    """The output of the loader, the "data matrix" with its obs, optional, var, optional, and index, also optional."""
+    """The output of the loader: the "data matrix" ``X`` with its ``obs``, ``var``, ``obsm`` and ``index`` (all optional).
+
+    ``obsm`` is ``None`` unless obsm keys were requested (see :meth:`~annbatch.Loader.add_adatas`); when present it is a
+    dict mapping each requested key to a dense per-batch array row-aligned with ``X``.
+    """
 
     X: OutputInMemoryArray_T.__value__  # TODO: remove after sphinx 9 - myst compat
     obs: pd.DataFrame | None
     var: pd.DataFrame | None
+    obsm: dict[str, OutputInMemoryArray_T.__value__] | None
     index: np.ndarray | None
