@@ -97,6 +97,29 @@ def resolve_class_weights(class_weights: np.ndarray | None, n_classes: int) -> n
     return weights
 
 
+def _as_multiindex(index: pd.Index) -> pd.MultiIndex | None:
+    # View an Index of multi-column labels as a MultiIndex (tuple labels -> one level per position);
+    # None when the labels are single-column scalars. A MultiIndex passes through without a round-trip.
+    if isinstance(index, pd.MultiIndex):
+        return index
+    if len(index) > 0 and isinstance(index[0], tuple):
+        return pd.MultiIndex.from_tuples(index)
+    return None
+
+
+def to_level_arrays(index: pd.Index) -> list[pd.Index]:
+    """Decompose an ``Index`` of labels into one array per column.
+
+    A scalar-valued Index is a single column; a :class:`pandas.MultiIndex` (or an object Index of
+    tuples) is one array per tuple position. Lets flat multi-column labels be rebuilt vectorized with
+    ``pd.MultiIndex.from_arrays`` instead of a per-label Python loop.
+    """
+    mi = _as_multiindex(index)
+    if mi is None:
+        return [index]
+    return [mi.get_level_values(i) for i in range(mi.nlevels)]
+
+
 def codes_of_categorical(categorical: pd.Categorical, name: str) -> np.ndarray:
     """Return a :class:`pandas.Categorical`'s integer codes, validating it first.
 
@@ -123,6 +146,70 @@ def build_run_table(codes: np.ndarray, start: int) -> pd.DataFrame:
             "cat": codes[edges[:-1]],
         }
     )
+
+
+def grouped_weighted_choice(
+    group_of_item: np.ndarray,
+    weight_of_item: np.ndarray,
+    group_of_draw: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Draw one item per request, weighted within the request's group.
+
+    Replaces a per-group ``rng.choice(items, p=weights)`` loop (``O(groups * items)``) with a single
+    inverse-CDF lookup (``O(items log items)``): lay every group's items end to end on one number
+    line whose segment lengths are the weights (a single cumulative sum), so each group is a
+    contiguous interval ``[lo, hi)``. A request for group ``g`` throws a uniform dart inside that
+    interval; a binary search maps the dart to an item, hit with probability proportional to weight.
+
+    Parameters
+    ----------
+    group_of_item, weight_of_item
+        The group label and (strictly positive) weight of each item, aligned.
+    group_of_draw
+        The group each draw samples from. Precondition: every value must appear in ``group_of_item``
+        (the caller is responsible for that -- an absent group has no items to pick from).
+    rng
+        Randomness source; consumes ``len(group_of_draw)`` uniforms.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each draw, the index into ``group_of_item`` of the chosen item.
+    """
+    # sort items by group so each group is a contiguous block -> one monotonic cumulative weight
+    order = np.argsort(group_of_item, kind="stable")
+    group, group_start = np.unique(group_of_item[order], return_index=True)
+    group_end = np.append(group_start[1:], order.shape[0])
+    cum_weight = np.cumsum(weight_of_item[order])
+    hi = cum_weight[group_end - 1]  # right edge of each group's interval
+    lo = np.concatenate(([0.0], hi[:-1]))  # left edge = previous group's right edge
+
+    # uniform dart inside the requested group's interval, then binary-search to the item it hits;
+    # clip to the group as a floating-point seatbelt against a dart landing exactly on an edge
+    g = np.searchsorted(group, group_of_draw)
+    target = lo[g] + rng.random(group_of_draw.shape[0]) * (hi[g] - lo[g])
+    hit = np.clip(np.searchsorted(cum_weight, target, side="right"), group_start[g], group_end[g] - 1)
+    return order[hit]
+
+
+def project_index(labels: pd.Index, positions: tuple[int, ...] | None) -> pd.Index:
+    """Project label tuples onto ``positions``.
+
+    ``positions is None`` keeps the whole label.
+    """
+    if positions is None:
+        return labels
+    mi = _as_multiindex(labels)  # a chained sampler's MultiIndex vocab passes through, no round-trip
+    if mi is None:  # single-column scalars: the only position is 0 (the whole label)
+        if positions != (0,):
+            raise ValueError(
+                f"Cannot project single-column labels onto positions {positions}; a single column has only position 0."
+            )
+        return labels
+    if len(positions) == 1:
+        return mi.get_level_values(positions[0])
+    return pd.MultiIndex.from_arrays([mi.get_level_values(p) for p in positions])
 
 
 def iter_windows(
