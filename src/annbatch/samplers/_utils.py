@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import NamedTuple
+import itertools
+from typing import TYPE_CHECKING, NamedTuple
 
-from annbatch.utils import check_lt_1
+import numpy as np
+import pandas as pd
+
+from annbatch.utils import check_lt_1, split_given_size
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from annbatch.types import LoadRequest
 
 
 class WorkerInfo(NamedTuple):
@@ -72,3 +81,70 @@ def validate_mask_n_obs_and_resolve(mask: slice, n_obs: int) -> tuple[int, int]:
     if start >= stop:
         raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
     return start, stop
+
+
+def resolve_class_weights(class_weights: np.ndarray | None, n_classes: int) -> np.ndarray:
+    if class_weights is None:
+        weights = np.ones(n_classes, dtype=float)
+    else:
+        weights = np.array(class_weights, dtype=float)
+        if weights.shape != (n_classes,):
+            raise ValueError(
+                f"class_weights must have one weight per class (expected shape ({n_classes},), got {weights.shape})."
+            )
+    if not (weights > 0).any():
+        raise ValueError("class_weights must have at least one positive weight.")
+    return weights
+
+
+def codes_of_categorical(categorical: pd.Categorical, name: str) -> np.ndarray:
+    """Return a :class:`pandas.Categorical`'s integer codes, validating it first.
+
+    Rejects a non-categorical -- the common mistake is passing a ``Series`` or ndarray instead of
+    its ``.values`` -- and NA entries (``codes == -1``), both of which would otherwise fail later.
+    """
+    if not isinstance(categorical, pd.Categorical):
+        raise TypeError(f"{name} must be a pandas.Categorical.")
+    codes = categorical.codes  # pd.Categorical.codes is already an ndarray
+    if (codes == -1).any():
+        raise ValueError(f"{name} contains NA values (codes == -1). Remove NAs before passing.")
+    return codes
+
+
+def build_run_table(codes: np.ndarray, start: int) -> pd.DataFrame:
+    # Run-length encode ``codes``; returns runs with global start/end (offset by ``start``), len and cat.
+    # Boundaries where the code changes, plus the range's start and stop.
+    edges = np.concatenate([np.array([0]), np.flatnonzero(np.diff(codes)) + 1, np.array([codes.shape[0]])])
+    return pd.DataFrame(
+        {
+            "start": edges[:-1] + start,
+            "end": edges[1:] + start,
+            "len": np.diff(edges),
+            "cat": codes[edges[:-1]],
+        }
+    )
+
+
+def iter_windows(
+    slices: list[slice],
+    *,
+    preload_nchunks: int,
+    chunk_size: int,
+    batch_size: int,
+    drop_last: bool,
+    rng: np.random.Generator,
+) -> Iterator[LoadRequest]:
+    # Group ``slices`` into preload windows and split each window into shuffled batches.
+    window_size = preload_nchunks * chunk_size
+    full_splits = split_given_size(np.arange(window_size), batch_size)
+    for window in itertools.batched(slices, preload_nchunks):
+        n_rows = (len(window) - 1) * chunk_size + (window[-1].stop - window[-1].start)
+        splits = full_splits if n_rows == window_size else split_given_size(np.arange(n_rows), batch_size)
+        if drop_last and splits[-1].size < batch_size:
+            splits = splits[:-1]
+            if not splits:
+                continue
+        for batch in splits:
+            # can't vectorize this because we need to return a list, not ndarray
+            rng.shuffle(batch)
+        yield {"requests": list(window), "splits": splits}
