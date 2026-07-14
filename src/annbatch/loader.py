@@ -179,6 +179,7 @@ class Loader[
 
     _train_datasets: list[BackingArray]
     _obs: list[pd.DataFrame] | None = None
+    _obsm: list[dict[str, ZarrArray | np.ndarray]] | None = None
     _var: pd.DataFrame | None = None
     _return_index: bool = False
     _shapes: list[tuple[int, int]]
@@ -384,6 +385,8 @@ class Loader[
     def add_adatas(
         self,
         adatas: list[ad.AnnData],
+        *,
+        obsm_keys: list[str] | None = None,
     ) -> Self:
         """Append adatas to this dataset.
 
@@ -391,14 +394,17 @@ class Loader[
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array`, :class:`scipy.sparse.csr_matrix`, :class:`scipy.sparse.csr_array`, :class:`numpy.ndarray`, or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
+            obsm_keys
+                Keys of :attr:`~anndata.AnnData.obsm` (e.g. a pretrained-model embedding ``"X_emb"``) to load and yield alongside ``X``.
+                Each referenced array must be dense (a :class:`numpy.ndarray` or :class:`zarr.Array`) and present in every added adata.
         """
         check_lt_1([len(adatas)], ["Number of adatas"])
         for adata in adatas:
-            dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
-            self._add_dataset_unchecked(dataset, obs, var)
+            dataset, obs, var, obsm = self._prepare_dataset_obs_and_var(adata, obsm_keys)
+            self._add_dataset_unchecked(dataset, obs, var, obsm)
         return self
 
-    def add_adata(self, adata: ad.AnnData) -> Self:
+    def add_adata(self, adata: ad.AnnData, *, obsm_keys: list[str] | None = None) -> Self:
         """Append an adata to this dataset.
 
         Parameters
@@ -406,14 +412,17 @@ class Loader[
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array`, :class:`scipy.sparse.csr_matrix`, :class:`scipy.sparse.csr_array`, :class:`numpy.ndarray`, or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
                 :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
+            obsm_keys
+                Keys of :attr:`~anndata.AnnData.obsm` (e.g. a pretrained-model embedding ``"X_emb"``) to load and yield alongside ``X``.
+                Each referenced array must be dense (a :class:`numpy.ndarray` or :class:`zarr.Array`) and match the ``obsm`` keys of any previously added datasets.
         """
-        dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
-        self.add_dataset(dataset, obs, var)
+        dataset, obs, var, obsm = self._prepare_dataset_obs_and_var(adata, obsm_keys)
+        self.add_dataset(dataset, obs, var, obsm)
         return self
 
     def _prepare_dataset_obs_and_var(
-        self, adata: ad.AnnData
-    ) -> tuple[BackingArray, pd.DataFrame | None, pd.DataFrame | None]:
+        self, adata: ad.AnnData, obsm_keys: list[str] | None = None
+    ) -> tuple[BackingArray, pd.DataFrame | None, pd.DataFrame | None, dict[str, ZarrArray | np.ndarray] | None]:
         dataset = adata.X
         obs = adata.obs
         var = adata.var
@@ -421,8 +430,14 @@ class Loader[
             obs = None
         if not isinstance(dataset, BackingArray_T.__value__):
             raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
+        obsm = None
+        if obsm_keys is not None:
+            missing = [k for k in obsm_keys if k not in adata.obsm]
+            if missing:
+                raise KeyError(f"obsm keys {missing} not found in adata.obsm (available: {list(adata.obsm)})")
+            obsm = {k: adata.obsm[k] for k in obsm_keys}
 
-        return cast("BackingArray", dataset), obs, var
+        return cast("BackingArray", dataset), obs, var, obsm
 
     @validate_sampler
     def add_datasets(
@@ -430,6 +445,7 @@ class Loader[
         datasets: list[BackingArray],
         obs: list[pd.DataFrame] | None = None,
         var: list[pd.DataFrame] | None = None,
+        obsm: list[dict[str, ZarrArray | np.ndarray]] | None = None,
     ) -> Self:
         """Append datasets to this dataset.
 
@@ -443,13 +459,19 @@ class Loader[
             var
                 List of :class:`~pandas.DataFrame` for annotating features, generally from :attr:`anndata.AnnData.var`.
                 All var DataFrames must be identical.
+            obsm
+                List of dicts mapping an obsm key (e.g. an embedding ``"X_emb"``) to a dense
+                :class:`numpy.ndarray` or :class:`zarr.Array`, generally from :attr:`anndata.AnnData.obsm`.
+                All dicts must share the same keys, and each array's first axis must match the corresponding dataset's.
         """
         if obs is None:
             obs = [None] * len(datasets)
         if var is None:
             var = [None] * len(datasets)
-        for ds, o, v in zip(datasets, obs, var, strict=True):
-            self._add_dataset_unchecked(ds, o, v)
+        if obsm is None:
+            obsm = [None] * len(datasets)
+        for ds, o, v, m in zip(datasets, obs, var, obsm, strict=True):
+            self._add_dataset_unchecked(ds, o, v, m)
         return self
 
     @validate_sampler
@@ -458,6 +480,7 @@ class Loader[
         dataset: BackingArray,
         obs: pd.DataFrame | None = None,
         var: pd.DataFrame | None = None,
+        obsm: dict[str, ZarrArray | np.ndarray] | None = None,
     ) -> Self:
         """Append a dataset to this dataset.
 
@@ -470,8 +493,12 @@ class Loader[
             var
                 :class:`~pandas.DataFrame` var, generally from :attr:`anndata.AnnData.var`.
                 :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
+            obsm
+                Dict mapping an obsm key (e.g. an embedding ``"X_emb"``) to a dense :class:`numpy.ndarray`
+                or :class:`zarr.Array`, generally from :attr:`anndata.AnnData.obsm`.
+                Its keys must match the ``obsm`` of any previously added datasets, and each array's first axis must match ``dataset``.
         """
-        self._add_dataset_unchecked(dataset, obs, var)
+        self._add_dataset_unchecked(dataset, obs, var, obsm)
         return self
 
     def _add_dataset_unchecked(
@@ -479,6 +506,7 @@ class Loader[
         dataset: BackingArray,
         obs: pd.DataFrame | None = None,
         var: pd.DataFrame | None = None,
+        obsm: dict[str, ZarrArray | np.ndarray] | None = None,
     ) -> Self:
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
@@ -497,6 +525,18 @@ class Loader[
                 raise ValueError(
                     "Cannot add a dataset without var when training datasets have already been added with var"
                 )
+            if self._obsm is None and obsm is not None:
+                raise ValueError(
+                    "Cannot add a dataset with obsm when training datasets have already been added without obsm"
+                )
+            if self._obsm is not None and obsm is None:
+                raise ValueError(
+                    "Cannot add a dataset without obsm when training datasets have already been added with obsm"
+                )
+            if self._obsm is not None and obsm is not None and set(obsm) != set(self._obsm[0]):
+                raise ValueError(
+                    f"All datasets must have identical obsm keys. Expected {sorted(self._obsm[0])} but got {sorted(obsm)}."
+                )
             if not isinstance(dataset, self.dataset_type):
                 raise ValueError(
                     f"All datasets on a given loader must be of the same type {self.dataset_type} but got {type(dataset)}"
@@ -513,6 +553,28 @@ class Loader[
             raise TypeError("obs must be a pandas DataFrame")
         if not isinstance(var, pd.DataFrame) and var is not None:
             raise TypeError("var must be a pandas DataFrame")
+        if obsm is not None:
+            for key, arr in obsm.items():
+                if not isinstance(arr, ZarrArray | np.ndarray):
+                    raise TypeError(
+                        f"obsm[{key!r}] must be a dense numpy.ndarray or zarr.Array, got {type(arr)}. "
+                        "Sparse obsm is not supported."
+                    )
+                if arr.shape[0] != dataset.shape[0]:
+                    raise ValueError(
+                        f"obsm[{key!r}] has {arr.shape[0]} rows but the dataset has {dataset.shape[0]} observations."
+                    )
+                if self._obsm is not None:
+                    existing = self._obsm[0][key]
+                    if arr.shape[1:] != existing.shape[1:]:
+                        raise ValueError(
+                            f"obsm[{key!r}] feature shape {arr.shape[1:]} does not match the "
+                            f"existing shape {existing.shape[1:]}."
+                        )
+                    if arr.dtype != existing.dtype:
+                        raise ValueError(
+                            f"obsm[{key!r}] dtype {arr.dtype!r} does not match the existing dtype {existing.dtype!r}."
+                        )
         datasets = self._train_datasets + [dataset]
         check_var_shapes(datasets)
         self._dtypes_homogeneous = self._datasets_share_dtype(datasets)
@@ -529,6 +591,10 @@ class Loader[
             self._obs += [obs]
         elif obs is not None:  # obs dont exist yet, but are being added for the first time
             self._obs = [obs]
+        if self._obsm is not None:  # obsm exist
+            self._obsm += [obsm]
+        elif obsm is not None:  # obsm dont exist yet, but are being added for the first time
+            self._obsm = [obsm]
         # var is the same across all datasets (describes variables/features)
         if self._var is None and var is not None:
             self._var = var
@@ -968,6 +1034,48 @@ class Loader[
 
         return out
 
+    async def _index_obsm(
+        self,
+        dataset_index_to_rows: OrderedDict[int, np.ndarray],
+    ) -> dict[str, np.ndarray]:
+        """Fetch each requested obsm array into a contiguous buffer, in the same dataset order as ``X``.
+
+        obsm arrays are always dense, so a single buffer per key is preallocated (sized to the total
+        number of requested rows) and filled by concurrent per-dataset fetches, mirroring the dense
+        path of :meth:`_index_datasets`. The row order matches that of the ``X`` buffer, so the same
+        ``inv``/split indexing applies downstream.
+        """
+        keys = list(self._obsm[0])
+        total_rows = sum(len(rows) for rows in dataset_index_to_rows.values())
+        out: dict[str, np.ndarray] = {}
+        tasks = []
+        for key in keys:
+            first = self._obsm[next(iter(dataset_index_to_rows))][key]
+            buffer = self._alloc((total_rows, *first.shape[1:]), first.dtype, use_pinned=self._preload_to_gpu)
+            out[key] = buffer
+            row_offset = 0
+            for dataset_idx, rows in dataset_index_to_rows.items():
+                nrows = len(rows)
+                tasks.append(
+                    self._fetch_data(self._obsm[dataset_idx][key], rows, buffer[row_offset : row_offset + nrows])
+                )
+                row_offset += nrows
+        await asyncio.gather(*tasks)
+        return out
+
+    async def _index_x_and_obsm(
+        self,
+        dataset_index_to_rows: OrderedDict[int, np.ndarray],
+    ) -> tuple[CSRContainer | np.ndarray, dict[str, np.ndarray] | None]:
+        """Fetch ``X`` and (if requested) the obsm arrays concurrently in a single event loop."""
+        if self._obsm is None:
+            return await self._index_datasets(dataset_index_to_rows), None
+        x, obsm = await asyncio.gather(
+            self._index_datasets(dataset_index_to_rows),
+            self._index_obsm(dataset_index_to_rows),
+        )
+        return x, obsm
+
     def __iter__(
         self,
     ) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
@@ -1017,7 +1125,9 @@ class Loader[
             inv = inv_buffer[:n]
             inv = positions[order]
 
-            raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
+            raw_out: CSRContainer | np.ndarray
+            raw_obsm: dict[str, np.ndarray] | None
+            raw_out, raw_obsm = zsync.sync(self._index_x_and_obsm(dataset_index_to_rows))
 
             if is_sparse:
                 in_memory_data = self._sp_module.csr_matrix(
@@ -1028,15 +1138,26 @@ class Loader[
             else:
                 in_memory_data = self._np_module.asarray(raw_out)
 
+            in_memory_obsm: dict[str, np.ndarray] | None = (
+                {key: self._np_module.asarray(arr) for key, arr in raw_obsm.items()} if raw_obsm is not None else None
+            )
+
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_rows)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
             for split in splits:
                 sel = inv[split]
                 data = in_memory_data[sel]
+                obsm_out: dict[str, OutputInMemoryArray_T] | None = None
+                if in_memory_obsm is not None:
+                    obsm_out = {
+                        key: arr[sel] if self._to is None else convert(arr[sel], self._preload_to_gpu, self._to)
+                        for key, arr in in_memory_obsm.items()
+                    }
                 yield {
                     "X": data if self._to is None else convert(data, self._preload_to_gpu, self._to),
                     "obs": concatenated_obs.iloc[sel] if concatenated_obs is not None else None,
                     "var": self._var,
+                    "obsm": obsm_out,
                     "index": in_memory_indices[sel] if in_memory_indices is not None else None,
                 }
 

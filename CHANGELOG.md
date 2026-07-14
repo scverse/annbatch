@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Feature
+- Add an `obsm_keys` argument to {meth}`annbatch.Loader.add_adata`/{meth}`annbatch.Loader.add_adatas` (and an `obsm` argument to {meth}`annbatch.Loader.add_dataset`/{meth}`annbatch.Loader.add_datasets`) to load dense {attr}`~anndata.AnnData.obsm` arrays (e.g. a scVI embedding `"X_emb"`) alongside `X`. Requested arrays are fetched concurrently with `X` and yielded, row-aligned, under a new `obsm` key of {class}`~annbatch.types.LoaderOutput` (`None` when no keys are requested).
+
 ## [0.2.1]
 
 ### Feature
