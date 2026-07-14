@@ -63,11 +63,7 @@ def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Ge
             ),
             layers={
                 "sparse": sp.random(
-                    n_cells_per_shard,
-                    feature_dim,
-                    format="csr",
-                    rng=np.random.default_rng(),
-                    dtype="int32",
+                    n_cells_per_shard, feature_dim, format="csr", rng=np.random.default_rng(), dtype="int32"
                 )
             },
             obsm={"3d": np.random.default_rng().random((n_cells_per_shard, 2, 32, 32))},
@@ -125,14 +121,8 @@ def adata_with_h5_path_different_var_space(
                     "same": pd.array(range(n), dtype="int64"),
                 },
             ),
-            obsm={
-                "arr": np.random.randn(m, 10),
-                "df": pd.DataFrame({"numeric": np.arange(m)}, index=obs_idx),
-            },
-            varm={
-                "arr": np.random.randn(n, 10),
-                "df": pd.DataFrame({"numeric": np.arange(n)}, index=var_idx),
-            },
+            obsm={"arr": np.random.randn(m, 10), "df": pd.DataFrame({"numeric": np.arange(m)}, index=obs_idx)},
+            varm={"arr": np.random.randn(n, 10), "df": pd.DataFrame({"numeric": np.arange(n)}, index=var_idx)},
         )
         if all_adatas_have_raw or (i % 2 == 0):
             adata_raw = adata[:, adata.var.index[: (n // 2)]].copy()
@@ -165,9 +155,7 @@ def simple_collection(
 
 @pytest.fixture(scope="session", params=[False, True], ids=["same-dtype", "mixed-dtype"])
 def maybe_mixed_dtype_collection(
-    request,
-    tmpdir_factory,
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    request, tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
 ) -> tuple[ad.AnnData, DatasetCollection, bool]:
     """Like ``simple_collection``, but optionally rewrites the first dataset's
     X (and sparse layer) with a different dtype to exercise the dtype-promotion
@@ -201,11 +189,7 @@ def maybe_mixed_dtype_collection(
         assert any(ds["layers"]["sparse"]["data"].dtype != first_sparse_dtype for ds in datasets[1:]), (
             "mixed-dtype fixture failed to produce differing sparse layer dtypes"
         )
-    return (
-        ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"),
-        collection,
-        is_mixed,
-    )
+    return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection, is_mixed
 
 
 def pytest_itemcollected(item: pytest.Item) -> None:
