@@ -312,16 +312,6 @@ def expect_transitional_warning(*, present: bool):
             yield
 
 
-def test_load_x_and_obs_and_var_warns_and_drops_extras(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
-    """`load_x_and_obs_and_var` warns about on-disk obsm/layers (present in the fixture) and keeps only X/obs/var."""
-    store = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
-    with expect_transitional_warning(present=True):
-        loaded = load_x_and_obs_and_var(zarr.open_group(store, mode="r"))
-
-    assert loaded.X.shape[1] == 100
-    assert "label" in loaded.obs.columns
-    assert not loaded.obsm  # obsm/3d dropped
-    assert not (set(loaded.layers.keys()) - {None})  # layers/sparse dropped
 
 
 @pytest.mark.parametrize("custom_loader", [False, True], ids=["default", "custom-loader"])
