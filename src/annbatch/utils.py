@@ -242,37 +242,52 @@ def _to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
+def obs_aligned_extras(adata: ad.AnnData) -> list[str]:
+    """Return the ``"<elem>/<key>"`` names of the real ``obsm``/``layers`` elements on an :class:`~anndata.AnnData`.
+
+    A *backed* ``AnnData`` exposes a ``None`` key in ``.layers`` that mirrors ``X`` (it is not a real layer);
+    we drop it, mirroring anndata's own ``Layers.__bool__`` (``keys() <= {None}``). Real layer keys are always
+    ``str``, so this is safe across anndata versions regardless of whether the ``None`` slot is present.
+    """
+    return [
+        f"{elem}/{key}"
+        for elem, mapping in (("obsm", adata.obsm), ("layers", adata.layers))
+        for key in mapping
+        if key is not None
+    ]
+
+
+def warn_ignored_obs_aligned(ignored: list[str], *, stacklevel: int) -> None:
+    """Warn that observation-aligned ``obsm``/``layers`` elements are dropped for now.
+
+    ``ignored`` is a list of ``"<elem>/<key>"`` names that are being discarded.
+    """
+    if not ignored:
+        return
+    warnings.warn(
+        "Only `X`, `obs`, and `var` are kept for now; the following observation-aligned elements are "
+        f"ignored: {sorted(ignored)}. A future release will additionally load and yield them. To silence "
+        "this warning, drop these elements beforehand (e.g. via a custom `load_adata`).",
+        FutureWarning,
+        stacklevel=stacklevel + 1,
+    )
+
+
 def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
-    """Load X as a sparse array or dense zarr array and obs from a group"""
+    """Load X as a sparse array or dense zarr array and obs from a group.
+
+    .. note::
+        For now only ``X``, ``obs``, and ``var`` are loaded; any observation-aligned ``obsm`` and
+        ``layers`` elements found on disk are ignored and a :class:`FutureWarning` is emitted. A future
+        release will additionally load and yield them.
+    """
+    warn_ignored_obs_aligned(
+        [f"{elem}/{key}" for elem in ("obsm", "layers") if elem in g for key in g[elem]],
+        stacklevel=2,
+    )
     var = g["var"]
     return ad.AnnData(
         X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
         obs=ad.io.read_elem(g["obs"]),
         var=pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
     )
-
-
-def load_all_aligned(g: zarr.Group) -> ad.AnnData:
-    """Load every observation-axis-aligned element of a group into a (backed) :class:`~anndata.AnnData`.
-
-    This is the default loader for :meth:`~annbatch.Loader.use_collection`.
-
-    .. note::
-        **Transitional behavior.** For now this loads only ``X``, ``obs``, and ``var`` (identical to
-        :func:`load_x_and_obs_and_var`) and *ignores* the other observation-aligned elements
-        (``obsm`` and ``layers``). A future release will additionally load and yield every ``obsm`` and
-        ``layers`` element. When such elements are present on disk, a :class:`FutureWarning` is emitted.
-        To keep the current ``X``/``obs``/``var``-only behavior permanently (and silence the warning),
-        pass ``load_adata=annbatch.utils.load_x_and_obs_and_var`` to :meth:`~annbatch.Loader.use_collection`.
-    """
-    ignored = [f"{elem}/{key}" for elem in ("obsm", "layers") if elem in g for key in g[elem]]
-    if ignored:
-        warnings.warn(
-            "`load_all_aligned` currently loads only `X`, `obs`, and `var`; the following observation-aligned "
-            f"elements are ignored for now: {sorted(ignored)}. A future release will additionally load and yield "
-            "them by default. To keep the current behavior (only `X`/`obs`/`var`) and silence this warning, use "
-            "`load_adata=annbatch.utils.load_x_and_obs_and_var`.",
-            FutureWarning,
-            stacklevel=2,
-        )
-    return load_x_and_obs_and_var(g)

@@ -19,7 +19,7 @@ if find_spec("cupy") and find_spec("cuda-toolkit"):
         )
         raise RuntimeError(msg)
 
-from . import abc, samplers, types, utils
+from . import abc, samplers, types
 from .io import DatasetCollection, write_sharded
 from .loader import Loader
 
@@ -30,7 +30,6 @@ __all__ = [
     "DatasetCollection",
     "samplers",
     "types",
-    "utils",
     "write_sharded",
     "abc",
 ]

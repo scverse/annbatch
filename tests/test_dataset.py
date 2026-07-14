@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import math
 import warnings
 from importlib.util import find_spec
@@ -17,7 +18,7 @@ import zarr
 from annbatch import Loader, write_sharded
 from annbatch.abc import Sampler
 from annbatch.samplers import SequentialSampler
-from annbatch.utils import load_all_aligned, load_x_and_obs_and_var
+from annbatch.utils import load_x_and_obs_and_var
 
 try:
     from cupy import ndarray as CupyArray
@@ -298,62 +299,59 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ds.use_collection(simple_collection[1])
 
 
-def _assert_no_transitional_warning(recorded: list[warnings.WarningMessage]) -> None:
-    assert not any(issubclass(w.category, FutureWarning) and "currently loads only" in str(w.message) for w in recorded)
+@contextlib.contextmanager
+def expect_transitional_warning(*, present: bool):
+    """Assert the transitional obsm/layers `FutureWarning` is emitted (``present=True``) or not (``present=False``)."""
+    transitional_msg = "Only `X`, `obs`, and `var` are kept"
+    if present:
+        with pytest.warns(FutureWarning, match=transitional_msg):
+            yield
+    else:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", message=transitional_msg, category=FutureWarning)
+            yield
+
+
+def test_load_x_and_obs_and_var_warns_and_drops_extras(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
+    """`load_x_and_obs_and_var` warns about on-disk obsm/layers (present in the fixture) and keeps only X/obs/var."""
+    store = next(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
+    with expect_transitional_warning(present=True):
+        loaded = load_x_and_obs_and_var(zarr.open_group(store, mode="r"))
+
+    assert loaded.X.shape[1] == 100
+    assert "label" in loaded.obs.columns
+    assert not loaded.obsm  # obsm/3d dropped
+    assert not (set(loaded.layers.keys()) - {None})  # layers/sparse dropped
+
+
+@pytest.mark.parametrize("custom_loader", [False, True], ids=["default", "custom-loader"])
+def test_use_collection_transitional_warning(
+    simple_collection: tuple[ad.AnnData, DatasetCollection], *, custom_loader: bool
+):
+    """`use_collection` defaults to `load_x_and_obs_and_var` (warns on obsm/layers); a custom loader opts out."""
+    _, collection = simple_collection
+    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
+    # the collection has obsm/layers on disk, so the default loader warns while the X/obs/var-only loader does not
+    load_adata = {"load_adata": lambda g: open_dense(g, use_anndata=True)} if custom_loader else {}
+    with expect_transitional_warning(present=not custom_loader):
+        loader.use_collection(collection, **load_adata)
+
+    assert next(iter(loader))["X"].shape[1] == 100
 
 
 @pytest.mark.parametrize("has_extras", [True, False], ids=["with-extras", "without-extras"])
-def test_load_all_aligned_warns_only_with_extras(tmp_path: Path, *, has_extras: bool):
-    """`load_all_aligned` always loads only X/obs/var, and warns iff obsm/layers are present to ignore."""
-    idx = [f"c{i}" for i in range(6)]
-    extras = (
-        {
-            "layers": {"counts": sp.random(6, 4, density=0.5, format="csr", dtype="f4", rng=np.random.default_rng(0))},
-            "obsm": {"emb": np.ones((6, 3), dtype="f4")},
-        }
-        if has_extras
-        else {}
-    )
-    adata = ad.AnnData(
-        X=np.ones((6, 4), dtype="f4"),
-        obs=pd.DataFrame({"label": np.arange(6)}, index=idx),
-        var=pd.DataFrame(index=[f"g{i}" for i in range(4)]),
-        **extras,
-    )
-    store = tmp_path / "store.zarr"
-    write_sharded(zarr.open_group(store, mode="w"), adata, n_obs_per_chunk=3, shard_size=6)
-
-    if has_extras:
-        with pytest.warns(FutureWarning, match="currently loads only"):
-            loaded = load_all_aligned(zarr.open_group(store, mode="r"))
-    else:
-        with warnings.catch_warnings(record=True) as recorded:
-            warnings.simplefilter("always")
-            loaded = load_all_aligned(zarr.open_group(store, mode="r"))
-        _assert_no_transitional_warning(recorded)
-
-    # X/obs/var are always loaded; obsm and (real) layers are always ignored for now.
-    assert loaded.X.shape == (6, 4)
-    assert "label" in loaded.obs.columns
-    assert not loaded.obsm
-    assert not (set(loaded.layers.keys()) - {None})
-
-
-@pytest.mark.parametrize("load_adata", [None, load_x_and_obs_and_var], ids=["default", "opt-out"])
-def test_use_collection_transitional_warning(simple_collection: tuple[ad.AnnData, DatasetCollection], *, load_adata):
-    """`use_collection` defaults to `load_all_aligned` (warns); `load_x_and_obs_and_var` opts out silently."""
-    _, collection = simple_collection
+@pytest.mark.parametrize("method", ["add_adata", "add_adatas"])
+def test_add_adata_warns_with_extras(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, method: str, has_extras: bool
+):
+    """`add_adata`/`add_adatas` warn iff the in-memory AnnData carries obsm/layers that get dropped for now."""
+    adata = adata_with_zarr_path_same_var_space[0]  # has obsm/3d and layers/sparse
+    if not has_extras:
+        adata = ad.AnnData(X=adata.X, obs=adata.obs, var=adata.var)
     loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-    kwargs = {} if load_adata is None else {"load_adata": load_adata}
 
-    if load_adata is None:  # default -> load_all_aligned warns (collection has obsm/layers on disk)
-        with pytest.warns(FutureWarning, match="currently loads only"):
-            loader.use_collection(collection, **kwargs)
-    else:
-        with warnings.catch_warnings(record=True) as recorded:
-            warnings.simplefilter("always")
-            loader.use_collection(collection, **kwargs)
-        _assert_no_transitional_warning(recorded)
+    with expect_transitional_warning(present=has_extras):
+        loader.add_adata(adata) if method == "add_adata" else loader.add_adatas([adata])
 
     assert next(iter(loader))["X"].shape[1] == 100
 
