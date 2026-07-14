@@ -243,7 +243,7 @@ def _to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
 
 
 def obs_aligned_extras(adata: ad.AnnData) -> list[str]:
-    """Return the ``"<elem>/<key>"`` names of the real ``obsm``/``layers`` elements on an :class:`~anndata.AnnData`.
+    """Return the ``"<elem>/<key>"`` names of the real ``obsm``/``obsp``/``layers`` elements on an :class:`~anndata.AnnData`.
 
     A *backed* ``AnnData`` exposes a ``None`` key in ``.layers`` that mirrors ``X`` (it is not a real layer);
     we drop it, mirroring anndata's own ``Layers.__bool__`` (``keys() <= {None}``). Real layer keys are always
@@ -251,14 +251,14 @@ def obs_aligned_extras(adata: ad.AnnData) -> list[str]:
     """
     return [
         f"{elem}/{key}"
-        for elem, mapping in (("obsm", adata.obsm), ("layers", adata.layers))
+        for elem, mapping in (("obsm", adata.obsm), ("obsp", adata.obsp), ("layers", adata.layers))
         for key in mapping
         if key is not None
     ]
 
 
 def warn_ignored_obs_aligned(ignored: list[str], *, stacklevel: int) -> None:
-    """Warn that observation-aligned ``obsm``/``layers`` elements are dropped for now.
+    """Warn that observation-aligned ``obsm``/``obsp``/``layers`` elements are dropped for now.
 
     ``ignored`` is a list of ``"<elem>/<key>"`` names that are being discarded.
     """
@@ -277,12 +277,12 @@ def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
     """Load X as a sparse array or dense zarr array and obs from a group.
 
     .. note::
-        For now only ``X``, ``obs``, and ``var`` are loaded; any observation-aligned ``obsm`` and
-        ``layers`` elements found on disk are ignored and a :class:`FutureWarning` is emitted. A future
+        For now only ``X``, ``obs``, and ``var`` are loaded; any observation-aligned ``obsm``, ``obsp``,
+        and ``layers`` elements found on disk are ignored and a :class:`FutureWarning` is emitted. A future
         release will additionally load and yield them.
     """
     warn_ignored_obs_aligned(
-        [f"{elem}/{key}" for elem in ("obsm", "layers") if elem in g for key in g[elem]],
+        [f"{elem}/{key}" for elem in ("obsm", "obsp", "layers") if elem in g for key in g[elem]],
         stacklevel=2,
     )
     var = g["var"]
