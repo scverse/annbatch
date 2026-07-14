@@ -182,8 +182,8 @@ ini_options.filterwarnings = [
   "ignore:.*Structured:zarr.core.dtype.common.UnstableSpecificationWarning",
   "ignore::anndata._warnings.ImplicitModificationWarning",
   "ignore::scipy.sparse.SparseEfficiencyWarning",
-  "ignore:Only `X`, `obs`, and `var` are kept for now:FutureWarning", # TODO: remove in next release
   "ignore:Consolidated metadata is:UserWarning",
+  "ignore:Only `X`, `obs`, and `var` are kept for now:FutureWarning",                    # TODO: remove in next release
   "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
 ]
 # https://github.com/pytest-dev/pytest/issues/10965
