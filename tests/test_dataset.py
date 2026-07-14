@@ -299,7 +299,6 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
 
 
-_TRANSLATIONAL_MSG = "Only `X`, `obs`, and `var` are kept"
 
 
 @contextlib.contextmanager
