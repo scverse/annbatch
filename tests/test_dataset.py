@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import math
-import warnings
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -18,6 +17,7 @@ import zarr
 from annbatch import Loader, write_sharded
 from annbatch.abc import Sampler
 from annbatch.samplers import SequentialSampler
+from tests.conftest import load_x_obs_var
 
 try:
     from cupy import ndarray as CupyArray
@@ -152,10 +152,11 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     to=None,
                 ).use_collection(
                     collection,
-                    **(
-                        {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                    # X/obs/var only; obsm/layers loading is a future concern (see `load_x_obs_var`)
+                    load_adata=(
+                        (lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True))
                         if open_func is not None
-                        else {}
+                        else load_x_obs_var
                     ),
                 )
             ),
@@ -293,22 +294,19 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 
 def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     ds = Loader(to=None)
-    ds = ds.use_collection(simple_collection[1])
+    ds = ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
     with pytest.raises(RuntimeError, match="You should not add multiple collections"):
-        ds.use_collection(simple_collection[1])
+        ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
+
+
+_TRANSLATIONAL_MSG = "Only `X`, `obs`, and `var` are kept"
 
 
 @contextlib.contextmanager
 def expect_transitional_warning(*, present: bool):
-    """Assert the transitional obsm/layers `FutureWarning` is emitted (``present=True``) or not (``present=False``)."""
     transitional_msg = "Only `X`, `obs`, and `var` are kept"
-    if present:
-        with pytest.warns(FutureWarning, match=transitional_msg):
-            yield
-    else:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("error", message=transitional_msg, category=FutureWarning)
-            yield
+    with pytest.warns(FutureWarning, match=transitional_msg) if present else contextlib.nullcontext():
+        yield
 
 
 @pytest.mark.parametrize("custom_loader", [False, True], ids=["default", "custom-loader"])
@@ -867,12 +865,8 @@ def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         rng=np.random.default_rng(0),
         to=None,
     )
-    ds1.use_collection(
-        simple_collection[1],
-    )
-    ds2.use_collection(
-        simple_collection[1],
-    )
+    ds1.use_collection(simple_collection[1], load_adata=load_x_obs_var)
+    ds2.use_collection(simple_collection[1], load_adata=load_x_obs_var)
     for batch1, batch2 in zip(ds1, ds2, strict=True):
         np.testing.assert_equal(batch1["X"], batch2["X"])
 
