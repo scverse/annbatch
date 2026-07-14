@@ -18,7 +18,6 @@ import zarr
 from annbatch import Loader, write_sharded
 from annbatch.abc import Sampler
 from annbatch.samplers import SequentialSampler
-from annbatch.utils import load_x_and_obs_and_var
 
 try:
     from cupy import ndarray as CupyArray
@@ -310,8 +309,6 @@ def expect_transitional_warning(*, present: bool):
         with warnings.catch_warnings():
             warnings.filterwarnings("error", message=transitional_msg, category=FutureWarning)
             yield
-
-
 
 
 @pytest.mark.parametrize("custom_loader", [False, True], ids=["default", "custom-loader"])
