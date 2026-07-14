@@ -12,9 +12,10 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
+from scipy.sparse import random as sparse_random
+
 from annbatch import write_sharded
 from annbatch.io import DatasetCollection
-from scipy.sparse import random as sparse_random
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -46,9 +47,7 @@ def use_zarrs(request):
 
 
 @pytest.fixture(scope="session")
-def adata_with_zarr_path_same_var_space(
-    tmpdir_factory, n_shards: int = 3
-) -> Generator[tuple[ad.AnnData, Path]]:
+def adata_with_zarr_path_same_var_space(tmpdir_factory, n_shards: int = 3) -> Generator[tuple[ad.AnnData, Path]]:
     """Create a mock Zarr store for testing."""
     feature_dim = 100
     n_cells_per_shard = 200
@@ -59,11 +58,7 @@ def adata_with_zarr_path_same_var_space(
             X=np.random.random((n_cells_per_shard, feature_dim)).astype("f4"),
             var=pd.DataFrame(index=[f"gene_{i}" for i in range(feature_dim)]),
             obs=pd.DataFrame(
-                {
-                    "label": np.random.default_rng().integers(
-                        0, 5, size=n_cells_per_shard
-                    )
-                },
+                {"label": np.random.default_rng().integers(0, 5, size=n_cells_per_shard)},
                 index=np.arange(n_cells_per_shard).astype(str),
             ),
             layers={
@@ -87,13 +82,7 @@ def adata_with_zarr_path_same_var_space(
         )
     yield (
         # need to match directory iteration order for correctness so can't just concatenate
-        ad.concat(
-            [
-                ad.read_zarr(tmp_path / shard)
-                for shard in tmp_path.iterdir()
-                if str(shard).endswith(".zarr")
-            ]
-        ),
+        ad.concat([ad.read_zarr(tmp_path / shard) for shard in tmp_path.iterdir() if str(shard).endswith(".zarr")]),
         tmp_path,
     )
 
@@ -116,9 +105,7 @@ def adata_with_h5_path_different_var_space(
     n_cells = [random.randint(50, 100) for _ in range(n_adatas)]
     adatas = []
     for i, (m, n) in enumerate(zip(n_cells, n_features, strict=True)):
-        var_idx = [f"gene_{gene}" for gene in range(n // 2)] + [
-            f"gene_{gene}_{i}" for gene in range(n // 2, n)
-        ]
+        var_idx = [f"gene_{gene}" for gene in range(n // 2)] + [f"gene_{gene}_{i}" for gene in range(n // 2, n)]
         obs_idx = [f"cell_{j}" for j in np.arange(m).astype(str) + f"-{i}"]
         adata = ad.AnnData(
             X=sparse_random(m, n, density=0.1, format="csr", dtype="f4"),
@@ -154,11 +141,7 @@ def adata_with_h5_path_different_var_space(
         adata.write_h5ad(tmp_path / f"adata_{i}.h5ad", compression="gzip")
         adatas += [adata]
     return ad.concat(
-        [
-            ad.read_h5ad(tmp_path / shard)
-            for shard in sorted(tmp_path.iterdir())
-            if str(shard).endswith(".h5ad")
-        ],
+        [ad.read_h5ad(tmp_path / shard) for shard in sorted(tmp_path.iterdir()) if str(shard).endswith(".h5ad")],
         join="outer",
         merge=merge,
     ), tmp_path
@@ -168,9 +151,7 @@ def adata_with_h5_path_different_var_space(
 def simple_collection(
     tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
 ) -> tuple[DatasetCollection, ad.AnnData]:
-    zarr_stores = sorted(
-        f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir()
-    )
+    zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
     collection = DatasetCollection(output_path).add_adatas(
         zarr_stores,
@@ -179,14 +160,10 @@ def simple_collection(
         dataset_size=60,
         shuffle_chunk_size=10,
     )
-    return ad.concat(
-        [ad.io.read_elem(ds) for ds in collection], join="outer"
-    ), collection
+    return ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"), collection
 
 
-@pytest.fixture(
-    scope="session", params=[False, True], ids=["same-dtype", "mixed-dtype"]
-)
+@pytest.fixture(scope="session", params=[False, True], ids=["same-dtype", "mixed-dtype"])
 def maybe_mixed_dtype_collection(
     request,
     tmpdir_factory,
@@ -195,12 +172,8 @@ def maybe_mixed_dtype_collection(
     """Like ``simple_collection``, but optionally rewrites the first dataset's
     X (and sparse layer) with a different dtype to exercise the dtype-promotion
     code path in ``Loader._concatenate_outs``. Returns ``(adata, collection, is_mixed)``."""
-    zarr_stores = sorted(
-        f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir()
-    )
-    output_path = (
-        Path(tmpdir_factory.mktemp("zarr_folder")) / "mixed_dtype_fixture.zarr"
-    )
+    zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
+    output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "mixed_dtype_fixture.zarr"
     collection = DatasetCollection(output_path).add_adatas(
         zarr_stores,
         n_obs_per_chunk=10,
@@ -225,10 +198,9 @@ def maybe_mixed_dtype_collection(
         assert any(ds["X"].dtype != first_X_dtype for ds in datasets[1:]), (
             "mixed-dtype fixture failed to produce differing X dtypes"
         )
-        assert any(
-            ds["layers"]["sparse"]["data"].dtype != first_sparse_dtype
-            for ds in datasets[1:]
-        ), "mixed-dtype fixture failed to produce differing sparse layer dtypes"
+        assert any(ds["layers"]["sparse"]["data"].dtype != first_sparse_dtype for ds in datasets[1:]), (
+            "mixed-dtype fixture failed to produce differing sparse layer dtypes"
+        )
     return (
         ad.concat([ad.io.read_elem(ds) for ds in collection], join="outer"),
         collection,
@@ -242,10 +214,7 @@ def pytest_itemcollected(item: pytest.Item) -> None:
     if is_marked:
         try:
             has_gpu = (
-                subprocess.run(
-                    ["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                ).returncode
-                == 0
+                subprocess.run(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
             )
         except FileNotFoundError:
             has_gpu = False
