@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import pickle
 import sys
@@ -884,7 +885,7 @@ class TestDistributedSampler:
 
 
 # =============================================================================
-# Serialization / reproducibility (all implemented samplers)
+# Serialization / reproducibility (all implemented stochastic samplers)
 # =============================================================================
 
 
@@ -893,8 +894,6 @@ def _make_sampler(kind: str, seed: int, n_obs: int) -> Sampler:
     match kind:
         case "random":
             return RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5, rng=np.random.default_rng(seed))
-        case "sequential":
-            return SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=5)
         case "class":
             # n_obs obs, 5 classes, each a contiguous run of n_obs // 5 (>= chunk_size)
             classes = pd.Categorical(np.repeat(np.arange(5), n_obs // 5))
@@ -909,30 +908,41 @@ def _make_sampler(kind: str, seed: int, n_obs: int) -> Sampler:
         case "distributed":
             inner = RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5, rng=np.random.default_rng(seed))
             # dist_info is only called at construction (rank 0 of 1) and is not stored,
-            # so the resulting sampler stays picklable.
+            # so the resulting sampler stays picklable/copyable.
             return DistributedSampler(inner, dist_info=lambda: (0, 1))
         case _:
             raise ValueError(f"unknown sampler kind {kind!r}")
 
 
-@pytest.mark.parametrize("kind", ["random", "sequential", "class", "distributed"])
-def test_sampler_is_serializable_and_reproducible(kind: str):
-    """Every sampler pickles and its random *state* (not just the seed) round-trips."""
+# A round-trip duplicates a sampler into an *independent* object with the same state.
+# ``copy.deepcopy`` -- not shallow ``copy.copy`` -- is the copy analog of pickle: a shallow
+# copy would share the ``rng`` object with the original, breaking the independence these
+# assertions rely on.
+_ROUND_TRIPS = {
+    "pickle": lambda sampler: pickle.loads(pickle.dumps(sampler)),
+    "deepcopy": copy.deepcopy,
+}
+
+
+@pytest.mark.parametrize("round_trip", _ROUND_TRIPS.values(), ids=_ROUND_TRIPS.keys())
+@pytest.mark.parametrize("kind", ["random", "class", "distributed"])
+def test_sampler_is_serializable_and_reproducible(kind: str, round_trip: Callable[[Sampler], Sampler]):
+    """Every sampler survives a pickle/deepcopy round-trip with its random *state* (not just the seed) preserved."""
     n_obs = 100
 
-    def advance_pickle_indices(seed: int) -> list[int]:
+    def advance_round_trip_indices(seed: int) -> list[int]:
         sampler = _make_sampler(kind, seed, n_obs)
         collect_indices(sampler, n_obs)  # advance the rng one pass
-        restored = pickle.loads(pickle.dumps(sampler))
+        restored = round_trip(sampler)
         indices, _, _ = collect_indices(restored, n_obs)
         return indices
 
     sampler = _make_sampler(kind, seed=0, n_obs=n_obs)
     fresh_indices, _, _ = collect_indices(_make_sampler(kind, seed=0, n_obs=n_obs), n_obs)
 
-    # advance the rng by one full pass, then snapshot via pickle
+    # advance the rng by one full pass, then snapshot via the round-trip
     collect_indices(sampler, n_obs)
-    restored = pickle.loads(pickle.dumps(sampler))
+    restored = round_trip(sampler)
     assert isinstance(restored, type(sampler))
 
     restored_indices, _, _ = collect_indices(restored, n_obs)
@@ -940,16 +950,6 @@ def test_sampler_is_serializable_and_reproducible(kind: str):
     assert restored_indices, "sampler produced no indices"
 
     assert restored_indices == original_indices
-
-    if restored.shuffle:
-        # tests for the controlled stochastic behavior
-        # without these tests, passing this test becomes
-        # trivial if there is a seed collapse etc.
-
-        # check if the state is not reset: an advanced-then-saved
-        # stochastic sampler must not match a fresh one
-        assert restored_indices != fresh_indices
-        # check if saved state tracks the seed: identical for a
-        # same-seed run, different otherwise
-        assert restored_indices == advance_pickle_indices(seed=0)
-        assert restored_indices != advance_pickle_indices(seed=1)
+    assert restored_indices != fresh_indices
+    assert restored_indices == advance_round_trip_indices(seed=0)
+    assert restored_indices != advance_round_trip_indices(seed=1)
