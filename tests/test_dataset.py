@@ -331,8 +331,7 @@ def test_add_adata_warns_with_extras(
     loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
 
     with expect_transitional_warning(present=has_extras):
-        getattr(loader, method)(adata if if method == "add_adata" else [adata])
-
+        getattr(loader, method)(adata if method == "add_adata" else [adata])
 
 
 def test_add_adatas_warns_exactly_once_about_each_extra():
