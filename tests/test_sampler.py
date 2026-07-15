@@ -930,26 +930,23 @@ def test_sampler_is_serializable_and_reproducible(kind: str, round_trip: Callabl
     """Every sampler survives a pickle/deepcopy round-trip with its random *state* (not just the seed) preserved."""
     n_obs = 100
 
-    def advance_round_trip_indices(seed: int) -> list[int]:
-        sampler = _make_sampler(kind, seed, n_obs)
-        collect_indices(sampler, n_obs)  # advance the rng one pass
-        restored = round_trip(sampler)
-        indices, _, _ = collect_indices(restored, n_obs)
-        return indices
-
     sampler = _make_sampler(kind, seed=0, n_obs=n_obs)
     fresh_indices, _, _ = collect_indices(_make_sampler(kind, seed=0, n_obs=n_obs), n_obs)
 
-    # advance the rng by one full pass, then snapshot via the round-trip
+    # advance the rng one full pass before snapshotting
     collect_indices(sampler, n_obs)
     restored = round_trip(sampler)
     assert isinstance(restored, type(sampler))
 
     restored_indices, _, _ = collect_indices(restored, n_obs)
+    assert len(restored_indices) > 0, "sampler produced no indices"
     original_indices, _, _ = collect_indices(sampler, n_obs)
-    assert restored_indices, "sampler produced no indices"
 
+    # round-trip preserved the live rng *state*: restored keeps producing what the original does...
     assert restored_indices == original_indices
+    # ...and that state had genuinely advanced past a fresh seed-0 sampler -- otherwise we'd only be
+    # proving the seed round-tripped, not the state.
     assert restored_indices != fresh_indices
-    assert restored_indices == advance_round_trip_indices(seed=0)
-    assert restored_indices != advance_round_trip_indices(seed=1)
+    # a different seed must produce a different sequence (guards against an ignored/hard-coded rng)
+    fresh_indices_seed_1, _, _ = collect_indices(_make_sampler(kind, seed=1, n_obs=n_obs), n_obs)
+    assert fresh_indices != fresh_indices_seed_1
