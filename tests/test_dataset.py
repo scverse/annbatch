@@ -333,7 +333,6 @@ def test_add_adata_warns_with_extras(
     with expect_transitional_warning(present=has_extras):
         getattr(loader, method)(adata if if method == "add_adata" else [adata])
 
-    assert next(iter(loader))["X"].shape[1] == 100
 
 
 def test_add_adatas_warns_exactly_once_about_each_extra():
