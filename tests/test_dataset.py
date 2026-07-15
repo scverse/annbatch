@@ -336,7 +336,7 @@ def test_add_adata_warns_with_extras(
     assert next(iter(loader))["X"].shape[1] == 100
 
 
-def test_add_adatas_warns_once_about_each_extra():
+def test_add_adatas_warns_exactly_once_about_each_extra():
     """`add_adatas` warns once *per unique* dropped element: distinct extras each warn, duplicates are deduped."""
     n_obs, n_var = 40, 100
     var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_var)])
