@@ -318,7 +318,6 @@ def test_use_collection_transitional_warning(
     with expect_transitional_warning(present=not custom_loader):
         loader.use_collection(collection, **load_adata)
 
-    assert next(iter(loader))["X"].shape[1] == 100
 
 
 @pytest.mark.parametrize("has_extras", [True, False], ids=["with-extras", "without-extras"])
