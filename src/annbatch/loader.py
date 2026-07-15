@@ -399,12 +399,11 @@ class Loader[
                 Only `X`, `obs`, and `var` are kept for now: any :attr:`~anndata.AnnData.obsm`, :attr:`~anndata.AnnData.obsp`, and :attr:`~anndata.AnnData.layers` elements are ignored and a :class:`FutureWarning` is emitted (a future release will additionally load and yield them).
         """
         check_lt_1([len(adatas)], ["Number of adatas"])
-        warn_ignored_obs_aligned([name for adata in adatas for name in obs_aligned_extras(adata)], stacklevel=2)
         for adata in adatas:
-            dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
-            self._add_dataset_unchecked(dataset, obs, var)
+            self._add_adata_unchecked(adata)
         return self
 
+    @validate_sampler
     def add_adata(self, adata: ad.AnnData) -> Self:
         """Append an adata to this dataset.
 
@@ -415,9 +414,13 @@ class Loader[
                 :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
                 Only `X`, `obs`, and `var` are kept for now: any :attr:`~anndata.AnnData.obsm`, :attr:`~anndata.AnnData.obsp`, and :attr:`~anndata.AnnData.layers` elements are ignored and a :class:`FutureWarning` is emitted (a future release will additionally load and yield them).
         """
-        warn_ignored_obs_aligned(obs_aligned_extras(adata), stacklevel=2)
+        self._add_adata_unchecked(adata)
+        return self
+
+    def _add_adata_unchecked(self, adata: ad.AnnData) -> Self:
+        warn_ignored_obs_aligned(obs_aligned_extras(adata), stacklevel=3)
         dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
-        self.add_dataset(dataset, obs, var)
+        self._add_dataset_unchecked(dataset, obs, var)
         return self
 
     def _prepare_dataset_obs_and_var(
