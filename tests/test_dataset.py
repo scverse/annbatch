@@ -338,6 +338,26 @@ def test_add_adata_warns_with_extras(
     assert next(iter(loader))["X"].shape[1] == 100
 
 
+def test_add_adatas_warns_once_about_each_extra():
+    """`add_adatas` warns once *per unique* dropped element: distinct extras each warn, duplicates are deduped."""
+    n_obs, n_var = 40, 100
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_var)])
+    x = np.random.default_rng().random((n_obs, n_var)).astype("f4")
+    adata_obsm = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
+    adata_obsp = ad.AnnData(X=x.copy(), var=var, obsp={"conn": sp.eye(n_obs, format="csr", dtype="f4")})
+    adata_obsm_again = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
+
+    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
+    with pytest.warns(FutureWarning) as record:
+        loader.add_adatas([adata_obsm, adata_obsp, adata_obsm_again])
+
+    msgs = [str(w.message) for w in record if issubclass(w.category, FutureWarning)]
+    # `obsm/pca` is carried by two adatas but warned about once; `obsp/conn` warns once -> two warnings total
+    assert len(msgs) == 2
+    assert sum("obsm/pca" in m for m in msgs) == 1
+    assert sum("obsp/conn" in m for m in msgs) == 1
+
+
 @pytest.mark.gpu
 @pytest.mark.parametrize(
     "to", [pytest.param("torch", marks=skip_if_no_torch), pytest.param("jax", marks=skip_if_no_jax), None]
