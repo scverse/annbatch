@@ -319,7 +319,6 @@ def test_use_collection_transitional_warning(
         loader.use_collection(collection, **load_adata)
 
 
-
 @pytest.mark.parametrize("has_extras", [True, False], ids=["with-extras", "without-extras"])
 @pytest.mark.parametrize("method", ["add_adata", "add_adatas"])
 def test_add_adata_warns_with_extras(
