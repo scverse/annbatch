@@ -331,7 +331,7 @@ def test_add_adata_warns_with_extras(
     loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
 
     with expect_transitional_warning(present=has_extras):
-        loader.add_adata(adata) if method == "add_adata" else loader.add_adatas([adata])
+        getattr(loader, method)(adata if if method == "add_adata" else [adata])
 
     assert next(iter(loader))["X"].shape[1] == 100
 
