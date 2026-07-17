@@ -1,30 +1,22 @@
-# Configuration file for the Sphinx documentation builder.
+from __future__ import annotations
 
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/page/usage/configuration.html
-
-# -- Path setup --------------------------------------------------------------
-import shutil
 import sys
 from datetime import datetime
 from importlib.metadata import metadata
-from pathlib import Path
 
-from sphinxcontrib import katex
+# -- Path setup --------------------------------------------------------------
+from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE / "extensions"))
-
-
 # -- Project information -----------------------------------------------------
 
 # NOTE: If you installed your project in editable mode, this might be stale.
 #       If this is the case, reinstall it to refresh the metadata
 info = metadata("annbatch")
-project = info["Name"]
+project_name = info["Name"]
 author = info["Author"]
-copyright = f"{datetime.now():%Y}, {author}."
+copyright = f"{datetime.now():%Y}, {author}"
 version = info["Version"]
 urls = dict(pu.split(", ") for pu in info.get_all("Project-URL"))
 repository_url = urls["Source"]
@@ -40,7 +32,7 @@ needs_sphinx = "4.0"
 html_context = {
     "display_github": True,  # Integrate GitHub
     "github_user": "scverse",
-    "github_repo": project,
+    "github_repo": project_name,
     "github_version": "main",
     "conf_py_path": "/docs/",
 }
@@ -52,17 +44,20 @@ html_context = {
 extensions = [
     "myst_nb",
     "sphinx_copybutton",
+    "sphinx_design",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinxcontrib.bibtex",
-    "sphinxcontrib.katex",
     "sphinx_autodoc_typehints",
-    "sphinx_design",
+    "sphinx_tabs.tabs",
+    "sphinx.ext.mathjax",
     "IPython.sphinxext.ipython_console_highlighting",
     "sphinxext.opengraph",
-    "scverse_misc.sphinx_ext",
+    "sphinx_issues",
+    "sphinx_toolbox.more_autodoc.autotypeddict",
+    "scanpydoc",  # needs to be before linkcode
     *[p.stem for p in (HERE / "extensions").glob("*.py")],
 ]
 
@@ -88,7 +83,7 @@ nb_output_stderr = "remove"
 nb_execution_mode = "off"
 nb_merge_streams = True
 typehints_defaults = "braces"
-always_use_bars_union = True  # use `|` instead of `Union` in types even when building with Python ≤3.14
+issues_github_path = "lamindb/annbatch"
 
 source_suffix = {
     ".rst": "restructuredtext",
@@ -98,9 +93,18 @@ source_suffix = {
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "anndata": ("https://anndata.scverse.org/en/stable/", None),
-    "scanpy": ("https://scanpy.scverse.org/en/stable/", None),
+    "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
+    "scanpy": ("https://scanpy.readthedocs.io/en/stable/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "zarr": ("https://zarr.readthedocs.io/en/stable/", None),
+    "torch": ("https://docs.pytorch.org/docs/stable/", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy", None),
+    "cupy": ("https://docs.cupy.dev/en/stable/", None),
+    "zarrs": ("https://zarrs-python.readthedocs.io/en/latest/", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/version/2.3", None),
+    "h5py": ("https://docs.h5py.org/en/latest", None),
+    "cellink": ("https://cellink-docs.readthedocs.io/en/latest", None),
+    "jax": ("https://docs.jax.dev/en/latest", None),
 }
 
 # List of patterns, relative to source directory, that match files and
@@ -114,24 +118,53 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints"]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "sphinx_book_theme"
+html_theme = "scanpydoc"
 html_static_path = ["_static"]
 html_css_files = ["css/custom.css"]
 
-html_title = project
+html_title = project_name
 
 html_theme_options = {
     "repository_url": repository_url,
+    "repository_branch": "main",
     "use_repository_button": True,
+    "use_issues_button": True,
     "path_to_docs": "docs/",
     "navigation_with_keys": False,
+    # Brand accent derived from the annbatch logo. scanpydoc exposes this as
+    # the ``--accent-color`` CSS variable (mobile header + project name text).
+    "accent_color": "#ff5a3c",
+    "logo": {
+        "image_light": "_static/annbatch-logo.svg",
+        "image_dark": "_static/annbatch-logo-dark.svg",
+        "alt_text": "annbatch",
+    },
+    "show_toc_level": 2,
 }
 
 pygments_style = "default"
-katex_prerender = shutil.which(katex.NODEJS_BINARY) is not None
 
-nitpick_ignore = [
+nitpick_ignore: list[str] = [
     # If building the documentation fails because of a missing link that is outside your control,
     # you can add an exception to this list.
     #     ("py:class", "igraph.Graph"),
 ]
+
+qualname_overrides = {
+    "zarr.core.array.Array": "zarr.Array",
+    "zarr.core.group.Group": "zarr.Group",
+    "h5py._hl.group.Group": "h5py.Group",
+}
+
+
+def skip_private_abstract_methods(app, what, name, obj, skip, options):  # noqa: D103
+    # Include private methods if they are abstract
+    if name.startswith("_"):
+        if getattr(obj, "__isabstractmethod__", False):
+            return False  # do NOT skip
+        return True
+    return skip  # fallback to default behavior
+
+
+def setup(app):  # noqa: D103
+    app.connect("autodoc-skip-member", skip_private_abstract_methods)

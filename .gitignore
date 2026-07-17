@@ -4,6 +4,7 @@
 buck-out/
 
 # Compiled files
+venv/
 .venv/
 __pycache__/
 .*cache/
@@ -19,3 +20,19 @@ __pycache__/
 # docs
 /docs/generated/
 /docs/_build/
+
+# PyCharm
+.idea/
+
+# test-time
+pre-deps.txt
+
+# test datasets
+*.zarr
+*.h5ad
+*.vcf.gz
+*.log
+*.pvar
+*.pgen
+*.psam
+*.tbi

@@ -1,4 +1,129 @@
-/* Reduce the font size in data frames - See https://github.com/scverse/cookiecutter-scverse/issues/193 */
+/* ============================================================================
+   annbatch documentation theme
+   Color scheme derived from the annbatch logo:
+     - navy        #16223D  (headings, secondary accent)
+     - orange-red  #FF5A3C  (brand / primary accent)
+     - cream       #F4F1E9  (light surfaces)
+   Built on top of the scanpydoc / sphinx-book-theme (pydata-sphinx-theme) so
+   we mostly steer the theme through its CSS custom properties.
+   ========================================================================= */
+
+/* -- Brand palette --------------------------------------------------------- */
+:root {
+    --annbatch-navy: #16223d;
+    --annbatch-navy-soft: #243657;
+    --annbatch-orange: #ff5a3c;
+    /* A deeper orange used wherever the brand color sits on white as text,
+       so links/inline code stay readable (>= 4.5:1 contrast). */
+    --annbatch-orange-ink: #c2371a;
+    --annbatch-orange-tint: #fff1ec;
+    --annbatch-cream: #f4f1e9;
+}
+
+/* -- Light mode ------------------------------------------------------------ */
+html[data-theme="light"] {
+    --pst-color-primary: var(--annbatch-orange-ink);
+    --pst-color-primary-highlight: var(--annbatch-navy);
+    --pst-color-secondary: var(--annbatch-navy);
+    --pst-color-secondary-highlight: var(--annbatch-navy-soft);
+    --pst-color-link: var(--annbatch-orange-ink);
+    --pst-color-link-hover: var(--annbatch-navy);
+    --pst-color-inline-code: var(--annbatch-orange-ink);
+    --pst-color-accent: var(--annbatch-orange);
+    --pst-color-target: var(--annbatch-orange-tint);
+
+    --sd-color-primary: var(--annbatch-orange-ink);
+    --sd-color-primary-highlight: var(--annbatch-navy);
+    --sd-color-shadow: rgba(22, 34, 61, 0.18);
+}
+
+/* -- Dark mode ------------------------------------------------------------- */
+html[data-theme="dark"] {
+    /* On dark backgrounds the vibrant brand orange has plenty of contrast. */
+    --pst-color-primary: #ff7a5f;
+    --pst-color-primary-highlight: var(--annbatch-cream);
+    --pst-color-secondary: var(--annbatch-cream);
+    --pst-color-secondary-highlight: #ffffff;
+    --pst-color-link: #ff7a5f;
+    --pst-color-link-hover: #ffb4a3;
+    --pst-color-inline-code: #ff8b72;
+    --pst-color-accent: var(--annbatch-orange);
+    --pst-color-target: rgba(255, 90, 60, 0.18);
+
+    --sd-color-primary: #ff7a5f;
+    --sd-color-primary-highlight: var(--annbatch-cream);
+    --sd-color-shadow: rgba(0, 0, 0, 0.5);
+}
+
+/* -- Logo sizing ----------------------------------------------------------- */
+.navbar-brand img,
+.navbar-brand .logo__image {
+    max-height: 2.6rem;
+    width: auto;
+}
+/* The logo is a full wordmark, so suppress the duplicate text title. */
+.navbar-brand .title {
+    display: none;
+}
+
+/* -- Sidebar section captions (pertpy-style colored, uppercase) ------------ */
+.bd-sidebar-primary .caption-text,
+nav.bd-links p.caption .caption-text {
+    color: var(--pst-color-primary);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.78rem;
+}
+
+/* Keep deeply-nested API entries compact in the sidebar (mirrors scverse). */
+li.toctree-l3 {
+    font-size: 81.25% !important;
+}
+li.toctree-l4 {
+    font-size: 75% !important;
+}
+
+/* -- Landing-page cards (sphinx-design) ------------------------------------ */
+.sd-card {
+    border: 1px solid var(--pst-color-border);
+    border-radius: 0.6rem;
+    transition:
+        transform 0.18s ease,
+        box-shadow 0.18s ease,
+        border-color 0.18s ease;
+}
+.sd-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--annbatch-orange);
+    box-shadow: 0 0.5rem 1.25rem var(--sd-color-shadow);
+}
+.sd-card .sd-card-title {
+    color: var(--pst-color-secondary);
+    font-weight: 600;
+}
+/* octicons inside card titles take the brand accent */
+.sd-card .sd-card-title .sd-octicon {
+    color: var(--annbatch-orange);
+    margin-right: 0.4rem;
+    vertical-align: -0.12em;
+}
+.sd-card a.sd-card-title,
+.sd-card a.sd-card-title:hover {
+    text-decoration: none;
+}
+
+/* -- Hero image on the landing page ---------------------------------------- */
+img.annbatch-hero {
+    display: block;
+    margin: 1.5rem auto 2rem;
+    max-width: 560px;
+    width: 100%;
+    height: auto;
+}
+
+/* -- Reduce the font size in data frames ----------------------------------- */
+/* See https://github.com/scverse/cookiecutter-scverse/issues/193 */
 div.cell_output table.dataframe {
     font-size: 0.8em;
 }
