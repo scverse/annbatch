@@ -19,6 +19,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 # There are two jobs:
 # 1. `check` determines if the second job (`test`) will be run (through a job dependency).
 # 2. `test` runs on an AWS runner and executes the GPU tests.
@@ -30,8 +32,9 @@ jobs:
     name: "Triage: Check if GPU tests are allowed to run"
     if: ${{ !(github.event.pull_request.user.login == 'pre-commit-ci[bot]' || contains(github.event.pull_request.labels.*.name, 'skip-gpu-ci')) }}
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
-      - uses: flying-sheep/check@v1
+      - uses: flying-sheep/check@e10bb11109d1434ab16729bd988d78d65d47e163 # v1.0.5
         with:
           success: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'run-gpu-ci') }}
   # If `check` wasn’t skipped or failed, start an AWS runner and run the GPU tests on it.
@@ -45,12 +48,16 @@ jobs:
     # Setting a timeout of 30 minutes, as the AWS costs money
     # At time of writing, a typical run takes about 5 minutes
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write # for removing the 'run-gpu-ci' label
 
     steps:
-      - uses: actions/checkout@v4 # TODO: upgrade once cirun image supports node 24
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1 TODO: upgrade once cirun image supports node 24
         with:
           fetch-depth: 0
           filter: blob:none
+          persist-credentials: false
 
       - name: Nvidia SMI sanity check
         run: nvidia-smi
@@ -69,7 +76,7 @@ jobs:
           echo "max_python_version=$max_version" >> $GITHUB_OUTPUT
 
       - name: Install UV
-        uses: astral-sh/setup-uv@v6 # TODO: upgrade once cirun image supports node 24
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0 TODO: upgrade once cirun image supports node 24
         with:
           enable-cache: true
           python-version: ${{ steps.max-python.outputs.max_python_version }}
@@ -88,7 +95,7 @@ jobs:
           uv run coverage combine
           uv run coverage xml
 
-      - uses: codecov/codecov-action@v6
+      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
@@ -96,7 +103,7 @@ jobs:
 
       - name: Remove 'run-gpu-ci' Label
         if: always()
-        uses: actions-ecosystem/action-remove-labels@v1
+        uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0 # v1.3.0
         with:
           labels: "run-gpu-ci"
           github_token: ${{ secrets.GITHUB_TOKEN }}
