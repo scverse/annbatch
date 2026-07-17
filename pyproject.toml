@@ -64,7 +64,7 @@ urls.Source = "https://github.com/scverse/annbatch"
 # Non-runtime dependencies (PEP 735 dependency groups), not published as extras.
 [dependency-groups]
 dev = [
-  "pre-commit",
+  "prek",
   "twine>=4.0.2",
 ]
 test = [
@@ -199,6 +199,7 @@ run.source = [ "annbatch" ]
 
 [tool.cruft]
 skip = [
+  ".git",
   "tests",
   "src/**/__init__.py",
   "src/**/basic.py",
