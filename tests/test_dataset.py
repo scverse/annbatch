@@ -841,44 +841,74 @@ class _FixedRequestSampler(SequentialSampler):
         yield {"requests": self._requests, "splits": self._splits}
 
 
-def test_splits_are_chunk_order_across_datasets(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
-):
-    """Splits index in chunk order; the loader undoes its dataset-grouped buffer layout.
+# Rows in dataset 0 (``n_cells_per_shard`` in the fixture): ds0 -> global [0, _N0), ds1 -> [_N0, ...).
+# Hard-coded so the requests below can be plain literals; the test asserts it still matches the fixture.
+_N0 = 200
 
-    The request lists a chunk from dataset 1 *before* a chunk from dataset 0, so the loader's
-    in-memory buffer (grouped by dataset) is the reverse of chunk order. Each split selects one
-    chunk's positions, so each batch must be exactly that chunk's rows. Before the chunk-order
-    remap, the dataset-grouped buffer leaked the wrong rows into each batch -- this test would
-    have failed.
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_index_sets"),
+    [
+        # Two whole chunks, dataset 1's chunk requested *before* dataset 0's. The loader's in-memory
+        # buffer is grouped by dataset (here the reverse of chunk order), so each split must be
+        # remapped back to chunk order. This grouping permutation is a plain swap (an involution), so
+        # gather and scatter coincide -- this case only guards the chunk-order remap itself.
+        pytest.param(
+            {
+                "batch_size": 10,
+                "preload_nchunks": 2,
+                "chunk_size": 10,
+                "requests": [slice(_N0, _N0 + 10), slice(0, 10)],  # split 0 from ds1, split 1 from ds0
+                "splits": [np.arange(0, 10), np.arange(10, 20)],
+            },
+            [set(range(_N0, _N0 + 10)), set(range(0, 10))],
+            id="whole-chunk-swap",
+        ),
+        # Single-row requests interleaved [ds0, ds1, ds1, ds0], each batch spanning *both* datasets.
+        # This grouping permutation is *not* its own inverse, so a scattered split must map through the
+        # *inverse* -- a scatter `inv[order] = positions`, not a gather `inv = positions[order]`. Under
+        # the gather bug each batch picks up a row from the wrong dataset; the swap case can't catch it.
+        pytest.param(
+            {
+                "batch_size": 2,
+                "preload_nchunks": 2,
+                "chunk_size": 2,
+                "requests": np.array([0, _N0, _N0 + 1, 1]),  # scattered single rows (chunk_size=1 style)
+                "splits": [np.array([0, 1]), np.array([2, 3])],  # split 0 -> {0, _N0}, split 1 -> {_N0 + 1, 1}
+            },
+            [{0, _N0}, {_N0 + 1, 1}],
+            id="scattered-across-datasets",
+        ),
+    ],
+)
+def test_splits_map_to_their_rows_across_datasets(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    kwargs: dict,
+    expected_index_sets: list[set[int]],
+):
+    """Each split selects exactly its own rows once the loader undoes its dataset-grouped buffer layout.
+
+    The in-memory buffer is grouped by dataset, so splits (indexed in chunk order) must be remapped
+    back. Both cases pin down the split->row mapping across datasets; see each param for the extra bug
+    it guards (chunk-order remap vs. the inverse permutation for scattered splits).
     """
     paths = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     data0, data1 = open_dense(paths[0]), open_dense(paths[1])
-    n0 = data0["dataset"].shape[0]  # dataset 0 -> global [0, n0) ; dataset 1 -> global [n0, ...)
+    n0 = data0["dataset"].shape[0]  # ds0 -> global [0, n0) ; ds1 -> global [n0, ...)
+    assert n0 == _N0, "fixture size drifted; update _N0 and the parametrized requests"
 
-    slice_from_data1 = slice(n0, n0 + 10)
-    slice_from_data0 = slice(0, 10)
-    split_from_data1 = np.arange(0, 10)
-    split_from_data0 = np.arange(10, 20)
-    sampler = _FixedRequestSampler(
-        batch_size=10,
-        preload_nchunks=2,
-        chunk_size=10,
-        # split 0 from data1, split 1 from data0
-        requests=[slice_from_data1, slice_from_data0],
-        splits=[split_from_data1, split_from_data0],
-    )
+    sampler = _FixedRequestSampler(**kwargs)
     loader = Loader(batch_sampler=sampler, return_index=True, preload_to_gpu=False, to=None)
-    loader.add_dataset(**data0)
-    loader.add_dataset(**data1)
+    loader.add_dataset(dataset=data0["dataset"], obs=data0.get("obs", None), var=data0.get("var", None))
+    loader.add_dataset(dataset=data1["dataset"], obs=data1.get("obs", None), var=data1.get("var", None))
 
     batches = list(loader)
-    # split 0 -> chunk A -> dataset 1's first 10 rows ; split 1 -> chunk B -> dataset 0's first 10 rows
-    assert np.array_equal(batches[0]["index"], np.arange(slice_from_data1.start, slice_from_data1.stop))
-    assert np.array_equal(batches[1]["index"], np.arange(slice_from_data0.start, slice_from_data0.stop))
-    # data follows the index: each batch is exactly the requested chunk's rows read off disk
-    np.testing.assert_array_equal(np.asarray(batches[0]["X"]), np.asarray(data1["dataset"][0:10]))
-    np.testing.assert_array_equal(np.asarray(batches[1]["X"]), np.asarray(data0["dataset"][0:10]))
+    assert [set(b["index"]) for b in batches] == expected_index_sets, "split->row mapping is wrong"
+    # X follows the index: every yielded row is exactly the on-disk row it claims to be
+    for batch in batches:
+        for row, idx in zip(np.asarray(batch["X"]), batch["index"], strict=True):
+            expected = data0["dataset"][idx] if idx < n0 else data1["dataset"][idx - n0]
+            np.testing.assert_array_equal(row, np.asarray(expected))
 
 
 def test_chunks_deprecation_warning(
