@@ -937,6 +937,7 @@ def test_sampler_is_serializable_and_reproducible(kind: str, round_trip: Callabl
     collect_indices(sampler, n_obs)
     restored = round_trip(sampler)
     assert isinstance(restored, type(sampler))
+    assert restored == sampler
 
     restored_indices, _, _ = collect_indices(restored, n_obs)
     assert len(restored_indices) > 0, "sampler produced no indices"
@@ -948,5 +949,31 @@ def test_sampler_is_serializable_and_reproducible(kind: str, round_trip: Callabl
     # proving the seed round-tripped, not the state.
     assert restored_indices != fresh_indices
     # a different seed must produce a different sequence (guards against an ignored/hard-coded rng)
-    fresh_indices_seed_1, _, _ = collect_indices(_make_sampler(kind, seed=1, n_obs=n_obs), n_obs)
+    sampler_seed_1 = _make_sampler(kind, seed=1, n_obs=n_obs)
+    fresh_indices_seed_1, _, _ = collect_indices(sampler_seed_1, n_obs)
     assert fresh_indices != fresh_indices_seed_1
+    assert sampler != sampler_seed_1
+
+
+@pytest.mark.parametrize("kind", ["random", "class", "distributed"])
+@pytest.mark.parametrize("advance", [False, True], ids=["unchanged", "rng-advanced"])
+def test_sampler_eq(kind: str, advance: bool):
+    """``__eq__`` holds across a state-preserving copy and breaks once a sampler's rng advances."""
+    n_obs = 100
+    sampler = _make_sampler(kind, seed=0, n_obs=n_obs)
+    other = copy.deepcopy(sampler)
+    if advance:
+        collect_indices(other, n_obs)
+
+    assert (sampler == other) is not advance
+    # a different seed and a non-sampler object are never equal
+    assert sampler != _make_sampler(kind, seed=1, n_obs=n_obs)
+    assert sampler != object()
+
+
+@pytest.mark.parametrize("kind", ["random", "class", "distributed"])
+def test_sampler_shallow_copy_is_rejected(kind: str):
+    """A shallow copy would share the rng, so ``copy.copy`` must raise rather than silently alias state."""
+    sampler = _make_sampler(kind, seed=0, n_obs=100)
+    with pytest.raises(TypeError, match="deepcopy"):
+        copy.copy(sampler)
