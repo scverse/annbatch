@@ -26,7 +26,6 @@ from annbatch.utils import (
     check_var_shapes,
     convert,
     load_x_and_obs_and_var,
-    obs_aligned_extras,
     validate_sampler,
     warn_ignored_obs_aligned,
 )
@@ -418,7 +417,16 @@ class Loader[
         return self
 
     def _add_adata_unchecked(self, adata: ad.AnnData) -> Self:
-        warn_ignored_obs_aligned(obs_aligned_extras(adata), stacklevel=3)
+        warn_ignored_obs_aligned(
+            [
+                f"{elem}/{key}"
+                for elem, mapping in (("obsm", adata.obsm), ("obsp", adata.obsp), ("layers", adata.layers))
+                for key in mapping
+                # a backed AnnData exposes a `None` key in `.layers` mirroring `X` (not a real layer); drop it
+                if key is not None
+            ],
+            stacklevel=3,
+        )
         dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
         self._add_dataset_unchecked(dataset, obs, var)
         return self

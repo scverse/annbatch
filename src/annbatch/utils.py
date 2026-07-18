@@ -243,21 +243,6 @@ def _to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
-def obs_aligned_extras(adata: ad.AnnData) -> list[str]:
-    """Return the ``"<elem>/<key>"`` names of the real ``obsm``/``obsp``/``layers`` elements on an :class:`~anndata.AnnData`.
-
-    A *backed* ``AnnData`` exposes a ``None`` key in ``.layers`` that mirrors ``X`` (it is not a real layer);
-    we drop it, mirroring anndata's own ``Layers.__bool__`` (``keys() <= {None}``). Real layer keys are always
-    ``str``, so this is safe across anndata versions regardless of whether the ``None`` slot is present.
-    """
-    return [
-        f"{elem}/{key}"
-        for elem, mapping in (("obsm", adata.obsm), ("obsp", adata.obsp), ("layers", adata.layers))
-        for key in mapping
-        if key is not None
-    ]
-
-
 def warn_ignored_obs_aligned(ignored: list[str], *, stacklevel: int) -> None:
     """Warn that observation-aligned ``obsm``/``obsp``/``layers`` elements are dropped for now.
 
