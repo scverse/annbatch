@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import re
 import warnings
 from dataclasses import dataclass
 from functools import wraps
@@ -242,8 +243,38 @@ def _to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
+def warn_ignored_obs_aligned(ignored: list[str], *, stacklevel: int) -> None:
+    """Warn that observation-aligned ``obsm``/``obsp``/``layers`` elements are dropped for now.
+
+    ``ignored`` is a list of ``"<elem>/<key>"`` names that are being discarded. The warning is
+    emitted only once per unique message (mirroring anndata's ``warn_once``) so repeated calls -
+    e.g. over a whole collection via :meth:`Dataset.add_adatas` - do not spam identical warnings.
+    """
+    if not ignored:
+        return
+    msg = (
+        "Only `X`, `obs`, and `var` are kept for now; the following observation-aligned elements are "
+        f"ignored: {sorted(ignored)}. A future release will additionally load and yield them if they are "
+        'uniformly present across `AnnData` objects i.e., every object has `obsm["pca"]` if even one has it. '
+        "To silence this warning, drop these elements beforehand (e.g. via a custom `load_adata`)."
+    )
+    warnings.warn(msg, FutureWarning, stacklevel=stacklevel + 1)
+    # Show this exact message only once (see anndata.utils.warn_once); `"once"` is unreliable in REPLs/notebooks.
+    warnings.filterwarnings("ignore", message=re.escape(msg), category=FutureWarning)
+
+
 def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
-    """Load X as a sparse array or dense zarr array and obs from a group"""
+    """Load X as a sparse array or dense zarr array and obs from a group.
+
+    .. note::
+        For now only ``X``, ``obs``, and ``var`` are loaded; any observation-aligned ``obsm``, ``obsp``,
+        and ``layers`` elements found on disk are ignored and a :class:`FutureWarning` is emitted. A future
+        release will additionally load and yield them.
+    """
+    warn_ignored_obs_aligned(
+        [f"{elem}/{key}" for elem in ("obsm", "obsp", "layers") if elem in g for key in g[elem]],
+        stacklevel=2,
+    )
     var = g["var"]
     return ad.AnnData(
         X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),

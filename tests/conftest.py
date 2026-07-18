@@ -26,6 +26,21 @@ if find_spec("jax"):
     jax.config.update("jax_enable_x64", True)
 
 
+def load_x_obs_var(g: zarr.Group) -> ad.AnnData:
+    """Load only ``X``/``obs``/``var`` from a group, without the transitional obsm/obsp/layers ``FutureWarning``.
+
+    Tests that don't exercise ``obsm``/``obsp``/``layers`` pass this as ``load_adata`` to opt out of the
+    (currently warning) default loader :func:`annbatch.utils.load_x_and_obs_and_var`. TODO(obsm): once the
+    loader yields those elements, revisit the call sites of this helper to also cover them.
+    """
+    var = g["var"]
+    return ad.AnnData(
+        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
+        obs=ad.io.read_elem(g["obs"]),
+        var=pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
+    )
+
+
 @pytest.fixture(params=[False, True], ids=["zarr-python", "zarrs"])
 def use_zarrs(request):
     return request.param
