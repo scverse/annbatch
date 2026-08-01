@@ -841,44 +841,65 @@ class _FixedRequestSampler(SequentialSampler):
         yield {"requests": self._requests, "splits": self._splits}
 
 
-def test_splits_are_chunk_order_across_datasets(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
-):
-    """Splits index in chunk order; the loader undoes its dataset-grouped buffer layout.
+# Rows in dataset 0 (``n_cells_per_shard`` in the fixture): ds0 -> global [0, _N0), ds1 -> [_N0, ...).
+# Hard-coded so the requests below can be plain literals; the test asserts it still matches the fixture.
+_N0 = 200
 
-    The request lists a chunk from dataset 1 *before* a chunk from dataset 0, so the loader's
-    in-memory buffer (grouped by dataset) is the reverse of chunk order. Each split selects one
-    chunk's positions, so each batch must be exactly that chunk's rows. Before the chunk-order
-    remap, the dataset-grouped buffer leaked the wrong rows into each batch -- this test would
-    have failed.
-    """
+
+@pytest.mark.parametrize(
+    "sampler_info",
+    [
+        # Two whole chunks, dataset 1's chunk requested *before* dataset 0's.
+        pytest.param(
+            {
+                "batch_size": 10,
+                "preload_nchunks": 2,
+                "chunk_size": 10,
+                "requests": np.concatenate(
+                    [np.arange(_N0, _N0 + 10), np.arange(0, 10)]
+                ),  # split 0 from ds1, split 1 from ds0
+                "splits": [np.arange(0, 10), np.arange(10, 20)],
+            },
+            id="whole-chunk-swap",
+        ),
+        # Single-row requests interleaved [ds0, ds1, ds1, ds0], each batch spanning *both* datasets.
+        # See https://github.com/scverse/annbatch/issues/256
+        pytest.param(
+            {
+                "batch_size": 2,
+                "preload_nchunks": 2,
+                "chunk_size": 2,
+                "requests": np.array([0, _N0, _N0 + 1, 1]),
+                "splits": [np.array([0, 1]), np.array([2, 3])],
+            },
+            id="scattered-across-datasets",
+        ),
+    ],
+)
+def test_splits_map_to_their_rows_across_datasets(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
+    sampler_info: dict,
+):
+    """Uses a sampler that emits fixed requests/splits to verify correctness when requesting within/across datasets."""
     paths = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
     data0, data1 = open_dense(paths[0]), open_dense(paths[1])
-    n0 = data0["dataset"].shape[0]  # dataset 0 -> global [0, n0) ; dataset 1 -> global [n0, ...)
+    n0 = data0["dataset"].shape[0]  # ds0 -> global [0, n0) ; ds1 -> global [n0, ...)
+    assert n0 == _N0, "fixture size drifted; update _N0 and the parametrized requests"
 
-    slice_from_data1 = slice(n0, n0 + 10)
-    slice_from_data0 = slice(0, 10)
-    split_from_data1 = np.arange(0, 10)
-    split_from_data0 = np.arange(10, 20)
-    sampler = _FixedRequestSampler(
-        batch_size=10,
-        preload_nchunks=2,
-        chunk_size=10,
-        # split 0 from data1, split 1 from data0
-        requests=[slice_from_data1, slice_from_data0],
-        splits=[split_from_data1, split_from_data0],
-    )
+    sampler = _FixedRequestSampler(**sampler_info)
     loader = Loader(batch_sampler=sampler, return_index=True, preload_to_gpu=False, to=None)
-    loader.add_dataset(**data0)
-    loader.add_dataset(**data1)
+    loader.add_dataset(dataset=data0["dataset"], obs=data0.get("obs", None), var=data0.get("var", None))
+    loader.add_dataset(dataset=data1["dataset"], obs=data1.get("obs", None), var=data1.get("var", None))
 
     batches = list(loader)
-    # split 0 -> chunk A -> dataset 1's first 10 rows ; split 1 -> chunk B -> dataset 0's first 10 rows
-    assert np.array_equal(batches[0]["index"], np.arange(slice_from_data1.start, slice_from_data1.stop))
-    assert np.array_equal(batches[1]["index"], np.arange(slice_from_data0.start, slice_from_data0.stop))
-    # data follows the index: each batch is exactly the requested chunk's rows read off disk
-    np.testing.assert_array_equal(np.asarray(batches[0]["X"]), np.asarray(data1["dataset"][0:10]))
-    np.testing.assert_array_equal(np.asarray(batches[1]["X"]), np.asarray(data0["dataset"][0:10]))
+    # X follows the index: every yielded row is exactly the on-disk row it claims to be i.e., the requests/splits provided
+    assert [list(b["index"]) for b in batches] == [
+        list(sampler_info["requests"][split]) for split in sampler_info["splits"]
+    ]
+    for batch in batches:
+        for row, idx in zip(np.asarray(batch["X"]), batch["index"], strict=True):
+            expected = data0["dataset"][idx] if idx < n0 else data1["dataset"][idx - n0]
+            np.testing.assert_array_equal(row, np.asarray(expected))
 
 
 def test_chunks_deprecation_warning(
