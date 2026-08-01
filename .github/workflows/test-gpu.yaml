@@ -53,7 +53,7 @@ jobs:
       pull-requests: write # for removing the 'run-gpu-ci' label
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1 TODO: upgrade once cirun image supports node 24
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.3.1 TODO: upgrade once cirun image supports node 24
         with:
           fetch-depth: 0
           filter: blob:none
@@ -76,7 +76,7 @@ jobs:
           echo "max_python_version=$max_version" >> $GITHUB_OUTPUT
 
       - name: Install UV
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0 TODO: upgrade once cirun image supports node 24
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v6.8.0 TODO: upgrade once cirun image supports node 24
         with:
           enable-cache: true
           python-version: ${{ steps.max-python.outputs.max_python_version }}
