@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning][].
 
 - {class}`~annbatch.samplers.ClassSampler` was producing potentially corrupted, multi-class samples despite its promise of "pure" batches.
 
+## [Unreleased]
+
+### Feature
+- Add an `obsm_keys` argument to {meth}`annbatch.Loader.add_adata`/{meth}`annbatch.Loader.add_adatas` (and an `obsm` argument to {meth}`annbatch.Loader.add_dataset`/{meth}`annbatch.Loader.add_datasets`) to load dense {attr}`~anndata.AnnData.obsm` arrays (e.g. a scVI embedding `"X_emb"`) alongside `X`. Requested arrays are fetched concurrently with `X` and yielded, row-aligned, under a new `obsm` key of {class}`~annbatch.types.LoaderOutput` (`None` when no keys are requested).
+
 ## [0.2.1]
 
 ### Feature
