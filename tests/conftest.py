@@ -16,6 +16,7 @@ from scipy.sparse import random as sparse_random
 
 from annbatch import write_sharded
 from annbatch.io import DatasetCollection
+from annbatch.utils import _read_backed
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -24,6 +25,21 @@ if find_spec("jax"):
     import jax
 
     jax.config.update("jax_enable_x64", True)
+
+
+def load_x_obs_var(g: zarr.Group) -> ad.AnnData:
+    """Load only ``X``/``obs``/``var`` from a group, without the obsm/layers ``FutureWarning``.
+
+    Tests that don't exercise ``obsm``/``layers`` pass this as ``load_adata`` to opt out of the
+    (currently warning) default loader :func:`annbatch.utils.load_all_aligned`. TODO(obsm): once the
+    loader yields those elements, revisit the call sites of this helper to also cover them.
+    """
+    var = g["var"]
+    return ad.AnnData(
+        X=_read_backed(g["X"]),
+        obs=ad.io.read_elem(g["obs"]),
+        var=pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
+    )
 
 
 @pytest.fixture(params=[False, True], ids=["zarr-python", "zarrs"])

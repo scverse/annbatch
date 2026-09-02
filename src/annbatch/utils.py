@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import re
 import warnings
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Concatenate, Literal, Protocol, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Literal, Protocol, overload
 
 import anndata as ad
 import numpy as np
@@ -242,11 +243,64 @@ def _to_torch(input: OutputInMemoryArray_T, preload_to_gpu: bool) -> Tensor:
     raise TypeError(f"Cannot convert {type(input)} to torch.Tensor")
 
 
-def load_x_and_obs_and_var(g: zarr.Group) -> ad.AnnData:
-    """Load X as a sparse array or dense zarr array and obs from a group"""
+def warn_ignored_obs_aligned(adata: ad.AnnData, *, stacklevel: int) -> None:
+    """Warn that ``adata``'s observation-aligned ``obsm``/``layers`` elements are dropped for now, but will be loaded if present in the future.
+
+    The warning is emitted only once per unique message (mirroring anndata's ``warn_once``) so repeated
+    calls - e.g. over a whole collection via :meth:`Loader.add_adatas` - do not spam identical warnings.
+    """
+    ignored = [
+        f"{elem}/{key}"
+        for elem in ("obsm", "layers")
+        for key in getattr(adata, elem)
+        # a backed AnnData exposes a `None` key in `.layers` mirroring `X` (not a real layer); drop it
+        if key is not None
+    ]
+    if not ignored:
+        return
+    msg = (
+        "Only `X`, `obs`, and `var` are kept for now; the following observation-aligned elements are "
+        f"ignored: {sorted(ignored)}. A future release will additionally load and yield them if they are "
+        'uniformly present across `AnnData` objects i.e., every object has `obsm["pca"]` if even one has it. '
+        "To silence this warning, drop these elements beforehand (e.g. via a custom `load_adata`)."
+    )
+    warnings.warn(msg, FutureWarning, stacklevel=stacklevel + 1)
+    # Show this exact message only once (see anndata.utils.warn_once); `"once"` is unreliable in REPLs/notebooks.
+    warnings.filterwarnings("ignore", message=re.escape(msg), category=FutureWarning)
+
+
+def _read_backed(elem: zarr.Array | zarr.Group) -> Any:
+    """Back a dense or sparse array by the store."""
+    encoding_type = elem.attrs.get("encoding-type")
+    match encoding_type, type(elem):
+        case "array", zarr.Array:
+            return elem
+        case "csr_matrix", zarr.Group:
+            return ad.io.sparse_dataset(elem)
+        case _, _:
+            raise TypeError(f"Unrecognized encoding type {encoding_type} for {elem.name}")
+
+
+def load_all_aligned(g: zarr.Group) -> ad.AnnData:
+    """Load ``X``, ``obs``, ``var`` and the ``obsm``/``layers`` keys a store can back.
+
+    Everything backable is loaded although :class:`~annbatch.Loader` yields only ``X``/``obs``/``var`` for now,
+    so that dropping the extras happens in exactly one place - :meth:`Loader._add_adata_unchecked` - and yielding
+    them later is a change to that method alone. Only dense arrays and CSR matrices are taken; anything else
+    (a dataframe or an awkward array in ``obsm``, say) the loader could not yield anyway, so it is skipped.
+    """
     var = g["var"]
     return ad.AnnData(
-        X=g["X"] if isinstance(g["X"], zarr.Array) else ad.io.sparse_dataset(g["X"]),
+        X=_read_backed(g["X"]),
         obs=ad.io.read_elem(g["obs"]),
         var=pd.DataFrame(index=pd.Index(ad.io.read_elem(var[var.attrs.get("_index")]))),
+        **{
+            elem: {
+                k: _read_backed(v)
+                for k, v in g[elem].members()
+                if v.attrs.get("encoding-type") in {"csr_matrix", "array"}
+            }
+            for elem in ("obsm", "layers")
+            if elem in g
+        },
     )

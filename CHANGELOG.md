@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning][].
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 ## [0.2.2]
 
+### Feature
+
+- Only `X`, `obs`, and `var` are currently yielded when reading a {class}`~annbatch.DatasetCollection` or adding data via {meth}`~annbatch.Loader.add_adata`/{meth}`~annbatch.Loader.add_adatas`. When observation-aligned {attr}`~anndata.AnnData.obsm` or {attr}`~anndata.AnnData.layers` elements are present, they are not yielded for now and a {class}`FutureWarning` is emitted; a **future release will yield them as well**. To silence the warning, drop these elements beforehand (e.g. via a custom `load_adata` for {meth}`~annbatch.Loader.use_collection`). {attr}`~anndata.AnnData.obsp` is not yielded at all: it is `obs`-aligned on both axes, so a row batch of it is `n_batch` x `n_batch`.
+
 ### Fixed
 
 - {class}`~annbatch.samplers.ClassSampler` was producing potentially corrupted, multi-class samples despite its promise of "pure" batches.

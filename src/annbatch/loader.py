@@ -25,8 +25,9 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     convert,
-    load_x_and_obs_and_var,
+    load_all_aligned,
     validate_sampler,
+    warn_ignored_obs_aligned,
 )
 
 from .compat import IterableDataset
@@ -354,7 +355,7 @@ class Loader[
         self,
         collection: DatasetCollection,
         *,
-        load_adata: Callable[[zarr.Group], ad.AnnData] = load_x_and_obs_and_var,
+        load_adata: Callable[[zarr.Group], ad.AnnData] = load_all_aligned,
     ) -> Self:
         """Load from an existing :class:`annbatch.DatasetCollection`.
 
@@ -366,8 +367,8 @@ class Loader[
             The collection whose on-disk datasets should be used in this loader.
         load_adata
             A custom load function - recall that whatever is found in :attr:`~anndata.AnnData.X` and :attr:`~anndata.AnnData.obs` will be yielded in batches.
-            Default is to just load `X` and all of `obs`.
-            This default behavior can degrade performance if you don't need all columns in `obs` - it is recommended to use the `load_adata` argument.
+            Only `X`, `obs`, and `var` are yielded for now; a future release will additionally yield observation-aligned
+            :attr:`~anndata.AnnData.obsm` and :attr:`~anndata.AnnData.layers` elements.
         """
         if collection.is_empty:
             raise ValueError("DatasetCollection is empty")
@@ -391,13 +392,14 @@ class Loader[
         ----------
             adatas
                 List of :class:`anndata.AnnData` objects, with :class:`zarr.Array`, :class:`scipy.sparse.csr_matrix`, :class:`scipy.sparse.csr_array`, :class:`numpy.ndarray`, or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
+                Only `X`, `obs`, and `var` are kept for now: any :attr:`~anndata.AnnData.obsm` and :attr:`~anndata.AnnData.layers` elements are ignored and a :class:`FutureWarning` is emitted (a future release will additionally load and yield them).
         """
         check_lt_1([len(adatas)], ["Number of adatas"])
         for adata in adatas:
-            dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
-            self._add_dataset_unchecked(dataset, obs, var)
+            self._add_adata_unchecked(adata)
         return self
 
+    @validate_sampler
     def add_adata(self, adata: ad.AnnData) -> Self:
         """Append an adata to this dataset.
 
@@ -406,9 +408,16 @@ class Loader[
             adata
                 A :class:`anndata.AnnData` object, with :class:`zarr.Array`, :class:`scipy.sparse.csr_matrix`, :class:`scipy.sparse.csr_array`, :class:`numpy.ndarray`, or :class:`anndata.abc.CSRDataset` as the data matrix in :attr:`~anndata.AnnData.X`, and :attr:`~anndata.AnnData.obs` containing annotations to yield in a :class:`pandas.DataFrame`.
                 :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
+                Only `X`, `obs`, and `var` are kept for now: any :attr:`~anndata.AnnData.obsm` and :attr:`~anndata.AnnData.layers` elements are ignored and a :class:`FutureWarning` is emitted (a future release will additionally load and yield them if present in the passed in `adata`).
         """
+        self._add_adata_unchecked(adata)
+        return self
+
+    def _add_adata_unchecked(self, adata: ad.AnnData) -> Self:
+        # TODO(obsm): drop this call - and `warn_ignored_obs_aligned` - once these elements are yielded
+        warn_ignored_obs_aligned(adata, stacklevel=3)
         dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
-        self.add_dataset(dataset, obs, var)
+        self._add_dataset_unchecked(dataset, obs, var)
         return self
 
     def _prepare_dataset_obs_and_var(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import math
 from importlib.util import find_spec
 from types import NoneType
@@ -16,6 +17,8 @@ import zarr
 from annbatch import Loader, write_sharded
 from annbatch.abc import Sampler
 from annbatch.samplers import SequentialSampler
+from annbatch.utils import load_all_aligned
+from tests.conftest import load_x_obs_var
 
 try:
     from cupy import ndarray as CupyArray
@@ -150,10 +153,11 @@ def concat(datas: list[Data | ad.AnnData]) -> ListData | list[ad.AnnData]:
                     to=None,
                 ).use_collection(
                     collection,
-                    **(
-                        {"load_adata": lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True)}
+                    # X/obs/var only; obsm/layers loading is a future concern (see `load_x_obs_var`)
+                    load_adata=(
+                        (lambda group: open_func(group, use_zarrs=use_zarrs, use_anndata=True))
                         if open_func is not None
-                        else {}
+                        else load_x_obs_var
                     ),
                 )
             ),
@@ -291,9 +295,89 @@ def test_zarr_store_errors_lt_1(gen_loader, adata_with_zarr_path_same_var_space:
 
 def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollection]):
     ds = Loader(to=None)
-    ds = ds.use_collection(simple_collection[1])
+    ds = ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
     with pytest.raises(RuntimeError, match="You should not add multiple collections"):
-        ds.use_collection(simple_collection[1])
+        ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
+
+
+def test_load_all_aligned_backs_arrays_and_skips_the_rest(tmp_path: Path):
+    """Everything backable stays backed; an `obsm` dataframe - which the loader cannot yield anyway - is skipped."""
+    n_obs, n_var = 8, 5
+    obs_idx = pd.Index([f"cell_{i}" for i in range(n_obs)])
+    adata = ad.AnnData(
+        X=np.random.default_rng(0).random((n_obs, n_var)).astype("f4"),
+        obs=pd.DataFrame({"group": pd.Categorical(["a"] * n_obs)}, index=obs_idx),
+        var=pd.DataFrame(index=[f"gene_{i}" for i in range(n_var)]),
+        obsm={"arr": np.zeros((n_obs, 3), dtype="f4"), "df": pd.DataFrame({"num": np.arange(n_obs)}, index=obs_idx)},
+        layers={"sparse": sp.random(n_obs, n_var, density=0.3, format="csr", dtype="f4")},
+    )
+    adata.write_zarr(tmp_path / "adata.zarr")
+
+    loaded = load_all_aligned(zarr.open_group(tmp_path / "adata.zarr", mode="r"))
+
+    # the dataframe cannot be backed, so it is left behind rather than read into memory
+    assert "df" not in loaded.obsm
+    # dense and sparse stay backed by the store rather than being materialized
+    assert isinstance(loaded.X, zarr.Array)
+    assert isinstance(loaded.obsm["arr"], zarr.Array)
+    assert isinstance(loaded.layers["sparse"], ad.abc.CSRDataset)
+    np.testing.assert_allclose(loaded.X[...], adata.X)
+    np.testing.assert_allclose(loaded.layers["sparse"][...].toarray(), adata.layers["sparse"].toarray())
+
+
+@contextlib.contextmanager
+def expect_warning_about_additional_aligned_elems(*, is_expected: bool):
+    msg = "Only `X`, `obs`, and `var` are kept"
+    with pytest.warns(FutureWarning, match=msg) if is_expected else contextlib.nullcontext():
+        yield
+
+
+@pytest.mark.parametrize("use_custom_loader", [False, True], ids=["default", "use-custom-loader"])
+def test_use_collection_warns_about_additional_aligned_elems(
+    simple_collection: tuple[ad.AnnData, DatasetCollection], *, use_custom_loader: bool
+):
+    """`use_collection` defaults to `load_all_aligned` (warns on obsm/layers); a custom loader opts out."""
+    _, collection = simple_collection
+    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
+    # the collection has obsm/layers on disk, so the default loader warns while the X/obs/var-only loader does not
+    load_adata = {"load_adata": lambda g: open_dense(g, use_anndata=True)} if use_custom_loader else {}
+    with expect_warning_about_additional_aligned_elems(is_expected=not use_custom_loader):
+        loader.use_collection(collection, **load_adata)
+
+
+@pytest.mark.parametrize("has_additional_aligned_elems", [True, False], ids=["with-additional", "without-additional"])
+@pytest.mark.parametrize("method", ["add_adata", "add_adatas"])
+def test_add_adata_warns_about_additional_aligned_elems(
+    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, method: str, has_additional_aligned_elems: bool
+):
+    """`add_adata`/`add_adatas` warn iff the in-memory AnnData carries obsm/layers that get dropped for now."""
+    adata = adata_with_zarr_path_same_var_space[0]  # has obsm/3d and layers/sparse
+    if not has_additional_aligned_elems:
+        adata = ad.AnnData(X=adata.X, obs=adata.obs, var=adata.var)
+    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
+
+    with expect_warning_about_additional_aligned_elems(is_expected=has_additional_aligned_elems):
+        getattr(loader, method)(adata if method == "add_adata" else [adata])
+
+
+def test_add_adatas_warns_exactly_once_about_each_additional_aligned_elem():
+    """`add_adatas` warns once *per unique* dropped element: distinct elements each warn, duplicates are deduped."""
+    n_obs, n_var = 40, 100
+    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_var)])
+    x = np.random.default_rng().random((n_obs, n_var)).astype("f4")
+    adata_obsm = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
+    adata_layer = ad.AnnData(X=x.copy(), var=var, layers={"counts": x.copy()})
+    adata_obsm_again = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
+
+    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
+    with pytest.warns(FutureWarning) as record:
+        loader.add_adatas([adata_obsm, adata_layer, adata_obsm_again])
+
+    msgs = [str(w.message) for w in record if issubclass(w.category, FutureWarning)]
+    # `obsm/pca` is carried by two adatas but warned about once; `layers/counts` warns once -> two warnings total
+    assert len(msgs) == 2
+    assert sum("obsm/pca" in m for m in msgs) == 1
+    assert sum("layers/counts" in m for m in msgs) == 1
 
 
 @pytest.mark.gpu
@@ -820,12 +904,8 @@ def test_rng(simple_collection: tuple[ad.AnnData, DatasetCollection]):
         rng=np.random.default_rng(0),
         to=None,
     )
-    ds1.use_collection(
-        simple_collection[1],
-    )
-    ds2.use_collection(
-        simple_collection[1],
-    )
+    ds1.use_collection(simple_collection[1], load_adata=load_x_obs_var)
+    ds2.use_collection(simple_collection[1], load_adata=load_x_obs_var)
     for batch1, batch2 in zip(ds1, ds2, strict=True):
         np.testing.assert_equal(batch1["X"], batch2["X"])
 

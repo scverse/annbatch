@@ -21,6 +21,7 @@ import pytest
 
 from annbatch.samplers import ClassSampler
 from annbatch.samplers._utils import WorkerInfo
+from tests.conftest import load_x_obs_var
 
 
 def make_sampler(
@@ -441,9 +442,9 @@ def test_class_sampler_from_collection(simple_collection):
         num_samples=100,
     )
 
-    # Load it to the Loader
+    # Load it to the Loader (X/obs/var only; this test doesn't exercise obsm/layers)
     loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to=None)
-    loader.use_collection(collection)
+    loader.use_collection(collection, load_adata=load_x_obs_var)
 
     # Iterate through the loader and verify class-coherence of each batch
     batches = list(loader)
