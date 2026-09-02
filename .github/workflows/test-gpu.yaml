@@ -95,11 +95,12 @@ jobs:
           uv run coverage combine
           uv run coverage xml
 
-      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      - name: Upload coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
-          files: test-data/coverage.xml
+          use_oidc: true
+
 
       - name: Remove 'run-gpu-ci' Label
         if: always() && contains(github.event.pull_request.labels.*.name, 'run-gpu-ci')
