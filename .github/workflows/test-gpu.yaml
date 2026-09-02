@@ -60,6 +60,12 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # https://github.com/scverse/gpu-ci-config/issues/4#issuecomment-5511975344
+      - name: Update gh CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install --only-upgrade gh
+
       - name: Nvidia SMI sanity check
         run: nvidia-smi
 
