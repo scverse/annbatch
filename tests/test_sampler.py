@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import copy
 import math
+import pickle
 import sys
 from functools import partial
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from annbatch.abc import Sampler
-from annbatch.samplers import DistributedSampler, RandomSampler, SequentialSampler
+from annbatch.samplers import ClassSampler, DistributedSampler, RandomSampler, SequentialSampler
 from annbatch.samplers._utils import WorkerInfo
 
 if TYPE_CHECKING:
@@ -879,3 +882,98 @@ class TestDistributedSampler:
             for j in range(i + 1, world_size):
                 assert set(all_indices[i]).isdisjoint(set(all_indices[j]))
         assert set().union(*all_indices) == set(range(n_obs))
+
+
+# =============================================================================
+# Serialization / reproducibility (all implemented stochastic samplers)
+# =============================================================================
+
+
+def _make_sampler(kind: str, seed: int, n_obs: int) -> Sampler:
+    """Build the sampler identified by ``kind``, seeded with ``seed``, sized for ``n_obs`` obs."""
+    match kind:
+        case "random":
+            return RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5, rng=np.random.default_rng(seed))
+        case "class":
+            # n_obs obs, 5 classes, each a contiguous run of n_obs // 5 (>= chunk_size)
+            classes = pd.Categorical(np.repeat(np.arange(5), n_obs // 5))
+            return ClassSampler(
+                chunk_size=10,
+                preload_nchunks=2,
+                batch_size=5,
+                classes=classes,
+                num_samples=50,
+                rng=np.random.default_rng(seed),
+            )
+        case "distributed":
+            inner = RandomSampler(chunk_size=10, preload_nchunks=2, batch_size=5, rng=np.random.default_rng(seed))
+            # dist_info is only called at construction (rank 0 of 1) and is not stored,
+            # so the resulting sampler stays picklable/copyable.
+            return DistributedSampler(inner, dist_info=lambda: (0, 1))
+        case _:
+            raise ValueError(f"unknown sampler kind {kind!r}")
+
+
+# A round-trip duplicates a sampler into an *independent* object with the same state.
+# ``copy.deepcopy`` -- not shallow ``copy.copy`` -- is the copy analog of pickle: a shallow
+# copy would share the ``rng`` object with the original, breaking the independence these
+# assertions rely on.
+_ROUND_TRIPS = {
+    "pickle": lambda sampler: pickle.loads(pickle.dumps(sampler)),
+    "deepcopy": copy.deepcopy,
+}
+
+
+@pytest.mark.parametrize("round_trip", _ROUND_TRIPS.values(), ids=_ROUND_TRIPS.keys())
+@pytest.mark.parametrize("kind", ["random", "class", "distributed"])
+def test_sampler_is_serializable_and_reproducible(kind: str, round_trip: Callable[[Sampler], Sampler]):
+    """Every sampler survives a pickle/deepcopy round-trip with its random *state* (not just the seed) preserved."""
+    n_obs = 100
+
+    sampler = _make_sampler(kind, seed=0, n_obs=n_obs)
+    fresh_indices, _, _ = collect_indices(_make_sampler(kind, seed=0, n_obs=n_obs), n_obs)
+
+    # advance the rng one full pass before snapshotting
+    collect_indices(sampler, n_obs)
+    restored = round_trip(sampler)
+    assert isinstance(restored, type(sampler))
+    assert restored == sampler
+
+    restored_indices, _, _ = collect_indices(restored, n_obs)
+    assert len(restored_indices) > 0, "sampler produced no indices"
+    original_indices, _, _ = collect_indices(sampler, n_obs)
+
+    # round-trip preserved the live rng *state*: restored keeps producing what the original does...
+    assert restored_indices == original_indices
+    # ...and that state had genuinely advanced past a fresh seed-0 sampler -- otherwise we'd only be
+    # proving the seed round-tripped, not the state.
+    assert restored_indices != fresh_indices
+    # a different seed must produce a different sequence (guards against an ignored/hard-coded rng)
+    sampler_seed_1 = _make_sampler(kind, seed=1, n_obs=n_obs)
+    fresh_indices_seed_1, _, _ = collect_indices(sampler_seed_1, n_obs)
+    assert fresh_indices != fresh_indices_seed_1
+    assert sampler != sampler_seed_1
+
+
+@pytest.mark.parametrize("kind", ["random", "class", "distributed"])
+@pytest.mark.parametrize("advance", [False, True], ids=["unchanged", "rng-advanced"])
+def test_sampler_eq(kind: str, advance: bool):
+    """``__eq__`` holds across a state-preserving copy and breaks once a sampler's rng advances."""
+    n_obs = 100
+    sampler = _make_sampler(kind, seed=0, n_obs=n_obs)
+    other = copy.deepcopy(sampler)
+    if advance:
+        collect_indices(other, n_obs)
+
+    assert (sampler == other) is not advance
+    # a different seed and a non-sampler object are never equal
+    assert sampler != _make_sampler(kind, seed=1, n_obs=n_obs)
+    assert sampler != object()
+
+
+@pytest.mark.parametrize("kind", ["random", "class", "distributed"])
+def test_sampler_shallow_copy_is_rejected(kind: str):
+    """A shallow copy would share the rng, so ``copy.copy`` must raise rather than silently alias state."""
+    sampler = _make_sampler(kind, seed=0, n_obs=100)
+    with pytest.raises(TypeError, match="deepcopy"):
+        copy.copy(sampler)
