@@ -486,7 +486,7 @@ def test_sampling_invariants(
 
 
 @pytest.mark.parametrize("preload_nchunks", [2, 4], ids=["pn2_one_category", "pn4_two_categories"])
-def test_max_classes_per_window(sampler_cls: type[ClassSampler], preload_nchunks: int):
+def test_max_classes_per_window(preload_nchunks: int):
     # chunk_size=9, batch_size=6: gcd=3, lcm=18, group_chunks=lcm/cs=2. A window holds
     # preload_nchunks // group_chunks classes, so pn=2 -> 1 per window, pn=4 -> 2 per window.
     codes = np.repeat([0, 1, 2, 3], 250)
@@ -494,7 +494,7 @@ def test_max_classes_per_window(sampler_cls: type[ClassSampler], preload_nchunks
     expected_max = preload_nchunks // 2
     sampler = make_sampler(
         pd.Categorical(codes),
-        cls=sampler_cls,
+        cls=ClassSampler,
         num_samples=9 * preload_nchunks * 40,
         chunk_size=9,
         batch_size=6,
@@ -503,7 +503,9 @@ def test_max_classes_per_window(sampler_cls: type[ClassSampler], preload_nchunks
     classes_per_window = [
         len(np.unique(np.concatenate([codes[s.start : s.stop] for s in lr["requests"]]))) for lr in sampler.sample(n)
     ]
-    assert max(classes_per_window) == expected_max, f"expected up to {expected_max} classes per window"
+    assert max(classes_per_window) == expected_max, (
+        f"expected up to {expected_max} classes per window, found {classes_per_window}"
+    )
     assert min(classes_per_window) >= 1
 
 

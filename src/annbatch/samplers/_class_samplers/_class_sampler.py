@@ -18,6 +18,8 @@ from annbatch.samplers._utils import (
 )
 from annbatch.utils import split_given_size
 
+from ._utils import RLEManager
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -137,9 +139,8 @@ class ClassSampler(Sampler):
     _rng: np.random.Generator
     _drop_last: bool
     _mask: slice
-    _class_runs: pd.DataFrame
-    _per_class_sampling_info: pd.DataFrame
     _classes: pd.Categorical
+    _rle_manager: RLEManager
 
     def __init__(
         self,
@@ -176,13 +177,10 @@ class ClassSampler(Sampler):
         self._mask = slice(start, stop)
 
         # classes and their weights are mask-independent; kept so any mask can renormalize from them
-        self._build_classes(class_weights)
+        self._weights = self._build_class_weights(class_weights)
+        self._ensure_runs()
 
-        # eager build for the (default or constructor) range so run-length errors surface early
-        self._built_range: tuple[int, int] | None = None
-        self._ensure_runs(self._n_obs)
-
-    def _build_classes(self, class_weights: np.ndarray | None) -> None:
+    def _build_class_weights(self, class_weights: np.ndarray | None) -> np.ndarray:
         """Resolve the (non-excluded) classes and their renormalizable weights."""
         n_classes = len(self._classes.categories)
         if class_weights is None:
@@ -197,7 +195,7 @@ class ClassSampler(Sampler):
         if not (weights > 0).any():
             raise ValueError("class_weights must have at least one positive weight.")
 
-        self._weights = weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
+        return weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
 
     @property
     def mask(self) -> slice:
@@ -208,64 +206,19 @@ class ClassSampler(Sampler):
         # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
         start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
         self._mask = slice(start, stop)
-        self._ensure_runs(self._n_obs)
+        self._ensure_runs()
 
-    def _ensure_runs(self, n_obs: int) -> None:
+    def _ensure_runs(self) -> None:
         """Build (or reuse) the RLE for the current mask range, cached on ``(start, stop)``."""
-        start, stop = validate_mask_n_obs_and_resolve(self.mask, n_obs)
-        if self._built_range == (start, stop):
-            return
-
-        masked = self._classes.codes[start:stop]
-        # Boundaries of where the class changes including the startings/stopping points
-        edges = np.concatenate([np.array([0]), np.flatnonzero(np.diff(masked)) + 1, np.array([masked.shape[0]])])
-        # Per-run table: start/end in global coordinates, length, and class
-        runs = pd.DataFrame(
-            {
-                "start": edges[:-1] + start,
-                "end": edges[1:] + start,
-                "len": np.diff(edges),
-                "cat": masked[edges[:-1]],
-            }
+        self._rle_manager = RLEManager(
+            mask=self._mask,
+            classes=self._classes,
+            weights=self._weights,
+            chunk_size=self._chunk_size,
+            num_samples=self._num_samples,
+            rng=self._rng,
+            batch_size=self._batch_size,
         )
-
-        # keep only runs of non-excluded classes; excluded (weight 0) runs are exempt from every check
-        runs = runs.loc[self._weights[runs["cat"].to_numpy()] > 0].reset_index(drop=True)
-        if runs.empty:
-            raise ValueError(
-                "No class with positive weight is present in the current mask range "
-                f"[{start}, {stop}); its renormalized weights would sum to zero."
-            )
-
-        # run-length rule: every kept run must hold at least one full chunk
-        too_short_mask = runs["len"].to_numpy() < self._chunk_size
-        if np.any(too_short_mask):
-            bad = np.unique(runs.loc[too_short_mask, "cat"].to_numpy())
-            bad_labels = self._classes.categories[bad].tolist()
-            raise ValueError(
-                f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
-                f"but {int(too_short_mask.sum())} run(s) are shorter (classes {bad_labels}). "
-                "Re-chunk the data so each class's runs are large enough, lower chunk_size, "
-                "or exclude these classes with a zero weight."
-            )
-
-        # Sort runs by class so each class's runs are contiguous in the table;
-        # `first_row_in_runs_of_class` then indexes directly into the sorted run table.
-        self._class_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
-
-        # Per-class table: probability, number of runs, and offset into the sorted run table
-        classes_to_sample, n_runs_per_class = np.unique(self._class_runs["cat"].to_numpy(), return_counts=True)
-        w = self._weights[classes_to_sample]
-        self._per_class_sampling_info = pd.DataFrame(
-            {
-                "prob": w / w.sum(),
-                "n_runs": n_runs_per_class.astype(np.int64),
-                "first_row_in_runs_of_class": np.concatenate(([0], np.cumsum(n_runs_per_class[:-1]))).astype(np.int64),
-            },
-            index=pd.Index(classes_to_sample, name="cat"),
-        )
-
-        self._built_range = (start, stop)
 
     @property
     def batch_size(self) -> int:
@@ -288,50 +241,18 @@ class ClassSampler(Sampler):
                 f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
                 "The classes column must describe exactly the loader's observations."
             )
-        self._ensure_runs(n_obs)
+        self._ensure_runs()
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
         if worker_info is not None and worker_info.num_workers > 1:
             raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
 
-        self._ensure_runs(n_obs)
+        self._ensure_runs()
         return self._iter_requests()
 
     def _iter_requests(self) -> Iterator[LoadRequest]:
-        n_slices, remainder = divmod(self._num_samples, self._chunk_size)
-        if remainder > 0:
-            n_slices += 1
-
-        # classes may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
-        # batch edges align), i.e. every `group_chunks = lcm // chunk_size = batch_size // gcd`
-        # chunks. Draw one class per group and repeat it across the group's chunks.
-        group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
-        n_groups = math.ceil(n_slices / group_chunks)
-        # Sample groups: draw a position into self._per_class_sampling_info (one row per sampleable class)
-        group_classes = self._rng.choice(
-            len(self._per_class_sampling_info), size=n_groups, p=self._per_class_sampling_info["prob"].to_numpy()
-        )
-        class_of_slice = np.repeat(group_classes, group_chunks)[:n_slices]
-
-        # Sample one of the possible run positions within a class i.e.,
-        # [a: slice(0, 10), b: slice(10, 20), a: slice(20, 30)]
-        # would have two possible run positions for a (one of 0 and 2) and one for b (just 1)
-        class_n_runs = self._per_class_sampling_info["n_runs"].to_numpy()
-        possible_run_pos_within_a_class = self._rng.integers(class_n_runs[class_of_slice])
-        # Generate a position into the runs table to get the run to fetch within
-        first_row_of_class = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()
-        chosen = first_row_of_class[class_of_slice] + possible_run_pos_within_a_class
-        run_starts = self._class_runs["start"].to_numpy()[chosen]
-        run_ends = self._class_runs["end"].to_numpy()[chosen]
-        # Now sample a valid start position within each chunk
-        slice_starts = self._rng.integers(run_starts, run_ends - self._chunk_size + 1)
-
-        slices = [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
-        if remainder > 0:
-            last = int(slice_starts[-1])
-            slices[-1] = slice(last, last + remainder)
-
+        slices = self._rle_manager.sample()
         window_size = self._preload_nchunks * self._chunk_size
         full_splits = split_given_size(np.arange(window_size), self._batch_size)
         for window in itertools.batched(slices, self._preload_nchunks):
