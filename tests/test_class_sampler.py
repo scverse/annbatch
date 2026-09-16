@@ -255,16 +255,24 @@ def test_batch_class_composition(
 
     if sampler_cls is ClassSampler:
         assert set(n_classes) == {1}, "every batch must lie within a single class"
-        return
-    assert max(n_classes) > 1, "batches must mix the classes of their window"
-    # A batch cannot hit the class weights exactly -- one class is drawn per
-    # lcm(chunk_size, batch_size) rows, so a window holds only a handful of draws and a
-    # batch only batch_size rows. What must hold is that a batch is an unbiased *slice* of
-    # its window: its class shares stay within the noise of drawing batch_size of the
-    # window's rows without replacement. Class-pure batches are several times noisier.
-    window_size = chunk_size * preload_nchunks
-    sd = 0.5 * np.sqrt((window_size - batch_size) / (batch_size * (window_size - 1)))  # max hypergeometric sd
-    assert np.mean(deviations) <= 2 * sd, f"batches deviate from their window's classes: {np.mean(deviations):.3f}"
+    else:
+        assert max(n_classes) > 1, "batches must mix the classes of their window"
+        # A batch cannot hit the class weights exactly -- one class is drawn per chunk_size
+        # rows, so a window holds only a handful of draws and a
+        # batch only batch_size rows. What must hold is that a batch is an unbiased *slice* of
+        # its window: its class shares stay within the noise of drawing batch_size of the
+        # window's rows without replacement.
+        window_size = chunk_size * preload_nchunks
+        # Claude came up with this hypergeomtric sd calculation and the explanation makes sense (mostly re-summarized by me):
+        # For any of the labels, we are asking of a given position if the label is `k` (of a total of K observations of that label) across window of size N.
+        # When we draw batch_size = n from that, that is exactly HG(N, K, n) i.e.,
+        # the probability of drawing some number of label `k` from the batch of `n` (successes),
+        # from a finite population of window size N with K "success" labels.
+        # The variance of the share of successes is Var(X/n) = p(1-p)/n * (N-n)/(N-1) where p = K/N.
+        # p(1-p) is maximized at p = 0.5, where it equals 0.25, so sqrt(p(1-p)) <= 0.5 for any p. Substituting that worst case gives:
+        # sd_max = 0.5 * sqrt((N - n) / (n * (N - 1)))
+        sd = 0.5 * np.sqrt((window_size - batch_size) / (batch_size * (window_size - 1)))
+        assert np.mean(deviations) <= 2 * sd, f"batches deviate from their window's classes: {np.mean(deviations):.3f}"
 
 
 def test_shuffle_is_true(sampler_cls: type[ClassSampler]):
