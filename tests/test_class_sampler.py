@@ -509,7 +509,9 @@ def test_max_classes_per_window(sampler_cls: type[ClassSampler], preload_nchunks
             f"expected up to {expected_max} classes per window, found {classes_per_window}"
         )
     else:
-        assert max(classes_per_window) == preload_nchunks, f"expected up to the number of preload_nchunk' classes in weighted sampling"
+        assert max(classes_per_window) == preload_nchunks, (
+            "expected up to the number of preload_nchunk' classes in weighted sampling"
+        )
     assert min(classes_per_window) >= 1
 
 
