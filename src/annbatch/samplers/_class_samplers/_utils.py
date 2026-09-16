@@ -36,11 +36,6 @@ class RLEManager:
             Weights per-class.
         chunk_size
             The desired chunk size of run. Each class must be present in `classes` with at least `chunk_size` number of consecutive observations.
-
-        Raises
-        ------
-        ValueError
-            _description_
         """
         start, stop = validate_mask_n_obs_and_resolve(mask, len(classes))
         self._mask = mask
@@ -99,6 +94,12 @@ class RLEManager:
 
     @property
     def weights(self) -> np.ndarray:
+        """The weights that the RLE generated based on classes with non-zero weights.
+
+        Returns
+        -------
+            The weights
+        """
         return self._per_class_sampling_info["prob"].to_numpy()
 
     def sample_classes_labels_with_chunk_batch_boundaries(self, n_slices: int) -> np.ndarray:
@@ -133,20 +134,21 @@ class RLEManager:
         Parameters
         ----------
         class_of_slice
-            _description_
+            An array of class labels from which to generate slices to fetch such that each slice contains only that label.
 
         Returns
         -------
-            _description_
+            list of slices
         """
         class_n_runs = self._per_class_sampling_info["n_runs"].to_numpy()
         possible_run_pos_within_a_class = self._rng.integers(class_n_runs[class_of_slice])
         # Generate a position into the runs table to get the run to fetch within
         first_row_of_class = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()
         chosen = first_row_of_class[class_of_slice] + possible_run_pos_within_a_class
+        # Now get that position's slice's star and end
         run_starts = self._class_runs["start"].to_numpy()[chosen]
         run_ends = self._class_runs["end"].to_numpy()[chosen]
-        # Now sample a valid start position within each chunk
+        # Finally, sample a valid start position within each chunk so that a chunk slice can fit
         slice_starts = self._rng.integers(run_starts, run_ends - self._chunk_size + 1)
 
         return [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
