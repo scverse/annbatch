@@ -93,6 +93,7 @@ api
 changelog
 contributing
 references
+faq
 ```
 
 ```{toctree}
