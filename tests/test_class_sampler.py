@@ -215,6 +215,22 @@ def test_shuffle_is_true():
     assert make_sampler(pd.Categorical(np.repeat([0, 1], 50))).shuffle is True
 
 
+def test_runs_are_drawn_in_proportion_to_length():
+    # class 0 lives in a 400-row run and a 40-row run. With chunk_size=10 the long run holds 391
+    # of the class's 422 chunk starts, so it should get about 92.7% of the chunks. Picking one of
+    # the two runs uniformly gives each 50% and oversamples the short run's rows 10x.
+    codes = np.ones(480, dtype=np.int64)
+    codes[0:400] = 0
+    codes[440:480] = 0
+    sampler = make_sampler(pd.Categorical(codes), num_samples=200_000, class_weights=np.array([1.0, 0.0]))
+
+    chunks = _collect_chunks(sampler, len(codes))
+    long_run_share = sum(c.start < 400 for c in chunks) / len(chunks)
+    starts_long, starts_short = 400 - 10 + 1, 40 - 10 + 1
+    expected = starts_long / (starts_long + starts_short)
+    assert abs(long_run_share - expected) < 0.01, f"{long_run_share:.3f} vs expected {expected:.3f}"
+
+
 def test_noncontiguous_class_samples_all_runs():
     # class 0 lives in two separate runs; over many draws both should be hit.
     codes = np.array([0] * 50 + [1] * 50 + [0] * 50, dtype=np.int64)
