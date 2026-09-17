@@ -11,6 +11,32 @@ from annbatch.samplers._utils import validate_mask_n_obs_and_resolve
 
 
 class RLEManager:
+    """A class for creating the RLE encoding and then generating samples from it.
+
+    Parameters
+    ----------
+    mask
+        The mask applied to classes.
+    n_obs
+        The number of observations expected.
+    classes
+        The class labels.
+    weights
+        Weights per-class.
+    chunk_size
+        The desired chunk size of run. Each class must be present in `classes` with at least `chunk_size` number of consecutive observations.
+    """
+
+    _mask: slice
+    _classes: pd.Categorical
+    _weights: np.typing.NDArray[np.floating]
+    _chunk_size: int
+    _num_samples: int
+    _batch_size: int
+    _rng: np.random.Generator
+    _class_runs: pd.DataFrame
+    _per_class_sampling_info: pd.DataFrame
+
     def __init__(
         self,
         *,
@@ -22,21 +48,6 @@ class RLEManager:
         batch_size: int,
         rng: np.random.Generator,
     ):
-        """A class for creating the RLE encoding and then generating samples from it.
-
-        Parameters
-        ----------
-        mask
-            The mask applied to classes.
-        n_obs
-            The number of observations expected.
-        classes
-            The class labels.
-        weights
-            Weights per-class.
-        chunk_size
-            The desired chunk size of run. Each class must be present in `classes` with at least `chunk_size` number of consecutive observations.
-        """
         start, stop = validate_mask_n_obs_and_resolve(mask, len(classes))
         self._mask = slice(start, stop)
         self._chunk_size = chunk_size
