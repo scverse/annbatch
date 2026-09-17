@@ -25,3 +25,9 @@ Because your data is *preshuffled* you can go fairly large here - `chunk_size` o
 ## Can I use a {class}`~annbatch.Loader` with a {class}`~annbatch.samplers.RandomSampler` on a dataset that has been `groupby`-ed?
 
 Well, your model performance may suffer but again, within a given class as specified by `groupby`, the data will be shuffled. So it is probably not as bad as having completely unshuffled data, but is likely worse than having completely shuffled data. We would welcome benchmarks to this end.
+
+## What do I do if I don't see my modality/use-case listed under `tutorials`?
+
+If you modality can fit in an {class}`~anndata.AnnData` object, there's a good chance it will work.
+
+If you can't figure out how to get your modality into an {class}`~anndata.AnnData` object (or need some sort of disk format extension etc.), please file an issue in this repo or in the {mod}`anndata` repo.
