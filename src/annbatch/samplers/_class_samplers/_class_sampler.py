@@ -18,7 +18,7 @@ from annbatch.samplers._utils import (
 )
 from annbatch.utils import split_given_size
 
-from ._utils import RLEManager
+from ._rle_manager import RLEManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -138,8 +138,6 @@ class ClassSampler(Sampler):
     _n_obs: int
     _rng: np.random.Generator
     _drop_last: bool
-    _mask: slice
-    _classes: pd.Categorical
     _rle_manager: RLEManager
 
     def __init__(
@@ -168,57 +166,33 @@ class ClassSampler(Sampler):
             mask = slice(0, None)
         start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
 
-        self._classes = classes
         self._n_obs = n_obs
         self._rng = rng or np.random.default_rng()
         self._num_samples = num_samples
         self._drop_last = drop_last
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
-        self._mask = slice(start, stop)
 
         # classes and their weights are mask-independent; kept so any mask can renormalize from them
-        self._weights = self._build_class_weights(class_weights)
-        self._ensure_runs()
-
-    def _build_class_weights(self, class_weights: np.ndarray | None) -> np.ndarray:
-        """Resolve the (non-excluded) classes and their renormalizable weights."""
-        n_classes = len(self._classes.categories)
-        if class_weights is None:
-            weights = np.ones(n_classes, dtype=float)
-        else:
-            weights = np.array(class_weights, dtype=float)
-            if weights.shape != (n_classes,):
-                raise ValueError(
-                    f"class_weights must have one weight per class in classes.categories "
-                    f"(expected shape ({n_classes},), got {weights.shape})."
-                )
-        if not (weights > 0).any():
-            raise ValueError("class_weights must have at least one positive weight.")
-
-        return weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
-
-    @property
-    def mask(self) -> slice:
-        return self._mask
-
-    @mask.setter
-    def mask(self, value: slice) -> None:
-        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
-        start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
-        self._mask = slice(start, stop)
-        self._ensure_runs()
-
-    def _ensure_runs(self) -> None:
-        """Build (or reuse) the RLE for the current mask range, cached on ``(start, stop)``."""
         self._rle_manager = RLEManager(
-            mask=self._mask,
-            classes=self._classes,
-            weights=self._weights,
+            mask=slice(start, stop),
+            classes=classes,
+            weights=class_weights,
             chunk_size=self._chunk_size,
             num_samples=self._num_samples,
             rng=self._rng,
             batch_size=self._batch_size,
         )
+
+    @property
+    def mask(self) -> slice:
+        return self._rle_manager.mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
+        start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
+        mask = slice(start, stop)
+        self._rle_manager.mask = mask
 
     @property
     def batch_size(self) -> int:
@@ -241,14 +215,12 @@ class ClassSampler(Sampler):
                 f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
                 "The classes column must describe exactly the loader's observations."
             )
-        self._ensure_runs()
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         worker_info = get_torch_worker_info()
         if worker_info is not None and worker_info.num_workers > 1:
             raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
 
-        self._ensure_runs()
         return self._iter_requests()
 
     def _iter_requests(self) -> Iterator[LoadRequest]:

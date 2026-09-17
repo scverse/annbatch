@@ -38,12 +38,36 @@ class RLEManager:
             The desired chunk size of run. Each class must be present in `classes` with at least `chunk_size` number of consecutive observations.
         """
         start, stop = validate_mask_n_obs_and_resolve(mask, len(classes))
-        self._mask = mask
+        self._mask = slice(start, stop)
         self._chunk_size = chunk_size
         self._num_samples = num_samples
         self._batch_size = batch_size
         self._rng = rng
-        masked = classes.codes[start:stop]
+        self._classes = classes
+        self._weights = self._build_class_weights(weights)
+
+        self._build_rle(self._mask)
+
+    def _build_class_weights(self, class_weights: np.ndarray | None) -> np.ndarray:
+        """Resolve the (non-excluded) classes and their renormalizable weights."""
+        n_classes = len(self._classes.categories)
+        if class_weights is None:
+            weights = np.ones(n_classes, dtype=float)
+        else:
+            weights = np.array(class_weights, dtype=float)
+            if weights.shape != (n_classes,):
+                raise ValueError(
+                    f"class_weights must have one weight per class in classes.categories "
+                    f"(expected shape ({n_classes},), got {weights.shape})."
+                )
+        if not (weights > 0).any():
+            raise ValueError("class_weights must have at least one positive weight.")
+
+        return weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
+
+    def _build_rle(self, mask: slice):
+        start, stop = mask.start, mask.stop
+        masked = self._classes.codes[mask]
 
         # Boundaries of where the class changes including the startings/stopping points
         edges = np.concatenate([np.array([0]), np.flatnonzero(np.diff(masked)) + 1, np.array([masked.shape[0]])])
@@ -57,7 +81,7 @@ class RLEManager:
                 "cat": masked[edges[:-1]],
             }
         )
-        runs = runs.loc[weights[runs["cat"].to_numpy()] > 0].reset_index(drop=True)
+        runs = runs.loc[self._weights[runs["cat"].to_numpy()] > 0].reset_index(drop=True)
         if runs.empty:
             raise ValueError(
                 "No class with positive weight is present in the current mask range "
@@ -68,7 +92,7 @@ class RLEManager:
         too_short_mask = runs["len"].to_numpy() < self._chunk_size
         if np.any(too_short_mask):
             bad = np.unique(runs.loc[too_short_mask, "cat"].to_numpy())
-            bad_labels = classes.categories[bad].tolist()
+            bad_labels = self._classes.categories[bad].tolist()
             raise ValueError(
                 f"Every contiguous run must be at least chunk_size ({self._chunk_size}) observations long, "
                 f"but {int(too_short_mask.sum())} run(s) are shorter (classes {bad_labels}). "
@@ -82,7 +106,7 @@ class RLEManager:
 
         # Per-class table: probability, number of runs, and offset into the sorted run table
         classes_to_sample, n_runs_per_class = np.unique(self._class_runs["cat"].to_numpy(), return_counts=True)
-        w = weights[classes_to_sample]
+        w = self._weights[classes_to_sample]
         self._per_class_sampling_info = pd.DataFrame(
             {
                 "prob": w / w.sum(),
@@ -94,13 +118,26 @@ class RLEManager:
 
     @property
     def weights(self) -> np.ndarray:
-        """The weights that the RLE generated based on classes with non-zero weights.
+        """The weights that the RLE generated based on classes with non-zero weights after masking.
 
         Returns
         -------
             The weights
         """
         return self._per_class_sampling_info["prob"].to_numpy()
+
+    @property
+    def mask(self) -> slice:
+        """The currently applied mask"""
+        return self._mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
+        mask = slice(*validate_mask_n_obs_and_resolve(value, len(self._classes)))
+        # Try to build the RLE before the mask to surface any other errors
+        self._build_rle(mask)
+        self._mask = mask
 
     def sample_classes_labels_with_chunk_batch_boundaries(self, n_slices: int) -> np.ndarray:
         """Generate a weighted sample of classes accounting for batch size and chunk size constraints.
@@ -168,4 +205,5 @@ class RLEManager:
 
     @property
     def n_classes(self):
+        """The current number of active classes given weights/masking."""
         return len(self._per_class_sampling_info)
