@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 
 from annbatch.samplers import ClassSampler, WeightedClassSampler
+from annbatch.samplers._distributed_sampler import DistributedSampler
 from annbatch.samplers._utils import WorkerInfo
 from tests.conftest import load_x_obs_var
 
@@ -556,3 +557,29 @@ def test_class_sampler_from_collection(sampler_cls: type[ClassSampler], simple_c
         assert set(n_labels) == {1}
     else:
         assert max(n_labels) > 1, "batches must mix classes"
+
+
+def test_assigning_rng_reaches_the_slice_draw(sampler_cls: type[ClassSampler]):
+    """`Sampler.rng` is public and settable, so assigning it must change what is drawn."""
+    classes = pd.Categorical(np.repeat([0, 1], 250))
+
+    def starts(seed_after_construction):
+        sampler = sampler_cls(10, 4, 10, classes=classes, num_samples=200, rng=np.random.default_rng(0))
+        sampler.rng = np.random.default_rng(seed_after_construction)
+        return [s.start for lr in sampler.sample(len(classes)) for s in lr["requests"]]
+
+    assert starts(1) != starts(2), "reassigning .rng did not affect the slices drawn"
+
+
+def test_distributed_ranks_draw_independently(sampler_cls: type[ClassSampler]):
+    """DistributedSampler spawns a per-rank rng, so ranks must not draw the same offsets."""
+    classes = pd.Categorical(np.repeat([0, 1, 2, 3], 250))
+
+    def shard_offsets(rank):
+        # what a separate process does: build with the same seed, then shard
+        sampler = sampler_cls(10, 4, 10, classes=classes, num_samples=200, rng=np.random.default_rng(7))
+        dist = DistributedSampler(sampler, dist_info=lambda: (rank, 2))
+        shard_start = rank * len(classes) // 2
+        return [s.start - shard_start for lr in dist.sample(len(classes)) for s in lr["requests"]]
+
+    assert shard_offsets(0) != shard_offsets(1), "both ranks drew identical offsets within their shard"

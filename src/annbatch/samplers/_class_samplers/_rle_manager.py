@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pandas as pd
 
@@ -31,9 +29,6 @@ class RLEManager:
     _classes: pd.Categorical
     _weights: np.typing.NDArray[np.floating]
     _chunk_size: int
-    _num_samples: int
-    _batch_size: int
-    _rng: np.random.Generator
     _class_runs: pd.DataFrame
     _per_class_sampling_info: pd.DataFrame
 
@@ -44,16 +39,10 @@ class RLEManager:
         classes: pd.Categorical,
         weights: np.typing.NDArray[np.floating],
         chunk_size: int,
-        num_samples: int,
-        batch_size: int,
-        rng: np.random.Generator,
     ):
         start, stop = validate_mask_n_obs_and_resolve(mask, len(classes))
         self._mask = slice(start, stop)
         self._chunk_size = chunk_size
-        self._num_samples = num_samples
-        self._batch_size = batch_size
-        self._rng = rng
         self._classes = classes
         self._weights = self._build_class_weights(weights)
 
@@ -150,30 +139,7 @@ class RLEManager:
         self._build_rle(mask)
         self._mask = mask
 
-    def sample_classes_labels_with_chunk_batch_boundaries(self, n_slices: int) -> np.ndarray:
-        """Generate a weighted sample of classes accounting for batch size and chunk size constraints.
-
-        Parameters
-        ----------
-        n_slices
-            The number of slices of length `self._chunk_size` to generate
-
-        Returns
-        -------
-            A :class:`numpy.ndarray` of length `n_slices` that has the class labels for each slice.
-        """
-        # classes may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
-        # batch edges align), i.e. every `group_chunks = lcm // chunk_size = batch_size // gcd`
-        # chunks. Draw one class per group and repeat it across the group's chunks.
-        group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
-        n_groups = math.ceil(n_slices / group_chunks)
-        # Sample groups: draw a position into self._per_class_sampling_info (one row per sampleable class)
-        group_classes = self._rng.choice(
-            len(self._per_class_sampling_info), size=n_groups, p=self._per_class_sampling_info["prob"].to_numpy()
-        )
-        return np.repeat(group_classes, group_chunks)[:n_slices]
-
-    def slices_from_classes(self, class_of_slice: np.ndarray) -> list[slice]:
+    def slices_from_classes(self, class_of_slice: np.ndarray, rng: np.random.Generator) -> list[slice]:
         """Generate slices for the input classes from the known classes.
 
         So, to accomplish this, we sample one of the possible run positions within a class i.e.,
@@ -189,7 +155,7 @@ class RLEManager:
             list of slices
         """
         class_n_runs = self._per_class_sampling_info["n_runs"].to_numpy()
-        possible_run_pos_within_a_class = self._rng.integers(class_n_runs[class_of_slice])
+        possible_run_pos_within_a_class = rng.integers(class_n_runs[class_of_slice])
         # Generate a position into the runs table to get the run to fetch within
         first_row_of_class = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()
         chosen = first_row_of_class[class_of_slice] + possible_run_pos_within_a_class
@@ -197,22 +163,9 @@ class RLEManager:
         run_starts = self._class_runs["start"].to_numpy()[chosen]
         run_ends = self._class_runs["end"].to_numpy()[chosen]
         # Finally, sample a valid start position within each chunk so that a chunk slice can fit
-        slice_starts = self._rng.integers(run_starts, run_ends - self._chunk_size + 1)
+        slice_starts = rng.integers(run_starts, run_ends - self._chunk_size + 1)
 
         return [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
-
-    def sample(self) -> list[slice]:
-        """Build (or reuse) the RLE for the current mask range, cached on ``(start, stop)``."""
-        n_slices, remainder = divmod(self._num_samples, self._chunk_size)
-        if remainder > 0:
-            n_slices += 1
-        class_of_slice = self.sample_classes_labels_with_chunk_batch_boundaries(n_slices)
-        slices = self.slices_from_classes(class_of_slice)
-
-        if remainder > 0:
-            last = int(slices[-1].start)
-            slices[-1] = slice(last, last + remainder)
-        return slices
 
     @property
     def n_classes(self):

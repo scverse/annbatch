@@ -178,9 +178,6 @@ class ClassSampler(Sampler):
             classes=classes,
             weights=class_weights,
             chunk_size=self._chunk_size,
-            num_samples=self._num_samples,
-            rng=self._rng,
-            batch_size=self._batch_size,
         )
 
     @property
@@ -224,7 +221,19 @@ class ClassSampler(Sampler):
         return self._iter_requests()
 
     def _iter_requests(self) -> Iterator[LoadRequest]:
-        slices = self._rle_manager.sample()
+        n_slices, remainder = divmod(self._num_samples, self._chunk_size)
+        if remainder > 0:
+            n_slices += 1
+        # classes may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
+        # batch edges align), i.e. every `group_chunks = lcm // chunk_size = batch_size // gcd`
+        # chunks. Draw one class per group and repeat it across the group's chunks.
+        group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
+        n_groups = math.ceil(n_slices / group_chunks)
+        group_classes = self._rng.choice(self._rle_manager.n_classes, size=n_groups, p=self._rle_manager.weights)
+        slices = self._rle_manager.slices_from_classes(np.repeat(group_classes, group_chunks)[:n_slices], self.rng)
+        if remainder > 0:
+            last = int(slices[-1].start)
+            slices[-1] = slice(last, last + remainder)
         window_size = self._preload_nchunks * self._chunk_size
         full_splits = split_given_size(np.arange(window_size), self._batch_size)
         for window in itertools.batched(slices, self._preload_nchunks):
