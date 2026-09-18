@@ -1,0 +1,36 @@
+
+[envs.default]
+installer = "uv"
+dependency-groups = [ "dev" ]
+
+[envs.docs]
+scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
+scripts.clean = "git clean -fdX -- {args:docs}"
+scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+dependency-groups = [ "doc" ]
+
+[envs.hatch-test]
+python = "3.14"
+matrix = [
+  { deps = [ "min-low", "pre", "torch", "min-high", "numba", "jax" ] },
+]
+# If the matrix variable `deps` is set to "pre",
+# set the environment variable `UV_PRERELEASE` to "allow".
+overrides.matrix.deps.env-vars = [
+  { value = "allow", key = "UV_PRERELEASE", if = [ "pre" ] },
+  { value = "pre-deps.txt", if = [ "pre" ], key = "UV_CONSTRAINT" }
+]
+overrides.matrix.deps.features = [
+  { value = "torch", if = [ "torch" ] },
+  { value = "numba", if = [ "numba" ] },
+  { value = "jax", if = [ "jax" ] },
+]
+overrides.matrix.deps.pre-install-commands = [
+  { value = "echo 'zarr @ git+https://github.com/zarr-developers/zarr-python.git' > pre-deps.txt", if = [
+    "pre",
+  ] }
+]
+overrides.matrix.deps.python = [
+  { value = "3.12", if = [ "min-low" ] },
+]
+dependency-groups = [ "test" ]
