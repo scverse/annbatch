@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 import subprocess
+from contextlib import nullcontext
+from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,6 +14,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
+from packaging.version import Version
 from scipy.sparse import random as sparse_random
 
 from annbatch import write_sharded
@@ -141,7 +144,7 @@ def adata_with_h5_path_different_var_space(
 @pytest.fixture(scope="session")
 def simple_collection(
     tmpdir_factory, adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]
-) -> tuple[DatasetCollection, ad.AnnData]:
+) -> tuple[ad.AnnData, DatasetCollection]:
     zarr_stores = sorted(f for f in adata_with_zarr_path_same_var_space[1].iterdir() if f.is_dir())
     output_path = Path(tmpdir_factory.mktemp("zarr_folder")) / "simple_fixture.zarr"
     collection = DatasetCollection(output_path).add_adatas(
@@ -172,7 +175,11 @@ def maybe_mixed_dtype_collection(
     )
     is_mixed = bool(request.param)
     if is_mixed:
-        with ad.settings.override(auto_shard_zarr_v3=True, zarr_write_format=3):
+        with (
+            ad.settings.override(auto_shard_zarr_v3=True, zarr_write_format=3)
+            if Version(version("anndata")) < Version("0.13")
+            else nullcontext()
+        ):
             first = next(iter(collection))
             new_X = first["X"][...].astype("f8")
             del first["X"]
