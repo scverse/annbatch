@@ -155,8 +155,6 @@ ini_options.filterwarnings = [
   "ignore::scipy.sparse.SparseEfficiencyWarning",
   "ignore:Consolidated metadata is:UserWarning",
   "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
-  # Remove after https://github.com/scverse/annbatch/pull/276
-  "ignore:.*zarr v3 will be the default.*:DeprecationWarning",
 ]
 # https://github.com/pytest-dev/pytest/issues/10965
 # addopts = [
