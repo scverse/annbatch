@@ -172,14 +172,13 @@ def maybe_mixed_dtype_collection(
     )
     is_mixed = bool(request.param)
     if is_mixed:
-        with ad.settings.override(auto_shard_zarr_v3=True, zarr_write_format=3):
-            first = next(iter(collection))
-            new_X = first["X"][...].astype("f8")
-            del first["X"]
-            ad.io.write_elem(first, "X", new_X)
-            sparse_layer = ad.io.read_elem(first["layers"]["sparse"]).astype("int64")
-            del first["layers"]["sparse"]
-            ad.io.write_elem(first["layers"], "sparse", sparse_layer)
+        first = next(iter(collection))
+        new_X = first["X"][...].astype("f8")
+        del first["X"]
+        ad.io.write_elem(first, "X", new_X)
+        sparse_layer = ad.io.read_elem(first["layers"]["sparse"]).astype("int64")
+        del first["layers"]["sparse"]
+        ad.io.write_elem(first["layers"], "sparse", sparse_layer)
 
         datasets = list(collection)
         first_X_dtype = datasets[0]["X"].dtype
