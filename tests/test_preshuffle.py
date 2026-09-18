@@ -142,6 +142,13 @@ def test_h5ad_and_zarr_simultaneously(tmp_path: Path):
         DatasetCollection(zarr.open_group(tmp_path / "foo.zarr"), is_collection_h5ad=True)
 
 
+def test_store_zarr_invariants(
+    simple_collection: tuple[ad.AnnData, DatasetCollection],
+):
+    assert all(ds["layers"]["sparse"]["indices"].metadata.zarr_format == 3 for ds in iter(simple_collection[1]))
+    assert all(ds["layers"]["sparse"]["indices"].shards is not None for ds in iter(simple_collection[1]))
+
+
 @pytest.mark.parametrize("is_collection_h5ad", [True, False], ids=["h5ad", "zarr"])
 def test_store_creation_default(
     adata_with_h5_path_different_var_space: tuple[ad.AnnData, Path],
