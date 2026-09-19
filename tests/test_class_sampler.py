@@ -280,6 +280,75 @@ def test_shuffle_is_true(sampler_cls: type[ClassSampler]):
     assert make_sampler(pd.Categorical(np.repeat([0, 1], 50)), cls=sampler_cls).shuffle is True
 
 
+def test_each_window_gets_its_own_split_arrays(sampler_cls: type[ClassSampler]):
+    # np.split returns views, so reusing one row-id buffer across windows would hand every window
+    # the same arrays: a materialised pass would show the last window's permutation throughout,
+    # and a caller writing into one window's split would corrupt the next.
+    codes = pd.Categorical(np.repeat([0, 1], 100))
+    lazy = [[s.tolist() for s in lr["splits"]] for lr in make_sampler(codes, cls=sampler_cls).sample(len(codes))]
+    eager = [[s.tolist() for s in lr["splits"]] for lr in list(make_sampler(codes, cls=sampler_cls).sample(len(codes)))]
+
+    assert eager == lazy, "materialising the iterator must not change what each window contains"
+
+
+def test_mask_cannot_be_reassigned_mid_pass(sampler_cls: type[ClassSampler]):
+    # a pass draws all of its slices up front, so a later mask would be reported by `.mask`
+    # without being read from
+    sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 100)), cls=sampler_cls, mask=slice(0, 100))
+    it = sampler.sample(200)
+    next(it)
+
+    with pytest.raises(ValueError, match="cannot be re-assigned while a pass is being iterated"):
+        sampler.mask = slice(100, 200)
+
+
+def test_class_weights_as_a_series_are_rejected(sampler_cls: type[ClassSampler]):
+    # a Series converts positionally, so its index would be discarded and the weights silently
+    # attached to the wrong classes
+    with pytest.raises(TypeError, match="not a pandas Series"):
+        make_sampler(
+            pd.Categorical(np.repeat([0, 1], 100)),
+            cls=sampler_cls,
+            class_weights=pd.Series([9.0, 1.0], index=[1, 0]),
+        )
+
+
+def test_runs_are_drawn_in_proportion_to_length(sampler_cls: type[ClassSampler]):
+    # class 0 lives in a 400-row run and a 40-row run. With chunk_size=10 the long run holds 391
+    # of the class's 422 chunk starts, so it should get about 92.7% of the chunks. Picking one of
+    # the two runs uniformly gives each 50% and oversamples the short run's rows 10x.
+    codes = np.ones(480, dtype=np.int64)
+    codes[0:400] = 0
+    codes[440:480] = 0
+    sampler = make_sampler(
+        pd.Categorical(codes), cls=sampler_cls, num_samples=200_000, class_weights=np.array([1.0, 0.0])
+    )
+
+    chunks = _collect_chunks(sampler, len(codes))
+    long_run_share = sum(c.start < 400 for c in chunks) / len(chunks)
+    starts_long, starts_short = 400 - 10 + 1, 40 - 10 + 1
+    expected = starts_long / (starts_long + starts_short)
+    assert abs(long_run_share - expected) < 0.01, f"{long_run_share:.3f} vs expected {expected:.3f}"
+
+
+def test_class_weights_and_run_lengths_stay_independent(sampler_cls: type[ClassSampler]):
+    # class 0 in runs of 300 and 30, class 1 in runs of 200 and 20, drawn 3:1 by weight. The
+    # weights decide the class and the run lengths decide where inside it, with no crossover:
+    # feeding length into the class draw would make class frequency depend on class size, which
+    # is what passing observation counts as class_weights is for.
+    codes = np.concatenate([np.zeros(300), np.ones(200), np.zeros(30), np.ones(20)]).astype(np.int64)
+    sampler = make_sampler(
+        pd.Categorical(codes), cls=sampler_cls, num_samples=200_000, class_weights=np.array([3.0, 1.0])
+    )
+
+    chunks = _collect_chunks(sampler, len(codes))
+    classes = np.array([codes[c.start] for c in chunks])
+    starts = np.array([c.start for c in chunks])
+    assert abs(np.mean(classes == 0) - 0.75) < 0.01, "class shares must follow class_weights"
+    assert abs(np.mean(starts[classes == 0] < 300) - 291 / 312) < 0.01, "class 0 runs by length"
+    assert abs(np.mean(starts[classes == 1] < 500) - 191 / 202) < 0.01, "class 1 runs by length"
+
+
 def test_noncontiguous_class_samples_all_runs(sampler_cls: type[ClassSampler]):
     # class 0 lives in two separate runs; over many draws both should be hit.
     codes = np.array([0] * 50 + [1] * 50 + [0] * 50, dtype=np.int64)

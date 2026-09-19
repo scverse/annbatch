@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import itertools
 import math
+from abc import abstractmethod
 from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     check_lt_1,
+    codes_of_categorical,
     get_torch_worker_info,
     validate_chunk_batch_preload_sizes,
-    validate_mask_n_obs_and_resolve,
 )
 from annbatch.utils import split_given_size
 
@@ -23,10 +23,192 @@ from ._rle_manager import RLEManager
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    import pandas as pd
+
     from annbatch.types import LoadRequest
 
 
-class ClassSampler(Sampler):
+class _RunClassSampler(Sampler):
+    """Shared machinery for samplers that read whole same-class chunks out of an RLE.
+
+    Subclasses decide two things: which class each chunk is read from (:meth:`_chunk_schedule`)
+    and how a loaded window is cut into batches (:meth:`_window_splits`). The constructor, the
+    remainder handling and the window loop are the same for all of them and live here.
+    """
+
+    _batch_size: int
+    _chunk_size: int
+    _preload_nchunks: int
+    _num_samples: int
+    _n_obs: int
+    _rng: np.random.Generator  # never None: the constructor defaults it
+    _drop_last: bool
+    _classes: pd.Categorical
+    _rle_manager: RLEManager
+    _open_passes: int
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        classes: pd.Categorical,
+        num_samples: int,
+        class_weights: np.ndarray | None = None,
+        mask: slice | None = None,
+        drop_last: bool = False,
+        rng: np.random.Generator | None = None,
+    ):
+        check_lt_1([num_samples], ["num_samples"])
+        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
+        self._n_obs = len(codes_of_categorical(classes, "classes"))
+
+        self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
+        self._num_samples = num_samples
+        self._drop_last = drop_last
+        self._open_passes = 0
+        self._rng = rng or np.random.default_rng()
+        self._classes = classes
+        # classes and their weights are mask-independent; the RLE keeps them so any mask can
+        # renormalize from them. It is handed no rng: `self._rng` is read per draw, so that
+        # re-assigning it (as DistributedSampler does per rank) reaches the slice starts too.
+        self._rle_manager = RLEManager(
+            mask=slice(0, None) if mask is None else mask,
+            classes=classes,
+            weights=class_weights,
+            chunk_size=chunk_size,
+        )
+
+    @property
+    def mask(self) -> slice:
+        return self._rle_manager.mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        # a pass fixes all of its slices when it starts, so a later mask would be reported but not
+        # read from; refuse rather than let `.mask` disagree with what the iterator yields
+        if self._open_passes:
+            raise ValueError(
+                "mask cannot be re-assigned while a pass is being iterated: the slices for that pass "
+                "are already drawn. Finish or discard the iterator first."
+            )
+        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
+        self._rle_manager.mask = value
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    @property
+    def shuffle(self) -> bool:
+        return True
+
+    @property
+    def _n_batch_slots(self) -> int:
+        """Batches one pass cuts, *before* ``drop_last`` discards a trailing short one."""
+        return math.ceil(self._num_samples / self._batch_size)
+
+    def n_batches(self, n_obs: int) -> int:
+        del n_obs  # determined by num_samples, not the loader size
+        if self._drop_last:
+            return self._num_samples // self._batch_size
+        return self._n_batch_slots
+
+    def validate(self, n_obs: int) -> None:
+        """Validate that the codes describe exactly the loader's observations."""
+        if n_obs != self._n_obs:
+            raise ValueError(
+                f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
+                "The classes column must describe exactly the loader's observations."
+            )
+
+    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
+        worker_info = get_torch_worker_info()
+        if worker_info is not None and worker_info.num_workers > 1:
+            raise NotImplementedError(f"Multiple workers are not supported with {type(self).__name__}.")
+
+        return self._iter_requests()
+
+    # -- policy ------------------------------------------------------------------------
+
+    @abstractmethod
+    def _chunk_schedule(self, n_chunks: int) -> np.ndarray:
+        """Class code into ``classes.categories`` for each of ``n_chunks`` chunks of a pass."""
+
+    def _window_splits(self, ids: np.ndarray) -> list[np.ndarray]:
+        """Cut a window's row ids into batches. Rows are shuffled within each batch."""
+        splits = split_given_size(ids, self._batch_size)
+        for batch in splits:
+            # can't vectorize this because we need to return a list, not ndarray
+            self._rng.shuffle(batch)
+        return splits
+
+    # -- one pass ----------------------------------------------------------------------
+
+    def _slices_for_pass(self) -> list[slice]:
+        """The ``chunk_size`` slices a whole pass reads, the last one short if needed."""
+        n_chunks, remainder = divmod(self._num_samples, self._chunk_size)
+        if remainder > 0:
+            n_chunks += 1
+        slices = self._rle_manager.slices_from_classes(self._chunk_schedule(n_chunks), self._rng)
+        if remainder > 0:
+            last = int(slices[-1].start)
+            slices[-1] = slice(last, last + remainder)
+        return slices
+
+    def _iter_requests(self) -> Iterator[LoadRequest]:
+        self._open_passes += 1
+        try:
+            yield from self._windows()
+        finally:
+            self._open_passes -= 1
+
+    def _windows(self) -> Iterator[LoadRequest]:
+        for window in itertools.batched(self._slices_for_pass(), self._preload_nchunks):
+            n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
+            # a fresh buffer per window: `np.split` returns views, so reusing one would hand every
+            # window the same arrays and let a caller's write reach the next window
+            splits = self._window_splits(np.arange(n_rows))
+            if self._drop_last and splits[-1].size < self._batch_size:
+                splits = splits[:-1]
+                if not splits:
+                    continue  # the whole window was one short batch; there is nothing to yield
+            yield {"requests": list(window), "splits": splits}
+
+
+class _ScheduledClassSampler(_RunClassSampler):
+    """A class sampler that decides the class of every *batch* up front.
+
+    :meth:`batch_schedule` draws one class code per batch of a pass, and each chunk is read
+    from the class of the batch covering its rows. Being class-per-batch is what makes a
+    sampler replayable, which is why :class:`~annbatch.samplers.BoundClassSampler` takes one.
+    """
+
+    @property
+    def vocab(self) -> pd.Index:
+        """The labels a schedule's class codes index into."""
+        return self._classes.categories
+
+    @property
+    def emittable_codes(self) -> np.ndarray:
+        """The class codes a schedule may contain, given the current mask and class weights."""
+        return self._rle_manager.emittable_codes
+
+    @abstractmethod
+    def batch_schedule(self) -> np.ndarray:
+        """Draw a class code into ``vocab`` for each batch of one pass.
+
+        Returns ``ceil(num_samples / batch_size)`` of them, including the trailing short batch
+        that ``drop_last`` would discard. Each call *draws*, advancing ``rng``.
+        """
+
+    def _chunk_schedule(self, n_chunks: int) -> np.ndarray:
+        # a chunk is read from the class of the batch holding its first row
+        return self.batch_schedule()[(np.arange(n_chunks) * self._chunk_size) // self._batch_size]
+
+
+class ClassSampler(_ScheduledClassSampler):
     """Sample class-coherent batches with replacement.
 
     Every batch the :class:`~annbatch.Loader` yields is drawn from a single class:
@@ -131,119 +313,12 @@ class ClassSampler(Sampler):
         here; pass a seeded :class:`numpy.random.Generator` to control randomness.
     """
 
-    _batch_size: int
-    _chunk_size: int
-    _preload_nchunks: int
-    _num_samples: int
-    _n_obs: int
-    _rng: np.random.Generator
-    _drop_last: bool
-    _rle_manager: RLEManager
-
-    def __init__(
-        self,
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        *,
-        classes: pd.Categorical,
-        num_samples: int,
-        class_weights: np.ndarray | None = None,
-        mask: slice | None = None,
-        drop_last: bool = False,
-        rng: np.random.Generator | None = None,
-    ):
-        check_lt_1([num_samples], ["num_samples"])
-        if not isinstance(classes, pd.Categorical):
-            raise TypeError(f"classes must be a pandas.Categorical, got {type(classes).__name__}.")
-        codes = classes.codes
-        if (codes == -1).any():
-            raise ValueError("classes contains NA values (codes == -1). Remove NAs before passing.")
-        n_obs = int(codes.shape[0])
-
-        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        if mask is None:
-            mask = slice(0, None)
-        start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
-
-        self._n_obs = n_obs
-        self._rng = rng or np.random.default_rng()
-        self._num_samples = num_samples
-        self._drop_last = drop_last
-        self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
-
-        # classes and their weights are mask-independent; kept so any mask can renormalize from them
-        self._rle_manager = RLEManager(
-            mask=slice(start, stop),
-            classes=classes,
-            weights=class_weights,
-            chunk_size=self._chunk_size,
+    def batch_schedule(self) -> np.ndarray:
+        # A class may only change every lcm(chunk_size, batch_size) rows -- the only boundary
+        # where a chunk edge and a batch edge coincide -- i.e. every `slots_per_group` batches.
+        slots_per_group = self._chunk_size // math.gcd(self._chunk_size, self._batch_size)
+        n_slots = self._n_batch_slots
+        groups = self._rng.choice(
+            self._rle_manager.emittable_codes, size=math.ceil(n_slots / slots_per_group), p=self._rle_manager.weights
         )
-
-    @property
-    def mask(self) -> slice:
-        return self._rle_manager.mask
-
-    @mask.setter
-    def mask(self, value: slice) -> None:
-        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
-        start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
-        mask = slice(start, stop)
-        self._rle_manager.mask = mask
-
-    @property
-    def batch_size(self) -> int:
-        return self._batch_size
-
-    @property
-    def shuffle(self) -> bool:
-        return True
-
-    def n_batches(self, n_obs: int) -> int:
-        del n_obs  # determined by num_samples, not the loader size
-        if self._drop_last:
-            return self._num_samples // self._batch_size
-        return math.ceil(self._num_samples / self._batch_size)
-
-    def validate(self, n_obs: int) -> None:
-        """Validate that the codes describe exactly the loader's observations."""
-        if n_obs != self._n_obs:
-            raise ValueError(
-                f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
-                "The classes column must describe exactly the loader's observations."
-            )
-
-    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        worker_info = get_torch_worker_info()
-        if worker_info is not None and worker_info.num_workers > 1:
-            raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
-
-        return self._iter_requests()
-
-    def _iter_requests(self) -> Iterator[LoadRequest]:
-        n_slices, remainder = divmod(self._num_samples, self._chunk_size)
-        if remainder > 0:
-            n_slices += 1
-        # classes may change only on lcm(chunk_size, batch_size) boundaries (where chunk and
-        # batch edges align), i.e. every `group_chunks = lcm // chunk_size = batch_size // gcd`
-        # chunks. Draw one class per group and repeat it across the group's chunks.
-        group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
-        n_groups = math.ceil(n_slices / group_chunks)
-        group_classes = self._rng.choice(self._rle_manager.n_classes, size=n_groups, p=self._rle_manager.weights)
-        slices = self._rle_manager.slices_from_classes(np.repeat(group_classes, group_chunks)[:n_slices], self.rng)
-        if remainder > 0:
-            last = int(slices[-1].start)
-            slices[-1] = slice(last, last + remainder)
-        window_size = self._preload_nchunks * self._chunk_size
-        full_splits = split_given_size(np.arange(window_size), self._batch_size)
-        for window in itertools.batched(slices, self._preload_nchunks):
-            n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
-            splits = full_splits if n_rows == window_size else split_given_size(np.arange(n_rows), self._batch_size)
-            if self._drop_last and splits[-1].size < self._batch_size:
-                splits = splits[:-1]
-                if not splits:
-                    continue
-            for batch in splits:
-                # can't vectorize this because we need to return a list, not ndarray
-                self._rng.shuffle(batch)
-            yield {"requests": list(window), "splits": splits}
+        return np.repeat(groups, slots_per_group)[:n_slots]

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+import pandas as pd
 
 from annbatch.utils import check_lt_1
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class WorkerInfo(NamedTuple):
@@ -32,7 +37,7 @@ def validate_chunk_batch_preload_sizes(
     preload_nchunks: int,
     batch_size: int,
 ) -> None:
-    check_lt_1([chunk_size, preload_nchunks], ["Chunk size", "Preloaded chunks"])
+    check_lt_1([chunk_size, preload_nchunks, batch_size], ["Chunk size", "Preloaded chunks", "batch_size"])
     preload_size = chunk_size * preload_nchunks
 
     if batch_size > preload_size:
@@ -72,3 +77,13 @@ def validate_mask_n_obs_and_resolve(mask: slice, n_obs: int) -> tuple[int, int]:
     if start >= stop:
         raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
     return start, stop
+
+
+def codes_of_categorical(categorical: pd.Categorical, name: str) -> np.ndarray:
+    """Return a categorical's codes, rejecting anything else and NA values."""
+    if not isinstance(categorical, pd.Categorical):
+        raise TypeError(f"{name} must be a pandas.Categorical, got {type(categorical).__name__}.")
+    codes = categorical.codes
+    if (codes == -1).any():
+        raise ValueError(f"{name} contains NA values (codes == -1). Remove NAs before passing.")
+    return codes

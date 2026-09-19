@@ -31,6 +31,7 @@ class RLEManager:
     _chunk_size: int
     _class_runs: pd.DataFrame
     _per_class_sampling_info: pd.DataFrame
+    _position_of_code: np.typing.NDArray[np.int64]
 
     def __init__(
         self,
@@ -53,6 +54,11 @@ class RLEManager:
         n_classes = len(self._classes.categories)
         if class_weights is None:
             weights = np.ones(n_classes, dtype=float)
+        elif hasattr(class_weights, "index"):
+            raise TypeError(
+                "class_weights must be an array, not a pandas Series: a Series is read in positional "
+                "order and its index ignored. Pass class_weights.reindex(classes.categories).to_numpy()."
+            )
         else:
             weights = np.array(class_weights, dtype=float)
             if weights.shape != (n_classes,):
@@ -104,6 +110,11 @@ class RLEManager:
         # `first_row_in_runs_of_class` then indexes directly into the sorted run table.
         self._class_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
 
+        # Chunk starts per run, and the number preceding each run in the table. A class's starts
+        # are the range [starts_before[first], starts_before[last] + n_starts[last]).
+        self._class_runs["n_starts"] = self._class_runs["len"] - self._chunk_size + 1
+        self._class_runs["starts_before"] = self._class_runs["n_starts"].cumsum() - self._class_runs["n_starts"]
+
         # Per-class table: probability, number of runs, and offset into the sorted run table
         classes_to_sample, n_runs_per_class = np.unique(self._class_runs["cat"].to_numpy(), return_counts=True)
         w = self._weights[classes_to_sample]
@@ -115,6 +126,10 @@ class RLEManager:
             },
             index=pd.Index(classes_to_sample, name="cat"),
         )
+        # Rows of the table above, by class code. Rebuilt with the table, so a code keeps its
+        # meaning across a mask change while a row number does not.
+        self._position_of_code = np.full(len(self._classes.categories), -1, dtype=np.int64)
+        self._position_of_code[classes_to_sample] = np.arange(classes_to_sample.shape[0])
 
     @property
     def weights(self) -> np.ndarray:
@@ -148,24 +163,38 @@ class RLEManager:
         Parameters
         ----------
         class_of_slice
-            An array of class labels from which to generate slices to fetch such that each slice contains only that label.
+            An array of class *codes* into ``classes.categories``, one per slice to generate, such
+            that each slice contains only that class. A code that is not currently drawable raises.
 
         Returns
         -------
             list of slices
         """
-        class_n_runs = self._per_class_sampling_info["n_runs"].to_numpy()
-        possible_run_pos_within_a_class = rng.integers(class_n_runs[class_of_slice])
-        # Generate a position into the runs table to get the run to fetch within
-        first_row_of_class = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()
-        chosen = first_row_of_class[class_of_slice] + possible_run_pos_within_a_class
-        # Now get that position's slice's star and end
-        run_starts = self._class_runs["start"].to_numpy()[chosen]
-        run_ends = self._class_runs["end"].to_numpy()[chosen]
-        # Finally, sample a valid start position within each chunk so that a chunk slice can fit
-        slice_starts = rng.integers(run_starts, run_ends - self._chunk_size + 1)
+        positions = self._position_of_code[class_of_slice]
+        if (undrawable := class_of_slice[positions < 0]).size:
+            raise ValueError(
+                f"Class {self._classes.categories[undrawable[0]]!r} is not drawable in the current range "
+                f"[{self._mask.start}, {self._mask.stop}) or carries a non-positive weight."
+            )
+        class_of_slice = positions
+
+        starts_before = self._class_runs["starts_before"].to_numpy()
+        n_starts = self._class_runs["n_starts"].to_numpy()
+        first = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()[class_of_slice]
+        last = first + self._per_class_sampling_info["n_runs"].to_numpy()[class_of_slice] - 1
+        # Pool the class's chunk starts over its runs and draw one uniformly, so a run is picked in
+        # proportion to how many it holds; searchsorted turns that start into a run and an offset.
+        base = starts_before[first]
+        offset = base + rng.integers(starts_before[last] + n_starts[last] - base)
+        chosen = np.searchsorted(starts_before, offset, side="right") - 1
+        slice_starts = self._class_runs["start"].to_numpy()[chosen] + offset - starts_before[chosen]
 
         return [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
+
+    @property
+    def emittable_codes(self) -> np.ndarray:
+        """The class codes that can be drawn, in the order :attr:`weights` indexes them."""
+        return self._per_class_sampling_info.index.to_numpy()
 
     @property
     def n_classes(self):

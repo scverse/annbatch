@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Literal
 
 from annbatch.abc import Sampler
@@ -115,9 +116,11 @@ class DistributedSampler(Sampler):
         else:
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
-        self._sampler = sampler
-        if sampler.rng is not None:
-            sampler.rng = _spawn_worker_rng(sampler.rng, self._rank)
+        # take a copy: every call below re-shards `mask`, and the rng is re-spawned per rank, so
+        # wrapping would otherwise leave the caller's own sampler sharded and re-seeded
+        self._sampler = copy.deepcopy(sampler)
+        if self._sampler.rng is not None:
+            self._sampler.rng = _spawn_worker_rng(self._sampler.rng, self._rank)
 
     @property
     def batch_size(self) -> int:
