@@ -280,6 +280,39 @@ def test_shuffle_is_true(sampler_cls: type[ClassSampler]):
     assert make_sampler(pd.Categorical(np.repeat([0, 1], 50)), cls=sampler_cls).shuffle is True
 
 
+def test_each_window_gets_its_own_split_arrays(sampler_cls: type[ClassSampler]):
+    # np.split returns views, so reusing one row-id buffer across windows would hand every window
+    # the same arrays: a materialised pass would show the last window's permutation throughout,
+    # and a caller writing into one window's split would corrupt the next.
+    codes = pd.Categorical(np.repeat([0, 1], 100))
+    lazy = [[s.tolist() for s in lr["splits"]] for lr in make_sampler(codes, cls=sampler_cls).sample(len(codes))]
+    eager = [[s.tolist() for s in lr["splits"]] for lr in list(make_sampler(codes, cls=sampler_cls).sample(len(codes)))]
+
+    assert eager == lazy, "materialising the iterator must not change what each window contains"
+
+
+def test_mask_cannot_be_reassigned_mid_pass(sampler_cls: type[ClassSampler]):
+    # a pass draws all of its slices up front, so a later mask would be reported by `.mask`
+    # without being read from
+    sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 100)), cls=sampler_cls, mask=slice(0, 100))
+    it = sampler.sample(200)
+    next(it)
+
+    with pytest.raises(ValueError, match="cannot be re-assigned while a pass is being iterated"):
+        sampler.mask = slice(100, 200)
+
+
+def test_class_weights_as_a_series_are_rejected(sampler_cls: type[ClassSampler]):
+    # a Series converts positionally, so its index would be discarded and the weights silently
+    # attached to the wrong classes
+    with pytest.raises(TypeError, match="not a pandas Series"):
+        make_sampler(
+            pd.Categorical(np.repeat([0, 1], 100)),
+            cls=sampler_cls,
+            class_weights=pd.Series([9.0, 1.0], index=[1, 0]),
+        )
+
+
 def test_runs_are_drawn_in_proportion_to_length(sampler_cls: type[ClassSampler]):
     # class 0 lives in a 400-row run and a 40-row run. With chunk_size=10 the long run holds 391
     # of the class's 422 chunk starts, so it should get about 92.7% of the chunks. Picking one of

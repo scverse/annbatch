@@ -857,6 +857,16 @@ class TestDistributedSampler:
             actual = len(splits)
             assert actual == expected, f"rank {rank}: n_batches={expected}, actual={actual}"
 
+    def test_does_not_mutate_the_sampler_it_wraps(self):
+        """Wrapping shards and re-seeds a copy, so the caller's own sampler is left usable."""
+        sampler = RandomSampler(10, 4, 10, rng=np.random.default_rng(0))
+        before_mask, before_rng = sampler.mask, sampler.rng
+
+        DistributedSampler(sampler, dist_info=lambda: (0, 2)).n_batches(400)
+
+        assert sampler.mask == before_mask, "the caller's sampler was sharded in place"
+        assert sampler.rng is before_rng, "the caller's generator was replaced"
+
     def test_wraps_sequential_sampler(self, make_distributed_sampler: Callable[..., DistributedSampler]):
         """Distributed wrapper should also work with SequentialSampler."""
         n_obs, world_size = 100, 4

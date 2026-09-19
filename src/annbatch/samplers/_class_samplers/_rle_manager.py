@@ -54,6 +54,11 @@ class RLEManager:
         n_classes = len(self._classes.categories)
         if class_weights is None:
             weights = np.ones(n_classes, dtype=float)
+        elif hasattr(class_weights, "index"):
+            raise TypeError(
+                "class_weights must be an array, not a pandas Series: a Series is read in positional "
+                "order and its index ignored. Pass class_weights.reindex(classes.categories).to_numpy()."
+            )
         else:
             weights = np.array(class_weights, dtype=float)
             if weights.shape != (n_classes,):

@@ -45,6 +45,7 @@ class _RunClassSampler(Sampler):
     _drop_last: bool
     _classes: pd.Categorical
     _rle_manager: RLEManager
+    _open_passes: int
 
     def __init__(
         self,
@@ -66,6 +67,7 @@ class _RunClassSampler(Sampler):
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
         self._num_samples = num_samples
         self._drop_last = drop_last
+        self._open_passes = 0
         self._rng = rng or np.random.default_rng()
         self._classes = classes
         # classes and their weights are mask-independent; the RLE keeps them so any mask can
@@ -84,6 +86,13 @@ class _RunClassSampler(Sampler):
 
     @mask.setter
     def mask(self, value: slice) -> None:
+        # a pass fixes all of its slices when it starts, so a later mask would be reported but not
+        # read from; refuse rather than let `.mask` disagree with what the iterator yields
+        if self._open_passes:
+            raise ValueError(
+                "mask cannot be re-assigned while a pass is being iterated: the slices for that pass "
+                "are already drawn. Finish or discard the iterator first."
+            )
         # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
         self._rle_manager.mask = value
 
@@ -149,11 +158,18 @@ class _RunClassSampler(Sampler):
         return slices
 
     def _iter_requests(self) -> Iterator[LoadRequest]:
-        window_size = self._preload_nchunks * self._chunk_size
-        full_ids = np.arange(window_size)
+        self._open_passes += 1
+        try:
+            yield from self._windows()
+        finally:
+            self._open_passes -= 1
+
+    def _windows(self) -> Iterator[LoadRequest]:
         for window in itertools.batched(self._slices_for_pass(), self._preload_nchunks):
             n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
-            splits = self._window_splits(full_ids if n_rows == window_size else np.arange(n_rows))
+            # a fresh buffer per window: `np.split` returns views, so reusing one would hand every
+            # window the same arrays and let a caller's write reach the next window
+            splits = self._window_splits(np.arange(n_rows))
             if self._drop_last and splits[-1].size < self._batch_size:
                 splits = splits[:-1]
                 if not splits:
