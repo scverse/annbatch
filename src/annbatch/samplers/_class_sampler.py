@@ -326,8 +326,8 @@ class ClassSampler(Sampler):
         first = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()[class_of_slice]
         last = first + self._per_class_sampling_info["n_runs"].to_numpy()[class_of_slice] - 1
         first_possible_run_position_in_class = starts_before[first]
-        starts_before[last] + n_starts[last] - first_possible_run_position_in_class
-        run_start_in_class = first_possible_run_position_in_class + self._rng.integers(n_possible_positions)
+        n_possible_positions_in_class = starts_before[last] + n_starts[last] - first_possible_run_position_in_class
+        run_start_in_class = first_possible_run_position_in_class + self._rng.integers(n_possible_positions_in_class)
         run_id = np.searchsorted(starts_before, run_start_in_class, side="right") - 1
         # run_start_in_class - starts_before[run_id] gives the random starting position
         slice_starts = self._class_runs["start"].to_numpy()[run_id] + run_start_in_class - starts_before[run_id]
