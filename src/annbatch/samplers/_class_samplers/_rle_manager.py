@@ -103,6 +103,11 @@ class RLEManager:
         # Sort runs by class so each class's runs are contiguous in the table;
         # `first_row_in_runs_of_class` then indexes directly into the sorted run table.
         self._class_runs = runs.sort_values("cat", kind="stable").reset_index(drop=True)
+        # Chunk starts per run, and the number preceding each run in the table. A class's starts
+        # are the range [starts_before[first], starts_before[last] + n_starts[last]).
+        # These lines must be done after sorting because the `cumsum` needs to stay within a class.
+        self._class_runs["n_starts"] = self._class_runs["len"] - self._chunk_size + 1
+        self._class_runs["starts_before"] = self._class_runs["n_starts"].cumsum() - self._class_runs["n_starts"]
 
         # Per-class table: probability, number of runs, and offset into the sorted run table
         classes_to_sample, n_runs_per_class = np.unique(self._class_runs["cat"].to_numpy(), return_counts=True)
@@ -154,16 +159,18 @@ class RLEManager:
         -------
             list of slices
         """
-        class_n_runs = self._per_class_sampling_info["n_runs"].to_numpy()
-        possible_run_pos_within_a_class = rng.integers(class_n_runs[class_of_slice])
-        # Generate a position into the runs table to get the run to fetch within
-        first_row_of_class = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()
-        chosen = first_row_of_class[class_of_slice] + possible_run_pos_within_a_class
-        # Now get that position's slice's star and end
-        run_starts = self._class_runs["start"].to_numpy()[chosen]
-        run_ends = self._class_runs["end"].to_numpy()[chosen]
-        # Finally, sample a valid start position within each chunk so that a chunk slice can fit
-        slice_starts = rng.integers(run_starts, run_ends - self._chunk_size + 1)
+        # Draw a uniform chunk start among all of the class' possible starts, which weights each run by the
+        # number of chunks that are possible to sample within it. `searchsorted`  turns that start into a run and an offset inside it.
+        starts_before = self._class_runs["starts_before"].to_numpy()
+        n_starts = self._class_runs["n_starts"].to_numpy()
+        first = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()[class_of_slice]
+        last = first + self._per_class_sampling_info["n_runs"].to_numpy()[class_of_slice] - 1
+        first_possible_run_position_in_class = starts_before[first]
+        n_possible_positions_in_class = starts_before[last] + n_starts[last] - first_possible_run_position_in_class
+        run_start_in_class = first_possible_run_position_in_class + rng.integers(n_possible_positions_in_class)
+        run_id = np.searchsorted(starts_before, run_start_in_class, side="right") - 1
+        # run_start_in_class - starts_before[run_id] gives the random starting position
+        slice_starts = self._class_runs["start"].to_numpy()[run_id] + run_start_in_class - starts_before[run_id]
 
         return [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
 
