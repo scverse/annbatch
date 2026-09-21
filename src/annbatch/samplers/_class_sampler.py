@@ -223,7 +223,6 @@ class ClassSampler(Sampler):
         runs = pd.DataFrame(
             {
                 "start": edges[:-1] + start,
-                "end": edges[1:] + start,
                 "len": np.diff(edges),
                 "cat": masked[edges[:-1]],
             }
@@ -255,6 +254,7 @@ class ClassSampler(Sampler):
 
         # Chunk starts per run, and the number preceding each run in the table. A class's starts
         # are the range [starts_before[first], starts_before[last] + n_starts[last]).
+        # These lines must be done after sorting because the `cumsum` needs to stay within a class.
         self._class_runs["n_starts"] = self._class_runs["len"] - self._chunk_size + 1
         self._class_runs["starts_before"] = self._class_runs["n_starts"].cumsum() - self._class_runs["n_starts"]
 
@@ -319,16 +319,18 @@ class ClassSampler(Sampler):
         )
         class_of_slice = np.repeat(group_classes, group_chunks)[:n_slices]
 
-        # Draw a uniform chunk start among all of the class's, which weights each run by the
-        # number it holds. searchsorted turns that start into a run and an offset inside it.
+        # Draw a uniform chunk start among all of the class' possible starts, which weights each run by the
+        # number of chunks that are possible to sample within it. `searchsorted`  turns that start into a run and an offset inside it.
         starts_before = self._class_runs["starts_before"].to_numpy()
         n_starts = self._class_runs["n_starts"].to_numpy()
         first = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()[class_of_slice]
         last = first + self._per_class_sampling_info["n_runs"].to_numpy()[class_of_slice] - 1
-        base = starts_before[first]
-        offset = base + self._rng.integers(starts_before[last] + n_starts[last] - base)
-        chosen = np.searchsorted(starts_before, offset, side="right") - 1
-        slice_starts = self._class_runs["start"].to_numpy()[chosen] + offset - starts_before[chosen]
+        first_possible_run_position_in_class = starts_before[first]
+        n_possible_positions_in_class = starts_before[last] + n_starts[last] - first_possible_run_position
+        run_start_in_class = first_possible_run_position + self._rng.integers(n_possible_positions)
+        run_id = np.searchsorted(starts_before, offset, side="right") - 1
+        # run_start_in_class - starts_before[run_id] gives the random starting position
+        slice_starts = self._class_runs["start"].to_numpy()[run_id] + run_start_in_class - starts_before[run_id]
 
         slices = [slice(int(s), int(s + self._chunk_size)) for s in slice_starts]
         if remainder > 0:
