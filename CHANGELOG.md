@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning][].
 
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
+## Unreleased
+
+### Fixed
+
+- {class}`~annbatch.samplers.ClassSampler` picked one of a class's runs uniformly instead of picking uniformly among its chunk starts, oversampling the rows of short runs.
+
 ## [0.2.2]
 
 ### Feature
