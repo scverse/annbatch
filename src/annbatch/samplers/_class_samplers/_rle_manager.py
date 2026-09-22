@@ -31,7 +31,7 @@ class RLEManager:
     _chunk_size: int
     _class_runs: pd.DataFrame
     _per_class_sampling_info: pd.DataFrame
-
+    _position_of_code: np.typing.NDArray[np.int64]
     def __init__(
         self,
         *,
@@ -120,7 +120,9 @@ class RLEManager:
             },
             index=pd.Index(classes_to_sample, name="cat"),
         )
-
+# Row of the table above for each class code, -1 where the class is not drawable. 
+self._position_of_code = np.full(len(self._classes.categories), -1, dtype=np.
+self._position_of_code[classes_to_sample] = np.arange(classes_to_sample.shape[0])
     @property
     def weights(self) -> np.ndarray:
         """The weights that the RLE generated based on classes with non-zero weights after masking.
