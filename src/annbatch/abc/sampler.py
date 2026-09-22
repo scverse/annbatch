@@ -88,21 +88,6 @@ class Sampler(ABC):
             The total number of batches this sampler will produce.
         """
 
-    def n_iters(self, n_obs: int) -> int:
-        """Return the number of batches.
-
-        .. deprecated:: 0.2.0
-            Use :meth:`n_batches` instead.
-        """
-        import warnings
-
-        warnings.warn(
-            "n_iters is deprecated, use n_batches instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.n_batches(n_obs)
-
     def sample(self, n_obs: int) -> Iterator[LoadRequest]:
         """Sample load requests given the total number of observations.
 

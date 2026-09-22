@@ -42,10 +42,8 @@ if TYPE_CHECKING:
     # TODO: remove after sphinx 9 - myst compat
     BackingArray = BackingArray_T
     OutputInMemoryArray = OutputInMemoryArray_T
-type concat_strategies = Literal["concat-shuffle", "shuffle-concat"]
-zarr_version = Version(version("zarr"))
 
-Default = object()
+zarr_version = Version(version("zarr"))
 
 
 class CSRDatasetElems(NamedTuple):
@@ -104,9 +102,6 @@ class Loader[
     We thus recommend using :class:`~annbatch.DatasetCollection` to preshuffle your data (or pre-shuffling in-memory).
     The loader is agnostic to the on-disk chunking/sharding, but it may be advisable to align with the in-memory chunk size for dense.
 
-    If `preload_to_gpu` to True and `to_torch` is False, the yielded type is a `cupy` matrix.
-    If `to_torch` is True, the yielded type is a :class:`torch.Tensor`.
-    If both `preload_to_gpu` and `to_torch` are False, then the return type is the CPU class for the given data type.
     When providing a custom sampler, `chunk_size`, `preload_nchunks`, `batch_size`,
     `shuffle`, `drop_last`, and `rng` must not be set (they are controlled by the `batch_sampler` instead).
     When providing these arguments and no `batch_sampler`, they are used to construct a :class:`~annbatch.samplers.RandomSampler` (if ``shuffle=True``) or :class:`~annbatch.samplers.SequentialSampler`.
@@ -133,25 +128,16 @@ class Loader[
         return_index
             Whether or not to yield the index on each iteration.
         preload_to_gpu
-            Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally.
+            Whether or not to use cupy for non-io array operations like vstack and indexing once the data is in memory internally (and batches yielded if `to` is not set).
             This option entails greater GPU memory usage, but is faster at least for sparse operations.
             :func:`torch.vstack` does not support CSR sparse matrices, hence the current use of `cupy` internally (which also means `torch` is an optional dep).
             Furthermore, there is no way to allocate pinned memory for jax arrays.
             Setting this to `False` is advisable when using the :class:`torch.utils.data.DataLoader` wrapper or potentially with dense data due to memory pressure.
-            For top performance, this should be used in conjunction with `to_torch` and then :meth:`torch.Tensor.to_dense` if you wish to densify.
+            For top performance, this should be used in conjunction with `to="torch"` and then :meth:`torch.Tensor.to_dense` if you wish to densify (or similar for jax, although jax may be very slow for sparse->dense transform).
             :meth:`cupy.cuda.MemoryPool.free_all_blocks` (i.e., the method of the pool of :func:`cupy.get_default_memory_pool()`) is called aggressively to keep memory usage low.
             If you are using your own memory pool or allocator, you may have to free blocks on your own.
-        to_torch
-            Whether to return `torch.Tensor` as the output.
-            Data transferred should be 0-copy independent of source, and transfer to cuda when applicable is non-blocking.
-            Defaults to True if `torch` is installed.
-
-            .. deprecated:: 0.2.1
-                Use `to` instead
         to
             The output library for which you would like your array output.
-            The default is no-op, but use `None` to smooth the transition for when `to_torch` was implicitly `True` i.e.,
-            if you don't want a warning, have `torch` installed, but don't want :func:`Loader.__iter__` to yield :class:`torch.Tensor`, set this to `None`.
 
 
     Examples
@@ -201,8 +187,7 @@ class Loader[
         batch_size: int | None = None,
         preload_to_gpu: bool = find_spec("cupy") is not None,
         drop_last: bool | None = None,
-        to_torch: bool | None = None,
-        to: Literal["torch", "jax"] | None = Default,  # type: ignore
+        to: Literal["torch", "jax"] | None = None,
         rng: np.random.Generator | None = None,
     ):
         # args that are passed after resolving defaults
@@ -232,35 +217,13 @@ class Loader[
                 )
             else:
                 self._batch_sampler = SequentialSampler(**resolved_core_args)
-        if to is Default:
-            if to_torch is None:
-                to_torch = find_spec("torch") is not None
-                if to_torch:
-                    warn(
-                        "`to_torch`'s implicit use of torch when installed will be replaced by the explicit `to: Literal['jax', 'torch']` argument",
-                        DeprecationWarning,
-                        stacklevel=2,
-                    )
-            else:
-                true_msg = "`to_torch`'s will be replaced by the explicit `to: Literal['jax', 'torch']` argument."
-                if to_torch:
-                    warn(true_msg, DeprecationWarning, stacklevel=2)
-                else:
-                    false_msg = true_msg + " To explicitly disable torch conversion, use `to=None`."
-                    warn(false_msg, DeprecationWarning, stacklevel=2)
-
-        elif isinstance(to_torch, bool):
-            raise ValueError("Don't provide both `to_torch` and `to`")
-        if (to_torch or to == "torch") and not find_spec("torch"):
-            raise ImportError("Could not find torch dependency. Try `pip install torch`.")
-        if to == "jax" and not find_spec("jax"):
-            raise ImportError("Could not find jax dependency. Try `pip install jax`.")
+        for pkg in ["torch", "jax"]:
+            if to == pkg and not find_spec(pkg):
+                raise ImportError(f"Could not find {pkg} dependency. Try `pip install {pkg}`.")
         if preload_to_gpu and not find_spec("cupy"):
             raise ImportError(
                 "Could not find cupy dependency. Follow the directions at https://docs.cupy.dev/en/stable/install.html to install cupy."
             )
-        if to_torch and to is Default:
-            to = "torch"
 
         self._return_index = return_index
         self._preload_to_gpu = preload_to_gpu
@@ -1000,16 +963,7 @@ class Loader[
         for load_request in self._batch_sampler.sample(self.n_obs):
             requests_to_load = load_request.get("requests", None)
             if requests_to_load is None:
-                requests_to_load = load_request.get("chunks", None)
-                if requests_to_load is not None:
-                    # this is for backwards compat.
-                    warn(
-                        "The `chunks` key in the load request is deprecated and will be removed in a future version. Please use `requests` instead.",
-                        DeprecationWarning,
-                        stacklevel=2,
-                    )
-                else:
-                    raise KeyError("load_request must contain either 'requests' or 'chunks'.")
+                raise KeyError("load_request must contain either 'requests'.")
             splits = load_request["splits"]
 
             dataset_index_to_rows, order = self._requests_to_dataset_rows(requests_to_load)
