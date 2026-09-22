@@ -162,7 +162,8 @@ class RLEManager:
         Parameters
         ----------
         class_of_slice
-            An array of class labels from which to generate slices to fetch such that each slice contains only that label.
+            An array of class *codes* into ``classes.categories``, one per slice to generate. A code
+            that is not currently drawable raises.
 
         Returns
         -------
