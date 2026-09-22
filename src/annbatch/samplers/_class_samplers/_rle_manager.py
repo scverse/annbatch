@@ -120,7 +120,7 @@ class RLEManager:
             },
             index=pd.Index(classes_to_sample, name="cat"),
         )
-# Row of the table above for each class code, -1 where the class is not drawable. 
+# Row of the table above for each class code, -1 where the class is not drawable.
 self._position_of_code = np.full(len(self._classes.categories), -1, dtype=np.
 self._position_of_code[classes_to_sample] = np.arange(classes_to_sample.shape[0])
     @property
