@@ -30,7 +30,7 @@ class WeightedClassSampler(ClassSampler):
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)
         if remainder > 0:
             n_slices += 1
-        class_of_slices = self._rng.choice(self._rle_manager.n_classes, size=n_slices, p=self._rle_manager.weights)
+        class_of_slices = self._rng.choice(self._rle_manager.codes, size=n_slices, p=self._rle_manager.weights)
         slices = self._rle_manager.slices_from_classes(class_of_slices, self._rng)
         if remainder > 0:
             last = int(slices[-1].start)

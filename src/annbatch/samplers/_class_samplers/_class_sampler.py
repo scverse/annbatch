@@ -229,7 +229,7 @@ class ClassSampler(Sampler):
         # chunks. Draw one class per group and repeat it across the group's chunks.
         group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
         n_groups = math.ceil(n_slices / group_chunks)
-        group_classes = self._rng.choice(self._rle_manager.n_classes, size=n_groups, p=self._rle_manager.weights)
+        group_classes = self._rng.choice(self._rle_manager.codes, size=n_groups, p=self._rle_manager.weights)
         slices = self._rle_manager.slices_from_classes(np.repeat(group_classes, group_chunks)[:n_slices], self.rng)
         if remainder > 0:
             last = int(slices[-1].start)

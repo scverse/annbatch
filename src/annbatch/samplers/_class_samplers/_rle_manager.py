@@ -32,6 +32,7 @@ class RLEManager:
     _class_runs: pd.DataFrame
     _per_class_sampling_info: pd.DataFrame
     _position_of_code: np.typing.NDArray[np.int64]
+
     def __init__(
         self,
         *,
@@ -120,9 +121,15 @@ class RLEManager:
             },
             index=pd.Index(classes_to_sample, name="cat"),
         )
-# Row of the table above for each class code, -1 where the class is not drawable.
-self._position_of_code = np.full(len(self._classes.categories), -1, dtype=np.
-self._position_of_code[classes_to_sample] = np.arange(classes_to_sample.shape[0])
+        # Row of the table above for each class code, -1 where the class is not drawable.
+        self._position_of_code = np.full(len(self._classes.categories), -1, dtype=self._classes.codes.dtype)
+        self._position_of_code[classes_to_sample] = np.arange(classes_to_sample.shape[0])
+
+    @property
+    def codes(self) -> np.ndarray:
+        """The class codes that may be drawn, in the order :attr:`weights` indexes them."""
+        return self._per_class_sampling_info.index.to_numpy()
+
     @property
     def weights(self) -> np.ndarray:
         """The weights that the RLE generated based on classes with non-zero weights after masking.
@@ -163,10 +170,16 @@ self._position_of_code[classes_to_sample] = np.arange(classes_to_sample.shape[0]
         """
         # Draw a uniform chunk start among all of the class' possible starts, which weights each run by the
         # number of chunks that are possible to sample within it. `searchsorted`  turns that start into a run and an offset inside it.
+        positions = self._position_of_code[class_of_slice]
+        if (undrawable := class_of_slice[positions < 0]).size:
+            raise ValueError(
+                f"Class {self._classes.categories[undrawable[0]]!r} is not drawable in the current range "
+                f"[{self._mask.start}, {self._mask.stop}) or carries a non-positive weight."
+            )
         starts_before = self._class_runs["starts_before"].to_numpy()
         n_starts = self._class_runs["n_starts"].to_numpy()
-        first = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()[class_of_slice]
-        last = first + self._per_class_sampling_info["n_runs"].to_numpy()[class_of_slice] - 1
+        first = self._per_class_sampling_info["first_row_in_runs_of_class"].to_numpy()[positions]
+        last = first + self._per_class_sampling_info["n_runs"].to_numpy()[positions] - 1
         first_possible_run_position_in_class = starts_before[first]
         n_possible_positions_in_class = starts_before[last] + n_starts[last] - first_possible_run_position_in_class
         run_start_in_class = first_possible_run_position_in_class + rng.integers(n_possible_positions_in_class)
