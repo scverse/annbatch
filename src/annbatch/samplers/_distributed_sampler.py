@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Literal
 
 from annbatch.abc import Sampler
@@ -86,7 +87,8 @@ class DistributedSampler(Sampler):
     Parameters
     ----------
     sampler
-        The :class:`~annbatch.abc.Sampler` to distribute.
+        The :class:`~annbatch.abc.Sampler` to distribute. It is copied, so changes made to it
+        after wrapping (``sampler.rng``, say) do not reach the copy.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
@@ -115,9 +117,10 @@ class DistributedSampler(Sampler):
         else:
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
-        self._sampler = sampler
-        if sampler.rng is not None:
-            sampler.rng = _spawn_worker_rng(sampler.rng, self._rank)
+        # a copy: n_batches/validate/_sample re-shard this sampler's mask on every call
+        self._sampler = copy.deepcopy(sampler)
+        if self._sampler.rng is not None:
+            self._sampler.rng = _spawn_worker_rng(self._sampler.rng, self._rank)
 
     @property
     def batch_size(self) -> int:
