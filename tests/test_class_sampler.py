@@ -145,6 +145,13 @@ def _assert_shares(sampler: ClassSampler, codes: np.ndarray, expected: dict[int,
         ),
         pytest.param(
             pd.Categorical(np.repeat([0, 1], 50)),
+            {"class_weights": pd.Series([9.0, 1.0], index=[1, 0])},
+            TypeError,
+            "not a pandas Series",
+            id="weights_series",
+        ),
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
             {"mask": slice(0, 500)},
             ValueError,
             "exceeds loader n_obs",
@@ -185,6 +192,19 @@ def test_invalid_construction(
 ):
     with pytest.raises(error_type, match=match):
         make_sampler(classes, cls=sampler_cls, **kwargs)
+
+
+def test_a_seed_passed_as_rng_is_rejected(sampler_cls: type[ClassSampler]):
+    # `rng=0` is falsy, so it used to be swapped for a fresh unseeded generator
+    with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
+        sampler_cls(
+            chunk_size=10,
+            preload_nchunks=4,
+            batch_size=10,
+            classes=pd.Categorical(np.repeat([0, 1], 50)),
+            num_samples=100,
+            rng=0,
+        )
 
 
 def test_validate_rejects_n_obs_mismatch(sampler_cls: type[ClassSampler]):
@@ -368,6 +388,13 @@ def test_absent_class_weight_is_ignored(sampler_cls: type[ClassSampler]):
     _assert_shares(sampler, codes, {0: 0.5, 1: 0.5})
 
 
+def test_each_window_gets_its_own_splits(sampler_cls: type[ClassSampler]):
+    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
+    sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls)
+    windows = [tuple(np.concatenate(lr["splits"])) for lr in list(sampler.sample(200))]
+    assert len(set(windows)) == len(windows), "windows must not share one row-id buffer"
+
+
 # =============================================================================
 # Mask
 # =============================================================================
@@ -409,6 +436,27 @@ def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[ClassSam
         sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, class_weights=weights)
         with pytest.raises(ValueError, match="positive weight is present"):
             sampler.mask = slice(50, 100)
+
+
+def test_mask_cannot_be_reassigned_mid_pass(sampler_cls: type[ClassSampler]):
+    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
+    sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, mask=slice(0, 100))
+    it = sampler.sample(len(codes))
+    next(it)  # the pass draws all of its slices here
+    with pytest.raises(ValueError, match="while a pass is being iterated"):
+        sampler.mask = slice(100, 200)
+    list(it)
+    sampler.mask = slice(100, 200)  # pass finished -> allowed again
+
+
+def test_distributed_reshards_during_an_open_pass(sampler_cls: type[ClassSampler]):
+    # `len(loader)` mid-epoch goes through DistributedSampler.n_batches, which re-assigns the
+    # same shard; re-assigning the range a pass is already reading is a no-op, not a move
+    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
+    dist = DistributedSampler(make_sampler(pd.Categorical(codes), cls=sampler_cls), dist_info=lambda: (0, 2))
+    it = dist.sample(len(codes))
+    next(it)
+    dist.n_batches(len(codes))  # must not raise
 
 
 # =============================================================================

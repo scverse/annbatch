@@ -3,7 +3,21 @@ from __future__ import annotations
 import importlib.util
 from typing import NamedTuple
 
+import numpy as np
+
 from annbatch.utils import check_lt_1
+
+
+def resolve_rng(rng: np.random.Generator | None) -> np.random.Generator:
+    """Default an omitted generator, and reject a seed passed where a generator belongs."""
+    if rng is None:
+        return np.random.default_rng()
+    if not isinstance(rng, np.random.Generator):
+        raise TypeError(
+            f"rng must be a numpy.random.Generator, got {type(rng).__name__}. "
+            f"Pass np.random.default_rng({rng!r}) if you meant a seed."
+        )
+    return rng
 
 
 class WorkerInfo(NamedTuple):
