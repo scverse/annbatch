@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, NoReturn, Self
 
 import numpy as np
 
@@ -15,6 +16,32 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
+def _attr_equal(a: object, b: object) -> bool:
+    """Structural equality for a single value stored in a sampler's ``__dict__``.
+
+    Handles the container types samplers keep as state -- most importantly the
+    :class:`numpy.random.Generator`, whose equality must compare the live *bit
+    generator state* (not object identity) so a round-tripped sampler counts as
+    equal to its source. numpy arrays and pandas objects (which return
+    element-wise ``==``) are compared structurally, and nested samplers dispatch
+    back to :meth:`Sampler.__eq__`.
+    """
+    if isinstance(a, np.random.Generator) or isinstance(b, np.random.Generator):
+        return (
+            isinstance(a, np.random.Generator)
+            and isinstance(b, np.random.Generator)
+            and a.bit_generator.state == b.bit_generator.state
+        )
+    if isinstance(a, Sampler) or isinstance(b, Sampler):
+        return a == b
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
+        return isinstance(a, np.ndarray) and isinstance(b, np.ndarray) and bool(np.array_equal(a, b))
+    # pandas DataFrame/Series/Index/Categorical all expose a structural `.equals`
+    if hasattr(a, "equals") and hasattr(b, "equals") and type(a) is type(b):
+        return bool(a.equals(b))
+    return bool(a == b)
+
+
 class Sampler(ABC):
     """Base sampler class.
 
@@ -23,6 +50,41 @@ class Sampler(ABC):
 
     _mask: slice = slice(0, None)
     _rng: np.random.Generator | None = None
+
+    def __eq__(self, other: object) -> bool:
+        """Two samplers are equal iff they have the same type and the same state.
+
+        State includes the random number generator's *bit generator state*, so a
+        sampler equals a pickle/deepcopy round-trip of itself but not a fresh (or
+        differently advanced) sampler built from the same seed.
+        """
+        if type(self) is not type(other):
+            return NotImplemented
+        if self.__dict__.keys() != other.__dict__.keys():
+            return False
+        return all(_attr_equal(self.__dict__[key], other.__dict__[key]) for key in self.__dict__)
+
+    def __copy__(self) -> NoReturn:
+        """Refuse shallow copies -- they would share the rng with the original.
+
+        A shallow copy keeps the same :class:`numpy.random.Generator` object, so
+        advancing one sampler would advance the "copy" too, silently breaking the
+        independence a copy is meant to provide. Use :func:`copy.deepcopy` instead.
+        """
+        raise TypeError(
+            f"{type(self).__name__} does not support shallow copying: a shallow copy would share the "
+            "random number generator with the original, so the two would not sample independently. "
+            "Use copy.deepcopy() instead."
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        """Deep-copy every attribute into an independent sampler (rng included)."""
+        cls = type(self)
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        for key, value in self.__dict__.items():
+            setattr(new, key, copy.deepcopy(value, memo))
+        return new
 
     @property
     def mask(self) -> slice:
