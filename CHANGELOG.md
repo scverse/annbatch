@@ -10,13 +10,16 @@ and this project adheres to [Semantic Versioning][].
 
 ## Unreleased
 
+### Breaking
+
+- `class_weights` given as a {class}`pandas.Series` now raises {class}`TypeError`. It used to be read positionally, discarding the index and attaching the weights to the wrong classes; pass `class_weights.reindex(classes.categories).to_numpy()` instead.
+- `rng` must now be a {class}`numpy.random.Generator` or `None`; anything else raises {class}`TypeError`. A falsy seed such as `rng=0` used to be silently swapped for a fresh unseeded generator, losing reproducibility; pass `np.random.default_rng(0)` instead.
+
 ### Fixed
 
 - {class}`~annbatch.samplers.DistributedSampler` rank-sharded and re-seeded the sampler it wrapped in place, leaving the caller's own sampler stuck on one rank's shard.
 - Samplers handed out `splits` that were views into one row-id buffer they reshuffled between windows, so an already-yielded load request's splits changed underneath the caller.
 - A {attr}`~annbatch.samplers.ClassSampler.mask` assigned part-way through a pass had no effect on that pass, whose slices are all drawn when it starts; it now raises.
-- `class_weights` given as a {class}`pandas.Series` was read positionally, discarding the index and attaching the weights to the wrong classes; it is now rejected.
-- A seed passed as `rng` was silently swapped for a fresh unseeded {class}`numpy.random.Generator` when it was falsy, so `rng=0` lost reproducibility without a word; it is now rejected.
 - {class}`~annbatch.samplers.ClassSampler`'s summary said a class is drawn per batch; it is drawn per `lcm(chunk_size, batch_size)` rows, so consecutive batches share a draw unless `batch_size` is a multiple of `chunk_size`.
 
 ## [0.3.0]

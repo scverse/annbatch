@@ -438,25 +438,25 @@ def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[ClassSam
             sampler.mask = slice(50, 100)
 
 
-def test_mask_cannot_be_reassigned_mid_pass(sampler_cls: type[ClassSampler]):
+def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[ClassSampler]):
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
     sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, mask=slice(0, 100))
     it = sampler.sample(len(codes))
-    next(it)  # the pass draws all of its slices here
+    next(it)  # starting the iterator draws every slice of the pass up front
     with pytest.raises(ValueError, match="while a pass is being iterated"):
         sampler.mask = slice(100, 200)
-    list(it)
-    sampler.mask = slice(100, 200)  # pass finished -> allowed again
+    list(it)  # exhausting (or closing) the iterator ends the pass
+    sampler.mask = slice(100, 200)  # no pass open -> allowed again
 
 
-def test_distributed_reshards_during_an_open_pass(sampler_cls: type[ClassSampler]):
-    # `len(loader)` mid-epoch goes through DistributedSampler.n_batches, which re-assigns the
-    # same shard; re-assigning the range a pass is already reading is a no-op, not a move
+def test_distributed_reassigns_same_mask_while_pass_is_open(sampler_cls: type[ClassSampler]):
+    # DistributedSampler assigns this rank's shard as the mask on each call; assigning
+    # the mask an open pass is already using is a no-op and must not raise
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
     dist = DistributedSampler(make_sampler(pd.Categorical(codes), cls=sampler_cls), dist_info=lambda: (0, 2))
     it = dist.sample(len(codes))
     next(it)
-    dist.n_batches(len(codes))  # must not raise
+    dist.validate(len(codes))  # must not raise
 
 
 # =============================================================================
