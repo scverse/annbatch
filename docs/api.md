@@ -42,6 +42,7 @@
     RandomSampler
     SequentialSampler
     DistributedSampler
+    WeightedClassSampler
 ```
 
 (abc)=

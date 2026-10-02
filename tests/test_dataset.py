@@ -430,31 +430,6 @@ def test_to(
         )
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [
-        pytest.param({}, "implicit use of torch", marks=skip_if_no_torch, id="implicit"),
-        pytest.param({"to_torch": True}, "will be replaced by the explicit", marks=skip_if_no_torch, id="true"),
-        pytest.param({"to_torch": False}, "To explicitly disable torch conversion", id="false"),
-    ],
-)
-def test_to_default_warns(kwargs: dict, match: str):
-    with pytest.warns(DeprecationWarning, match=match):
-        Loader(chunk_size=10, preload_nchunks=4, preload_to_gpu=False, **kwargs)
-
-
-@skip_if_no_torch
-def test_legacy_implicit(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path]):
-    import torch
-
-    with pytest.warns(DeprecationWarning, match="`to_torch`'s implicit"):
-        ds = Loader(chunk_size=10, preload_nchunks=4)
-
-    ds.add_datasets(**concat([open_sparse(p) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")]))
-
-    assert isinstance(next(iter(ds))["X"], torch.Tensor)
-
-
 @pytest.mark.parametrize("drop_last", [True, False], ids=["drop", "kept"])
 def test_drop_last(adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], drop_last: bool):
     # batch_size guaranteed to have last batch to drop
@@ -980,27 +955,3 @@ def test_splits_map_to_their_rows_across_datasets(
         for row, idx in zip(np.asarray(batch["X"]), batch["index"], strict=True):
             expected = data0["dataset"][idx] if idx < n0 else data1["dataset"][idx - n0]
             np.testing.assert_array_equal(row, np.asarray(expected))
-
-
-def test_chunks_deprecation_warning(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
-):
-    paths = sorted(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
-    data0 = open_dense(paths[0])
-
-    class ChunksSampler(SequentialSampler):
-        def _sample(self, n_obs: int):
-            yield {"chunks": [slice(0, 10)], "splits": [np.arange(10)]}
-
-    loader = Loader(
-        batch_sampler=ChunksSampler(batch_size=10, preload_nchunks=2, chunk_size=10),
-        return_index=True,
-        preload_to_gpu=False,
-        to=None,
-    )
-    loader.add_dataset(**data0)
-
-    with pytest.warns(DeprecationWarning, match=r"The `chunks` key"):
-        batches = list(loader)
-
-    assert len(batches) == 1

@@ -16,7 +16,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
 
 - **{attr}`~annbatch.types.LoadRequest.requests`**: A numpy array containing the indices to load or list of slices that define which contiguous chunks of memory to load from disk. When it is a list of slices, each slice should have a range up to the `chunk_size` (except the last one, which may be smaller but not empty). These slices determine which portions of the dataset are read into memory.
 
-  ```
+```
 
   Full collection (virtual conncatentation of all on disk files) (e.g., 1000 observations, on-disk chunk_size=100):
   ┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
@@ -37,7 +37,8 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   ┌─────────┬─────────┬─────────┬─────────┐
   │ 200-299 │ 700-799 │  0-99   │ 500-599 │
   └─────────┴─────────┴─────────┴─────────┘
-  ```
+```
+
   Note: The slices are purely virtual and are defined by the user through the `requests` argument.
   They don't necessarily need to with the underlying zarr chunks.
 
