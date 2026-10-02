@@ -683,8 +683,31 @@ def make_distributed_sampler(request: pytest.FixtureRequest):
     return _SAMPLER_FACTORIES[request.param]
 
 
+@pytest.mark.parametrize("copy", [False, True])
+def test_copy_keeps_yielded_splits(copy: bool):
+    """With ``copy``, splits already handed out survive the sampler shuffling the next window."""
+
+    def sampler():
+        return RandomSampler(chunk_size=10, preload_nchunks=4, batch_size=10, rng=np.random.default_rng(0), copy=copy)
+
+    consumed = [np.concatenate(lr["splits"]) for lr in sampler().sample(400)]
+    held = [np.concatenate(lr["splits"]) for lr in list(sampler().sample(400))]
+    assert all(map(np.array_equal, consumed, held)) == copy
+
+
 class TestDistributedSampler:
     """Tests for DistributedSampler, parameterized over all backends."""
+
+    def test_does_not_mutate_the_sampler_it_wraps(self):
+        """Wrapping shards and re-seeds a copy, leaving the caller's own sampler usable."""
+        sampler = RandomSampler(chunk_size=10, preload_nchunks=4, batch_size=10, rng=np.random.default_rng(0))
+        before_mask, before_rng = sampler.mask, sampler.rng
+
+        DistributedSampler(sampler, dist_info=lambda: (0, 2)).n_batches(400)
+
+        assert sampler.mask == before_mask
+        assert sampler.rng is before_rng
+        assert len(list(sampler.sample(400))) == 10  # still reads the whole range
 
     def test_not_initialized_raises_torch(self):
         """RuntimeError when torch.distributed is not initialized."""

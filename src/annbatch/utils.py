@@ -53,9 +53,14 @@ def validate_sampler[**Param, RetType](
     return wrapper
 
 
-def split_given_size(a: np.ndarray, size: int) -> list[np.ndarray]:
-    """Wrapper around `np.split` to split up an array into `size` chunks"""
-    return np.split(a, np.arange(size, len(a), size))
+def split_given_size(a: np.ndarray, size: int, *, copy: bool = False) -> list[np.ndarray]:
+    """Wrapper around `np.split` to split up an array into `size` chunks.
+
+    The pieces are views into `a` unless `copy` is set; set it when `a` is shuffled in place
+    after the pieces are handed out.
+    """
+    pieces = np.split(a, np.arange(size, len(a), size))
+    return [piece.copy() for piece in pieces] if copy else pieces
 
 
 def interval_indexer_from_slices(slices: Iterable[slice]) -> pd.IntervalIndex:

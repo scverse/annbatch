@@ -13,6 +13,7 @@ from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     check_lt_1,
     get_torch_worker_info,
+    resolve_rng,
     validate_chunk_batch_preload_sizes,
     validate_mask_n_obs_and_resolve,
 )
@@ -30,10 +31,11 @@ class ClassSampler(Sampler):
     """Sample class-coherent batches with replacement.
 
     Every batch the :class:`~annbatch.Loader` yields is drawn from a single class:
-    a class is drawn ``c ~ Categorical(p)`` (``p`` proportional to
-    ``class_weights``, uniform by default), then the batch's observations are drawn
-    from ``c``. A load request may span several classes but no batch mixes them,
-    which makes over- or under-sampling specific populations straightforward.
+    a class is drawn ``c ~ Categorical(p)`` (``p`` proportional to ``class_weights``,
+    uniform by default) once per ``lcm(chunk_size, batch_size)`` rows, and every batch
+    inside that block draws its observations from ``c``. A load request may span several
+    classes but no batch mixes them, which makes over- or under-sampling specific
+    populations straightforward.
 
     Sampling is **with replacement** -- each pass draws ``num_samples`` observations
     rather than partitioning a fixed epoch -- so there is no notion of an epoch and the
@@ -55,7 +57,9 @@ class ClassSampler(Sampler):
     in global coordinates) and cached on the resolved ``(start, stop)`` pair, so
     reassigning the same mask is free. Class weights are renormalized from the
     original values over only the classes present in the new range; if no
-    class with a positive weight remains, the assignment raises.
+    class with a positive weight remains, the assignment raises. Assigning a different
+    range while a pass is being iterated also raises, since a pass draws all of its
+    slices when it starts.
 
     Multiple workers are not supported with this sampler.
 
@@ -101,7 +105,8 @@ class ClassSampler(Sampler):
         Number of chunks to load per iteration.
     batch_size
         Number of observations per batch. ``chunk_size * preload_nchunks`` must be divisible
-        by it; it need not divide or be a multiple of ``chunk_size``.
+        by it; it need not divide or be a multiple of ``chunk_size``, though only a multiple
+        gives each batch its own class draw.
     classes
         A :class:`pandas.Categorical` with one entry per observation, e.g.
         ``df["cell_type"].values`` when the column already has a categorical dtype.
@@ -129,6 +134,11 @@ class ClassSampler(Sampler):
     rng
         Random number generator. Note that :func:`torch.manual_seed` has no effect
         here; pass a seeded :class:`numpy.random.Generator` to control randomness.
+    copy
+        Whether each load request's ``splits`` are copied out of the buffer the sampler
+        reshuffles for the next request. The :class:`~annbatch.Loader` consumes a request
+        before asking for the next, so it does not need this; set it to ``True`` if you
+        hold on to load requests, e.g. ``list(sampler.sample(n_obs))``.
     """
 
     _batch_size: int
@@ -139,6 +149,8 @@ class ClassSampler(Sampler):
     _rng: np.random.Generator
     _drop_last: bool
     _rle_manager: RLEManager
+    _num_open_passes: int
+    _copy: bool
 
     def __init__(
         self,
@@ -152,6 +164,7 @@ class ClassSampler(Sampler):
         mask: slice | None = None,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
+        copy: bool = False,
     ):
         check_lt_1([num_samples], ["num_samples"])
         if not isinstance(classes, pd.Categorical):
@@ -167,9 +180,11 @@ class ClassSampler(Sampler):
         start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
 
         self._n_obs = n_obs
-        self._rng = rng or np.random.default_rng()
+        self._rng = resolve_rng(rng)
         self._num_samples = num_samples
         self._drop_last = drop_last
+        self._copy = copy
+        self._num_open_passes = 0
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
 
         # classes and their weights are mask-independent; kept so any mask can renormalize from them
@@ -189,6 +204,13 @@ class ClassSampler(Sampler):
         # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
         start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
         mask = slice(start, stop)
+        # a pass draws all its slices up front, so a mask moved now would be reported by the
+        # getter but never read
+        if mask != self.mask and self._num_open_passes > 0:
+            raise ValueError(
+                f"mask cannot move to {mask} while a pass is being iterated, since that pass's slices "
+                "are already drawn. Finish or close the iterator first."
+            )
         self._rle_manager.mask = mask
 
     @property
@@ -218,7 +240,15 @@ class ClassSampler(Sampler):
         if worker_info is not None and worker_info.num_workers > 1:
             raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
 
-        return self._iter_requests()
+        return self._count_open_pass(self._iter_requests())
+
+    def _count_open_pass(self, requests: Iterator[LoadRequest]) -> Iterator[LoadRequest]:
+        """Mark this pass open so :attr:`mask` can refuse to move under it."""
+        self._num_open_passes += 1
+        try:
+            yield from requests
+        finally:
+            self._num_open_passes -= 1
 
     def _iter_requests(self) -> Iterator[LoadRequest]:
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)
@@ -234,11 +264,9 @@ class ClassSampler(Sampler):
         if remainder > 0:
             last = int(slices[-1].start)
             slices[-1] = slice(last, last + remainder)
-        window_size = self._preload_nchunks * self._chunk_size
-        full_splits = split_given_size(np.arange(window_size), self._batch_size)
         for window in itertools.batched(slices, self._preload_nchunks):
             n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
-            splits = full_splits if n_rows == window_size else split_given_size(np.arange(n_rows), self._batch_size)
+            splits = split_given_size(np.arange(n_rows), self._batch_size, copy=self._copy)
             if self._drop_last and splits[-1].size < self._batch_size:
                 splits = splits[:-1]
                 if not splits:
