@@ -60,7 +60,7 @@ def open_sparse(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata
             "var": ad.io.read_elem(path["var"]),
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
+        return ad.AnnData(layers={"sparse": data["dataset"]}, obs=data["obs"], var=data["var"])
     return data
 
 
@@ -75,7 +75,7 @@ def open_in_memory_sparse(
         "var": ad.io.read_elem(path["var"]),
     }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
+        return ad.AnnData(layers={"sparse": data["dataset"]}, obs=data["obs"], var=data["var"])
     return data
 
 
@@ -110,7 +110,7 @@ def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata:
     return data
 
 
-def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
+def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata: bool = False) -> ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
@@ -121,6 +121,8 @@ def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
             "obs": ad.io.read_elem(path["obs"]),
             "var": ad.io.read_elem(path["var"]),
         }
+    if use_anndata:
+        return ad.AnnData(obsm={"3d": data["dataset"]}, obs=data["obs"], var=data["var"])
     return data
 
 
@@ -237,7 +239,7 @@ def test_store_load_dataset(
     var_dfs = []
     expected_data = adata.X if is_dense else adata.layers["sparse"].toarray()
     for batch in loader:
-        x, label, var, index = batch["X"], batch["obs"], batch["var"], batch["index"]
+        x, label, var, index = batch["X" if is_dense else "layers.sparse"], batch["obs"], batch["var"], batch["index"]
         n_elems += x.shape[0]
         # Check feature dimension
         assert x.shape[1] == 100
@@ -526,11 +528,17 @@ def test_torch_multiprocess_dataloading_zarr(
     [None, pytest.param("torch", marks=[skip_if_no_torch]), pytest.param("jax", marks=[skip_if_no_jax])],
     ids=["no_to", "torch", "jax"],
 )
+@pytest.mark.parametrize(
+    "use_anndata",
+    [False, True],
+    ids=["without_adata", "with_adata"],
+)
 def test_3d(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     use_zarrs: bool,
     preload_to_gpu: bool,
     to: Literal["jax", "torch"] | None,
+    use_anndata: bool,
 ):
     ds = Loader(
         chunk_size=10,
@@ -540,14 +548,22 @@ def test_3d(
         preload_to_gpu=preload_to_gpu,
         to=to,
     )
-    ds.add_datasets(
-        **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
+    datasets = concat(
+        [
+            open_3d(p, use_zarrs=use_zarrs, use_anndata=use_anndata)
+            for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")
+        ]
     )
+    if use_anndata:
+        ds.add_adatas(datasets)
+    else:
+        ds.add_datasets(**datasets)
+
     x_ref = adata_with_zarr_path_same_var_space[0].obsm["3d"]
 
     x_list, idx_list = [], []
     for batch in ds:
-        x, idxs = batch["X"], batch["index"]
+        x, idxs = batch["obsm.3d" if use_anndata else "X"], batch["index"]
         if preload_to_gpu and to is None:
             import cupy as cp
 
