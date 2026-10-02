@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import random
 import subprocess
-from contextlib import nullcontext
-from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,7 +12,6 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-from packaging.version import Version
 from scipy.sparse import random as sparse_random
 
 from annbatch import write_sharded
