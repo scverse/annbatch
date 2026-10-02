@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import zarr
 import zarr.core.sync as zsync
+from anndata.acc import A
 from packaging.version import Version
 from scipy import sparse as sp
 from zarr import Array as ZarrArray
@@ -22,12 +23,11 @@ from annbatch.types import BackingArray_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
     MultiBasicIndexer,
+    _check_df_or_none,
     check_lt_1,
     check_var_shapes,
-    convert,
     load_all_aligned,
     validate_sampler,
-    warn_ignored_obs_aligned,
 )
 
 from .compat import IterableDataset
@@ -35,6 +35,8 @@ from .compat import IterableDataset
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import ModuleType
+
+    from anndata.acc import RefAcc
 
     from annbatch.abc import Sampler
     from annbatch.io import DatasetCollection
@@ -164,17 +166,17 @@ class Loader[
     # but this is not ideal since they are hardcoded into the docstrings
     # maybe we should make _COMMON_SAMPLER_ARGS a public class field?
 
-    _train_datasets: list[BackingArray]
+    _train_datasets: dict[RefAcc, list[BackingArray]]
     _obs: list[pd.DataFrame] | None = None
     _var: pd.DataFrame | None = None
     _return_index: bool = False
-    _shapes: list[tuple[int, int]]
+    _shapes: dict[RefAcc, list[tuple[int, ...]]]
     _preload_to_gpu: bool = True
     _to: Literal["torch", "jax"] | None = None
-    _sparse_dataset_elem_cache: dict[int, CSRDatasetElems]
+    _sparse_dataset_elem_cache: dict[RefAcc, dict[int, CSRDatasetElems]]
     _batch_sampler: Sampler
     _collection_added: bool = False
-    _dtypes_homogeneous: bool = True
+    _dtypes_homogeneous: dict[RefAcc, bool] = {}
 
     def __init__(
         self,
@@ -228,8 +230,8 @@ class Loader[
         self._return_index = return_index
         self._preload_to_gpu = preload_to_gpu
         self._to = to
-        self._train_datasets = []
-        self._shapes = []
+        self._train_datasets = {}
+        self._shapes = {}
         self._sparse_dataset_elem_cache = {}
 
     def __len__(self) -> int:
@@ -263,6 +265,16 @@ class Loader[
         return np
 
     @property
+    def dataset_types(self) -> dict[RefAcc, type[BackingArray]]:
+        """The types of on-disk data used in this loader.
+
+        Returns
+        -------
+            The types used.
+        """
+        return {k: type(ds[0]) for k, ds in self._train_datasets.items()}
+
+    @property
     def dataset_type(self) -> type[BackingArray]:
         """The type of on-disk data used in this loader.
 
@@ -270,7 +282,11 @@ class Loader[
         -------
             The type used.
         """
-        return type(self._train_datasets[0])
+        if len(self._train_datasets) == 0:
+            raise ValueError("No datasets added yet")
+        if len(self._train_datasets) > 1:
+            raise ValueError("No single data type exists")
+        return type(next(iter(self._train_datasets.values()))[0])
 
     @property
     def n_obs(self) -> int:
@@ -280,7 +296,7 @@ class Loader[
         -------
             The number of observations.
         """
-        return sum(shape[0] for shape in self._shapes)
+        return sum(shape[0] for shape in next(iter(self._shapes.values())))
 
     @property
     def n_var(self) -> int:
@@ -290,9 +306,10 @@ class Loader[
         -------
             The number of variables.
         """
-        if len(self._shapes) == 0:
+        retpresentative_shapes = next(iter(self._shapes.values()))
+        if len(retpresentative_shapes) == 0:
             raise ValueError("No datasets added yet")
-        return self._shapes[0][1]
+        return retpresentative_shapes[0][1]
 
     @property
     def var(self) -> pd.DataFrame | None:
@@ -378,23 +395,36 @@ class Loader[
 
     def _add_adata_unchecked(self, adata: ad.AnnData) -> Self:
         # TODO(obsm): drop this call - and `warn_ignored_obs_aligned` - once these elements are yielded
-        warn_ignored_obs_aligned(adata, stacklevel=3)
         dataset, obs, var = self._prepare_dataset_obs_and_var(adata)
         self._add_dataset_unchecked(dataset, obs, var)
         return self
 
+    def _check_backing_type(self, elem: object) -> BackingArray:
+        if not isinstance(elem, BackingArray_T.__value__):
+            raise TypeError(f"Found {type(elem)} but only {BackingArray_T.__value__} are usable")
+        if isinstance(elem, ad.abc.CSRDataset) and not elem.backend == "zarr":
+            raise ValueError(
+                "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
+            )
+        if isinstance(elem, sp.csr_matrix | sp.csr_array) and not find_spec("numba"):
+            raise ImportError("numba must be installed for in-memory sparse data: `pip install annbatch[numba]`")
+        return cast("BackingArray", elem)
+
     def _prepare_dataset_obs_and_var(
         self, adata: ad.AnnData
-    ) -> tuple[BackingArray, pd.DataFrame | None, pd.DataFrame | None]:
-        dataset = adata.X
-        obs = adata.obs
-        var = adata.var
+    ) -> tuple[dict[RefAcc, BackingArray], pd.DataFrame | None, pd.DataFrame | None]:
+        dataset: dict[RefAcc, BackingArray] = {}
+        for obs_aligned in ["layers", "obsm"]:
+            for key in getattr(adata, obs_aligned).keys():
+                acc = getattr(ad.acc.A, obs_aligned)[key]
+                elem = adata[acc]
+                dataset[acc] = self._check_backing_type(elem)
+        obs = _check_df_or_none(adata.obs, "obs")
+        var = _check_df_or_none(adata.var, "var")
         if len(obs.columns) == 0:
             obs = None
-        if not isinstance(dataset, BackingArray_T.__value__):
-            raise TypeError(f"Found {type(dataset)} but only {BackingArray_T.__value__} are usable")
 
-        return cast("BackingArray", dataset), obs, var
+        return dataset, obs, var
 
     @validate_sampler
     def add_datasets(
@@ -416,12 +446,15 @@ class Loader[
                 List of :class:`~pandas.DataFrame` for annotating features, generally from :attr:`anndata.AnnData.var`.
                 All var DataFrames must be identical.
         """
-        if obs is None:
-            obs = [None] * len(datasets)
-        if var is None:
-            var = [None] * len(datasets)
-        for ds, o, v in zip(datasets, obs, var, strict=True):
-            self._add_dataset_unchecked(ds, o, v)
+        for ds, o, v in zip(
+            datasets,
+            [None] * len(datasets) if obs is None else obs,
+            [None] * len(datasets) if var is None else var,
+            strict=True,
+        ):
+            self._add_dataset_unchecked(
+                {A.X: self._check_backing_type(ds)}, _check_df_or_none(o, "obs"), _check_df_or_none(v, "var")
+            )
         return self
 
     @validate_sampler
@@ -443,60 +476,58 @@ class Loader[
                 :class:`~pandas.DataFrame` var, generally from :attr:`anndata.AnnData.var`.
                 :attr:`~anndata.AnnData.var` must match the ``var`` of any previously added datasets.
         """
-        self._add_dataset_unchecked(dataset, obs, var)
+        self._add_dataset_unchecked({A.X: self._check_backing_type(dataset)}, obs, var)
         return self
 
     def _add_dataset_unchecked(
         self,
-        dataset: BackingArray,
+        dataset: dict[RefAcc, BackingArray],
         obs: pd.DataFrame | None = None,
         var: pd.DataFrame | None = None,
     ) -> Self:
-        if len(self._train_datasets) > 0:
-            if self._obs is None and obs is not None:
+        if all(acc in self._train_datasets for acc in dataset.keys()):
+            if all(len(self._train_datasets[acc]) > 0 for acc in dataset.keys()):
+                if self._obs is None and obs is not None:
+                    raise ValueError(
+                        f"Cannot add a dataset with obs label {obs} when training datasets have already been added without obs"
+                    )
+                if self._obs is not None and obs is None:
+                    raise ValueError(
+                        "Cannot add a dataset with no obs label when training datasets have already been added without obs"
+                    )
+                if self._var is None and var is not None:
+                    raise ValueError(
+                        "Cannot add a dataset with var when training datasets have already been added without var"
+                    )
+                if self._var is not None and var is None:
+                    raise ValueError(
+                        "Cannot add a dataset without var when training datasets have already been added with var"
+                    )
+            elif any(len(self._train_datasets[acc]) > 0 for acc in dataset.keys()):
                 raise ValueError(
-                    f"Cannot add a dataset with obs label {obs} when training datasets have already been added without obs"
+                    "Cannot add a dataset with a different set of RefAcc keys than the training datasets already added"
                 )
-            if self._obs is not None and obs is None:
-                raise ValueError(
-                    "Cannot add a dataset with no obs label when training datasets have already been added without obs"
-                )
-            if self._var is None and var is not None:
-                raise ValueError(
-                    "Cannot add a dataset with var when training datasets have already been added without var"
-                )
-            if self._var is not None and var is None:
-                raise ValueError(
-                    "Cannot add a dataset without var when training datasets have already been added with var"
-                )
-            if not isinstance(dataset, self.dataset_type):
-                raise ValueError(
-                    f"All datasets on a given loader must be of the same type {self.dataset_type} but got {type(dataset)}"
-                )
-        if not isinstance(dataset, BackingArray_T.__value__):
-            raise TypeError(f"Cannot add dataset of type {type(dataset)}")
-        if isinstance(dataset, ad.abc.CSRDataset) and not dataset.backend == "zarr":
-            raise TypeError(
-                "Cannot add CSRDataset backed by h5ad at the moment: see https://github.com/zarr-developers/VirtualiZarr/pull/790"
+        elif any(acc in self._train_datasets for acc in dataset.keys()):
+            raise ValueError(
+                "Cannot add a dataset with a different set of RefAcc keys than the training datasets already added"
             )
-        if isinstance(dataset, sp.csr_matrix | sp.csr_array) and not find_spec("numba"):
-            raise ImportError("numba must be installed for in-memory sparse data: `pip install annbatch[numba]`")
-        if not isinstance(obs, pd.DataFrame) and obs is not None:
-            raise TypeError("obs must be a pandas DataFrame")
-        if not isinstance(var, pd.DataFrame) and var is not None:
-            raise TypeError("var must be a pandas DataFrame")
-        datasets = self._train_datasets + [dataset]
-        check_var_shapes(datasets)
-        self._dtypes_homogeneous = self._datasets_share_dtype(datasets)
-        if self._train_datasets and not self._dtypes_homogeneous:
-            warn(
-                f"Adding dataset with dtype {dataset.dtype!r} that differs from the existing dataset dtype(s) "
-                f"(first dataset: {self._train_datasets[0].dtype!r}). Heterogeneous dtypes incur extra per-batch "
-                "allocation and dtype promotion in the loader; consider casting all datasets to a common dtype.",
-                stacklevel=2,
-            )
-        self._shapes = self._shapes + [dataset.shape]
-        self._train_datasets = datasets
+        for acc, ds in dataset.items():
+            if acc in self.dataset_types and not isinstance(ds, self.dataset_types[acc]):
+                raise ValueError(
+                    f"All datasets on a given loader must be of the same type {self.dataset_types[acc]} but got {type(ds)}"
+                )
+            datasets = self._train_datasets[acc] + [ds] if acc in self._train_datasets else [ds]
+            check_var_shapes(datasets)
+            self._dtypes_homogeneous[acc] = self._datasets_share_dtype(datasets)
+            if not self._dtypes_homogeneous[acc] and acc in self._train_datasets and len(self._train_datasets[acc]) > 0:
+                warn(
+                    f"Adding dataset with dtype {ds.dtype!r} that differs from the existing dataset dtype(s) "
+                    f"(first dataset: {self._train_datasets[acc][0].dtype!r}). Heterogeneous dtypes incur extra per-batch "
+                    "allocation and dtype promotion in the loader; consider casting all datasets to a common dtype.",
+                    stacklevel=2,
+                )
+            self._shapes[acc] = self._shapes[acc] + [ds.shape] if acc in self._shapes else [ds.shape]
+            self._train_datasets[acc] = datasets
         if self._obs is not None:  # obs exist
             self._obs += [obs]
         elif obs is not None:  # obs dont exist yet, but are being added for the first time
@@ -531,10 +562,11 @@ class Loader[
             global_index = np.concatenate([np.arange(s.start, s.stop) for s in requests])
 
         # Locate each requested row in its dataset by binary-searching the dataset boundaries,
+        representative_shapes = next(iter(self._shapes.values()))
         sizes = np.fromiter(
-            (shape[0] for shape in self._shapes),
+            (shape[0] for shape in representative_shapes),
             dtype=np.int64,
-            count=len(self._shapes),
+            count=len(representative_shapes),
         )
         ends = np.cumsum(sizes)
         starts = ends - sizes
@@ -559,7 +591,9 @@ class Loader[
             return cpx.empty_pinned(shape, dtype)
         return np.empty(shape, dtype)
 
-    def _allocate_out(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> CSRContainer | np.ndarray:
+    def _allocate_out(
+        self, ref_acc: RefAcc, dataset_index_to_rows: OrderedDict[int, np.ndarray]
+    ) -> CSRContainer | np.ndarray:
         """Preallocate a single contiguous output buffer covering all datasets and rows.
 
         For sparse data the buffer is a :class:`~annbatch.utils.CSRContainer` whose ``data``
@@ -572,10 +606,10 @@ class Loader[
         """
         total_rows = sum(len(rows) for rows in dataset_index_to_rows.values())
 
-        if (is_backed := issubclass(self.dataset_type, ad.abc.CSRDataset)) or issubclass(
-            self.dataset_type, sp.csr_array | sp.csr_matrix
+        if (is_backed := issubclass(self.dataset_types[ref_acc], ad.abc.CSRDataset)) or issubclass(
+            self.dataset_types[ref_acc], sp.csr_array | sp.csr_matrix
         ):
-            datasets = self._sparse_dataset_elem_cache if is_backed else self._train_datasets
+            datasets = (self._sparse_dataset_elem_cache if is_backed else self._train_datasets)[ref_acc]
             total_nnz = sum(
                 int((datasets[idx].indptr[rows + 1] - datasets[idx].indptr[rows]).sum())
                 for idx, rows in dataset_index_to_rows.items()
@@ -595,8 +629,8 @@ class Loader[
             )
         else:
             first_idx = next(iter(dataset_index_to_rows))
-            dtype = self._train_datasets[first_idx].dtype
-            shape_res = self._train_datasets[first_idx].shape[1:]
+            dtype = self._train_datasets[ref_acc][first_idx].dtype
+            shape_res = self._train_datasets[ref_acc][first_idx].shape[1:]
             return self._alloc((total_rows, *shape_res), dtype, use_pinned=self._preload_to_gpu)
 
     @staticmethod
@@ -616,7 +650,7 @@ class Loader[
         return all(dtypes_of(d) == first for d in datasets[1:])
 
     def _allocate_per_dataset_outs(
-        self, dataset_index_to_rows: OrderedDict[int, np.ndarray]
+        self, ref_acc: RefAcc, dataset_index_to_rows: OrderedDict[int, np.ndarray]
     ) -> OrderedDict[int, CSRContainer | np.ndarray]:
         """Allocate one output buffer per dataset, each using that dataset's native dtype(s).
 
@@ -624,11 +658,11 @@ class Loader[
         into a final buffer of the promoted dtype by :meth:`_concatenate_outs`.
         Must be called after :meth:`_ensure_sparse_cache` for backed-sparse datasets.
         """
-        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
-        is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
+        is_backed_sparse = issubclass(self.dataset_types[ref_acc], ad.abc.CSRDataset)
+        is_sparse = is_backed_sparse or issubclass(self.dataset_types[ref_acc], sp.csr_array | sp.csr_matrix)
         outs: OrderedDict[int, CSRContainer | np.ndarray] = OrderedDict()
         if is_sparse:
-            datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
+            datasets = self._sparse_dataset_elem_cache[ref_acc] if is_backed_sparse else self._train_datasets[ref_acc]
             for idx, rows in dataset_index_to_rows.items():
                 ds = datasets[idx]
                 nnz = int((ds.indptr[rows + 1] - ds.indptr[rows]).sum())
@@ -643,7 +677,7 @@ class Loader[
                 )
         else:
             for idx, rows in dataset_index_to_rows.items():
-                ds = self._train_datasets[idx]
+                ds = self._train_datasets[ref_acc][idx]
                 outs[idx] = self._alloc((len(rows), *ds.shape[1:]), ds.dtype, use_pinned=False)
         return outs
 
@@ -730,11 +764,13 @@ class Loader[
             out=buffer_prototype.nd_buffer(out),
         )
 
-    async def _create_sparse_elems(self, idx: int) -> CSRDatasetElems:
+    async def _create_sparse_elems(self, ref_acc: RefAcc, idx: int) -> CSRDatasetElems:
         """Fetch the in-memory indptr, and backed indices and data for a given dataset index.
 
         Parameters
         ----------
+            ref_acc
+                The reference accumulator.
             idx
                 The index
 
@@ -742,8 +778,10 @@ class Loader[
         -------
             The constituent elems of the CSR dataset.
         """
-        if isinstance(ds := self._train_datasets[idx], ZarrArray):
-            raise ValueError(f"Requested sparse dataset at idx {idx} of {self._train_datasets} but found dense array")
+        if isinstance(ds := self._train_datasets[ref_acc][idx], ZarrArray):
+            raise ValueError(
+                f"Requested sparse dataset at idx {idx} of {self._train_datasets[ref_acc]} but found dense array"
+            )
         indptr = await ds.group._async_group.getitem("indptr")
         return CSRDatasetElems(
             *(
@@ -755,20 +793,26 @@ class Loader[
             )
         )
 
-    async def _ensure_sparse_cache(self) -> None:
+    async def _ensure_sparse_cache(self, ref_acc: RefAcc) -> None:
         """Build up the cache of datasets i.e., in-memory indptr, and backed indices and data."""
-        arr_idxs = [idx for idx in range(len(self._train_datasets)) if idx not in self._sparse_dataset_elem_cache]
+        if ref_acc not in self._sparse_dataset_elem_cache:
+            self._sparse_dataset_elem_cache[ref_acc] = {}
+        arr_idxs = [
+            idx
+            for idx in range(len(self._train_datasets[ref_acc]))
+            if idx not in self._sparse_dataset_elem_cache[ref_acc]
+        ]
         all_elems: list[CSRDatasetElems] = await asyncio.gather(
             *(
-                self._create_sparse_elems(idx)
-                for idx in range(len(self._train_datasets))
-                if idx not in self._sparse_dataset_elem_cache
+                self._create_sparse_elems(ref_acc, idx)
+                for idx in range(len(self._train_datasets[ref_acc]))
+                if idx not in self._sparse_dataset_elem_cache[ref_acc]
             )
         )
         for idx, elems in zip(arr_idxs, all_elems, strict=True):
-            self._sparse_dataset_elem_cache[idx] = elems
+            self._sparse_dataset_elem_cache[ref_acc][idx] = elems
 
-    def _get_elem_from_cache(self, dataset_idx: int) -> CSRDatasetElems | ZarrArray:
+    def _get_elem_from_cache(self, ref_acc: RefAcc, dataset_idx: int) -> CSRDatasetElems | ZarrArray:
         """Return the arrays (zarr or otherwise) needed to represent on-disk data at a given index.
 
         Parameters
@@ -780,9 +824,12 @@ class Loader[
         -------
             The arrays representing the sparse data.
         """
-        if dataset_idx not in self._sparse_dataset_elem_cache:
-            raise ValueError("Cache not prepared")
-        return self._sparse_dataset_elem_cache[dataset_idx]
+        if (
+            ref_acc not in self._sparse_dataset_elem_cache
+            or dataset_idx not in self._sparse_dataset_elem_cache[ref_acc]
+        ):
+            raise ValueError(f"Cache not prepared for {ref_acc}")
+        return self._sparse_dataset_elem_cache[ref_acc][dataset_idx]
 
     @_fetch_data.register
     async def _fetch_data_numpy_matrix(
@@ -854,7 +901,7 @@ class Loader[
     async def _index_datasets(
         self,
         dataset_index_to_rows: OrderedDict[int, np.ndarray],
-    ) -> CSRContainer | np.ndarray:
+    ) -> dict[RefAcc, CSRContainer | np.ndarray]:
         """Preallocate one output buffer, dispatch concurrent fetches into per-dataset views, then return the buffer.
 
         Parameters
@@ -862,16 +909,26 @@ class Loader[
             dataset_index_to_rows
                 A lookup of the list-placement index of a dataset to the sorted row indices to fetch.
         """
-        is_backed_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset)
-        is_sparse = is_backed_sparse or issubclass(self.dataset_type, sp.csr_array | sp.csr_matrix)
-        if is_backed_sparse:
-            await self._ensure_sparse_cache()
+        outs = {}
+        for ref in self._train_datasets.keys():
+            outs[ref] = await self._index_datasets_for_ref_acc(ref, dataset_index_to_rows)
+        return outs
 
-        if not self._dtypes_homogeneous:
-            per_dataset_outs = self._allocate_per_dataset_outs(dataset_index_to_rows)
+    async def _index_datasets_for_ref_acc(
+        self, ref_acc: RefAcc, dataset_index_to_rows: OrderedDict[int, np.ndarray]
+    ) -> CSRContainer | np.ndarray:
+        ds_type = self.dataset_types[ref_acc]
+        datasets = self._train_datasets[ref_acc]
+        is_backed_sparse = issubclass(ds_type, ad.abc.CSRDataset)
+        is_sparse = is_backed_sparse or issubclass(ds_type, sp.csr_array | sp.csr_matrix)
+        if is_backed_sparse:
+            await self._ensure_sparse_cache(ref_acc)
+
+        if not self._dtypes_homogeneous[ref_acc]:
+            per_dataset_outs = self._allocate_per_dataset_outs(ref_acc, dataset_index_to_rows)
             tasks = [
                 self._fetch_data(
-                    self._get_elem_from_cache(dataset_idx) if is_backed_sparse else self._train_datasets[dataset_idx],
+                    self._get_elem_from_cache(ref_acc, dataset_idx) if is_backed_sparse else datasets[dataset_idx],
                     rows,
                     per_dataset_outs[dataset_idx],
                 )
@@ -879,7 +936,7 @@ class Loader[
             ]
             await asyncio.gather(*tasks)
             if is_sparse:
-                datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
+                datasets = self._sparse_dataset_elem_cache[ref_acc] if is_backed_sparse else datasets
                 for dataset_idx, rows in dataset_index_to_rows.items():
                     sub_out = per_dataset_outs[dataset_idx]
                     cached_indptr = datasets[dataset_idx].indptr
@@ -888,7 +945,7 @@ class Loader[
                     np.cumsum(per_row_nnz, out=sub_out.elems[2][1:])
             return self._concatenate_outs(per_dataset_outs)
 
-        out = self._allocate_out(dataset_index_to_rows)
+        out = self._allocate_out(ref_acc, dataset_index_to_rows)
 
         tasks = []
         row_offset = 0
@@ -897,8 +954,8 @@ class Loader[
         for dataset_idx, rows in dataset_index_to_rows.items():
             nrows = len(rows)
             if is_sparse:
-                datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
-                cached_indptr = datasets[dataset_idx].indptr
+                sparse_datasets = self._sparse_dataset_elem_cache[ref_acc] if is_backed_sparse else datasets
+                cached_indptr = sparse_datasets[dataset_idx].indptr
                 nnz = int((cached_indptr[rows + 1] - cached_indptr[rows]).sum())
                 out_view: CSRContainer | np.ndarray = CSRContainer(
                     elems=(
@@ -915,7 +972,7 @@ class Loader[
 
             tasks.append(
                 self._fetch_data(
-                    self._get_elem_from_cache(dataset_idx) if is_backed_sparse else self._train_datasets[dataset_idx],
+                    self._get_elem_from_cache(ref_acc, dataset_idx) if is_backed_sparse else datasets[dataset_idx],
                     rows,
                     out_view,
                 )
@@ -925,12 +982,12 @@ class Loader[
         await asyncio.gather(*tasks)
 
         if is_sparse:
-            datasets = self._sparse_dataset_elem_cache if is_backed_sparse else self._train_datasets
+            sparse_datasets = self._sparse_dataset_elem_cache[ref_acc] if is_backed_sparse else datasets
             running_nnz = 0
             row_pos = 0
             out.elems[2][0] = 0
             for dataset_idx, rows in dataset_index_to_rows.items():
-                cached_indptr = datasets[dataset_idx].indptr
+                cached_indptr = sparse_datasets[dataset_idx].indptr
                 per_row_nnz = cached_indptr[rows + 1] - cached_indptr[rows]
                 dest = out.elems[2][row_pos + 1 : row_pos + len(rows) + 1]
                 np.cumsum(per_row_nnz, out=dest)
@@ -957,7 +1014,9 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-        is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array)
+        any_sparse = any(
+            issubclass(t, ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array) for t in self.dataset_types.values()
+        )
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
@@ -980,31 +1039,45 @@ class Loader[
             inv = inv_buffer[:n]
             inv[order] = positions[:n]
 
-            raw_out: CSRContainer | np.ndarray = zsync.sync(self._index_datasets(dataset_index_to_rows))
-
-            if is_sparse:
-                in_memory_data = self._sp_module.csr_matrix(
-                    tuple(self._np_module.asarray(e) for e in raw_out.elems),
-                    shape=raw_out.shape,
-                    dtype=_cupy_dtype(raw_out.dtype) if self._preload_to_gpu else raw_out.dtype,
-                )
-            else:
-                in_memory_data = self._np_module.asarray(raw_out)
-
+            # Get obs and indices
             concatenated_obs: None | pd.DataFrame = self._maybe_accumulate_obs(dataset_index_to_rows)
             in_memory_indices: None | np.ndarray = self._maybe_accumulate_indices(dataset_index_to_rows)
+
+            fetched_datasets: dict[RefAcc, CSRContainer | np.ndarray] = zsync.sync(
+                self._index_datasets(dataset_index_to_rows)
+            )
+            memory_bound_datasets: dict[RefAcc, OutputInMemoryArray] = {}
+            for ref, ds in fetched_datasets.items():
+                is_sparse = issubclass(self.dataset_types[ref], ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array)
+                if is_sparse:
+                    in_memory_data = self._sp_module.csr_matrix(
+                        tuple(self._np_module.asarray(e) for e in ds.elems),
+                        shape=ds.shape,
+                        dtype=_cupy_dtype(ds.dtype) if self._preload_to_gpu else ds.dtype,
+                    )
+                else:
+                    in_memory_data = self._np_module.asarray(ds)
+                memory_bound_datasets[ref] = in_memory_data
+            del fetched_datasets
+
             for split in splits:
                 sel = inv[split]
-                data = in_memory_data[sel]
-                yield {
-                    "X": data if self._to is None else convert(data, self._preload_to_gpu, self._to),
+                out = {
                     "obs": concatenated_obs.iloc[sel] if concatenated_obs is not None else None,
                     "var": self._var,
                     "index": in_memory_indices[sel] if in_memory_indices is not None else None,
                 }
+                for ref, in_memory_data in memory_bound_datasets.items():
+                    ref_json = list(A.to_json(ref))
+                    if ref_json == ["layers", None]:
+                        ref_json = ["X"]
+                    else:
+                        ref_json = [str(x) for x in ref_json]
+                    out[".".join(ref_json)] = in_memory_data[sel]
+                yield out
 
             # https://github.com/cupy/cupy/issues/9625
-            if self._preload_to_gpu and is_sparse:
+            if self._preload_to_gpu and any_sparse:
                 self._np_module.get_default_memory_pool().free_all_blocks()
 
     def _maybe_accumulate_obs(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> pd.DataFrame | None:
@@ -1017,5 +1090,6 @@ class Loader[
         """Gather original indices for the loaded rows if possible."""
         if self._return_index is False:
             return None
-        dataset_offsets = np.concatenate(([0], np.cumsum([shape[0] for shape in self._shapes])))
+        representative_shapes = next(iter(self._shapes.values()))
+        dataset_offsets = np.concatenate(([0], np.cumsum([shape[0] for shape in representative_shapes])))
         return np.concatenate([rows + dataset_offsets[idx] for idx, rows in dataset_index_to_rows.items()])
