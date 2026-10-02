@@ -50,6 +50,11 @@ class RandomSampler(_ChunkSampler):
         default), equals the effective observation range.  Must be
         positive when set and less than the number of observations to be
         yielded when ``replacement=False``.
+    copy
+        Whether each load request's ``splits`` are copied out of the buffer the sampler
+        reshuffles for the next request. The :class:`~annbatch.Loader` consumes a request
+        before asking for the next, so it does not need this; set it to ``True`` if you
+        hold on to load requests, e.g. ``list(sampler.sample(n_obs))``.
     """
 
     def __init__(
@@ -63,6 +68,7 @@ class RandomSampler(_ChunkSampler):
         drop_last: bool = False,
         mask: slice | None = None,
         rng: np.random.Generator | None = None,
+        copy: bool = False,
     ):
         super().__init__(
             chunk_size=chunk_size,
@@ -74,4 +80,5 @@ class RandomSampler(_ChunkSampler):
             drop_last=drop_last,
             mask=mask,
             rng=rng,
+            copy=copy,
         )

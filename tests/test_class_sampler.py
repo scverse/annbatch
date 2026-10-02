@@ -390,7 +390,7 @@ def test_absent_class_weight_is_ignored(sampler_cls: type[ClassSampler]):
 
 def test_each_window_gets_its_own_splits(sampler_cls: type[ClassSampler]):
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
-    sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls)
+    sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, copy=True)
     windows = [tuple(np.concatenate(lr["splits"])) for lr in list(sampler.sample(200))]
     assert len(set(windows)) == len(windows), "windows must not share one row-id buffer"
 

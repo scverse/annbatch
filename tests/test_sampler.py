@@ -683,6 +683,18 @@ def make_distributed_sampler(request: pytest.FixtureRequest):
     return _SAMPLER_FACTORIES[request.param]
 
 
+@pytest.mark.parametrize("copy", [False, True])
+def test_copy_keeps_yielded_splits(copy: bool):
+    """With ``copy``, splits already handed out survive the sampler shuffling the next window."""
+
+    def sampler():
+        return RandomSampler(chunk_size=10, preload_nchunks=4, batch_size=10, rng=np.random.default_rng(0), copy=copy)
+
+    consumed = [np.concatenate(lr["splits"]) for lr in sampler().sample(400)]
+    held = [np.concatenate(lr["splits"]) for lr in list(sampler().sample(400))]
+    assert all(map(np.array_equal, consumed, held)) == copy
+
+
 class TestDistributedSampler:
     """Tests for DistributedSampler, parameterized over all backends."""
 
