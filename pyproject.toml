@@ -71,7 +71,7 @@ dev = [
 test = [
   "annbatch[zarrs]",
   "coverage",
-  "pytest",
+  "pytest>=9",
 ]
 doc = [
   "docutils>=0.8,!=0.18.*,!=0.19.*",

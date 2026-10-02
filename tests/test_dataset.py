@@ -301,6 +301,30 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
 
 
+def test_multiple_outputs(simple_collection: tuple[ad.AnnData, DatasetCollection], request: pytest.FixtureRequest):
+    adata = simple_collection[0]
+    ds = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, preload_to_gpu=False, to=None, return_index=True
+    ).use_collection(simple_collection[1])
+    batch = next(iter(ds))
+    assert set(batch.keys()) == {"X", "layers.sparse", "obsm.3d", "obs", "var", "index"}
+    subtest = request.getfixturevalue("subtests").test
+    index = batch["index"]
+    with subtest(msg="X"):
+        assert isinstance(batch["X"], np.ndarray)
+        np.testing.assert_array_equal(batch["X"], adata.X[index])
+    with subtest(msg="layers.sparse"):
+        assert isinstance(batch["layers.sparse"], sp.csr_matrix)
+        np.testing.assert_array_equal(batch["layers.sparse"].toarray(), adata.layers["sparse"][index].toarray())
+    with subtest(msg="obsm.3d"):
+        assert isinstance(batch["obsm.3d"], np.ndarray)
+        np.testing.assert_array_equal(batch["obsm.3d"], adata.obsm["3d"][index])
+    with subtest(msg="obs"):
+        pd.testing.assert_frame_equal(batch["obs"], adata.obs.iloc[index])
+    with subtest(msg="var"):
+        pd.testing.assert_frame_equal(batch["var"], adata.var)
+
+
 def test_load_all_aligned_backs_arrays_and_skips_the_rest(tmp_path: Path):
     """Everything backable stays backed; an `obsm` dataframe - which the loader cannot yield anyway - is skipped."""
     n_obs, n_var = 8, 5

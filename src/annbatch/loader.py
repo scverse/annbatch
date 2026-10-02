@@ -606,8 +606,8 @@ class Loader[
         """
         total_rows = sum(len(rows) for rows in dataset_index_to_rows.values())
 
-        if (is_backed := issubclass(self.dataset_type, ad.abc.CSRDataset)) or issubclass(
-            self.dataset_type, sp.csr_array | sp.csr_matrix
+        if (is_backed := issubclass(self.dataset_types[ref_acc], ad.abc.CSRDataset)) or issubclass(
+            self.dataset_types[ref_acc], sp.csr_array | sp.csr_matrix
         ):
             datasets = (self._sparse_dataset_elem_cache if is_backed else self._train_datasets)[ref_acc]
             total_nnz = sum(
@@ -1014,7 +1014,9 @@ class Loader[
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],
         )
-        is_sparse = issubclass(self.dataset_type, ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array)
+        any_sparse = any(
+            issubclass(t, ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array) for t in self.dataset_types.values()
+        )
         # Create `positions` variable so we don't need to run `np.arange` (O(n)) every time
         positions = np.empty(0, dtype=np.intp)
         for load_request in self._batch_sampler.sample(self.n_obs):
@@ -1046,6 +1048,7 @@ class Loader[
             )
             memory_bound_datasets: dict[RefAcc, OutputInMemoryArray] = {}
             for ref, ds in fetched_datasets.items():
+                is_sparse = issubclass(self.dataset_types[ref], ad.abc.CSRDataset | sp.csr_matrix | sp.csr_array)
                 if is_sparse:
                     in_memory_data = self._sp_module.csr_matrix(
                         tuple(self._np_module.asarray(e) for e in ds.elems),
@@ -1074,7 +1077,7 @@ class Loader[
                 yield out
 
             # https://github.com/cupy/cupy/issues/9625
-            if self._preload_to_gpu and is_sparse:
+            if self._preload_to_gpu and any_sparse:
                 self._np_module.get_default_memory_pool().free_all_blocks()
 
     def _maybe_accumulate_obs(self, dataset_index_to_rows: OrderedDict[int, np.ndarray]) -> pd.DataFrame | None:
