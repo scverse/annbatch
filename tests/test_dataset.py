@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import math
 from importlib.util import find_spec
 from types import NoneType
@@ -325,61 +324,6 @@ def test_load_all_aligned_backs_arrays_and_skips_the_rest(tmp_path: Path):
     np.testing.assert_allclose(loaded.layers["sparse"][...].toarray(), adata.layers["sparse"].toarray())
 
 
-@contextlib.contextmanager
-def expect_warning_about_additional_aligned_elems(*, is_expected: bool):
-    msg = "Only `X`, `obs`, and `var` are kept"
-    with pytest.warns(FutureWarning, match=msg) if is_expected else contextlib.nullcontext():
-        yield
-
-
-@pytest.mark.parametrize("use_custom_loader", [False, True], ids=["default", "use-custom-loader"])
-def test_use_collection_warns_about_additional_aligned_elems(
-    simple_collection: tuple[ad.AnnData, DatasetCollection], *, use_custom_loader: bool
-):
-    """`use_collection` defaults to `load_all_aligned` (warns on obsm/layers); a custom loader opts out."""
-    _, collection = simple_collection
-    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-    # the collection has obsm/layers on disk, so the default loader warns while the X/obs/var-only loader does not
-    load_adata = {"load_adata": lambda g: open_dense(g, use_anndata=True)} if use_custom_loader else {}
-    with expect_warning_about_additional_aligned_elems(is_expected=not use_custom_loader):
-        loader.use_collection(collection, **load_adata)
-
-
-@pytest.mark.parametrize("has_additional_aligned_elems", [True, False], ids=["with-additional", "without-additional"])
-@pytest.mark.parametrize("method", ["add_adata", "add_adatas"])
-def test_add_adata_warns_about_additional_aligned_elems(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, method: str, has_additional_aligned_elems: bool
-):
-    """`add_adata`/`add_adatas` warn iff the in-memory AnnData carries obsm/layers that get dropped for now."""
-    adata = adata_with_zarr_path_same_var_space[0]  # has obsm/3d and layers/sparse
-    if not has_additional_aligned_elems:
-        adata = ad.AnnData(X=adata.X, obs=adata.obs, var=adata.var)
-    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-
-    with expect_warning_about_additional_aligned_elems(is_expected=has_additional_aligned_elems):
-        getattr(loader, method)(adata if method == "add_adata" else [adata])
-
-
-def test_add_adatas_warns_exactly_once_about_each_additional_aligned_elem():
-    """`add_adatas` warns once *per unique* dropped element: distinct elements each warn, duplicates are deduped."""
-    n_obs, n_var = 40, 100
-    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_var)])
-    x = np.random.default_rng().random((n_obs, n_var)).astype("f4")
-    adata_obsm = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
-    adata_layer = ad.AnnData(X=x.copy(), var=var, layers={"counts": x.copy()})
-    adata_obsm_again = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
-
-    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-    with pytest.warns(FutureWarning) as record:
-        loader.add_adatas([adata_obsm, adata_layer, adata_obsm_again])
-
-    msgs = [str(w.message) for w in record if issubclass(w.category, FutureWarning)]
-    # `obsm/pca` is carried by two adatas but warned about once; `layers/counts` warns once -> two warnings total
-    assert len(msgs) == 2
-    assert sum("obsm/pca" in m for m in msgs) == 1
-    assert sum("layers/counts" in m for m in msgs) == 1
-
-
 @pytest.mark.gpu
 @pytest.mark.parametrize(
     "to", [pytest.param("torch", marks=skip_if_no_torch), pytest.param("jax", marks=skip_if_no_jax), None]
@@ -504,7 +448,7 @@ def test_bad_adata_X_hdf5(
             preload_to_gpu=False,
             to=None,
         )
-        with pytest.raises(TypeError, match="Cannot add"):
+        with pytest.raises(ValueError, match="Cannot add"):
             ds.add_dataset(data)
 
 

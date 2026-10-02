@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+import sys
+from typing import NotRequired
+
+if sys.version_info >= (3, 13):
+    from typing import TypedDict
+else:
+    from typing_extensions import TypedDict
 
 import anndata as ad
 import numpy as np
@@ -51,10 +57,10 @@ class LoadRequest(TypedDict):
     splits: NotRequired[list[np.ndarray]]
 
 
-class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict):
+class LoaderOutput[OutputInMemoryArray: OutputInMemoryArray_T](TypedDict, closed=True):
     """The output of the loader, the "data matrix" with its obs, optional, var, optional, and index, also optional."""
 
-    X: OutputInMemoryArray_T.__value__  # TODO: remove after sphinx 9 - myst compat
+    __extra_items__: OutputInMemoryArray_T.__value__  # TODO: remove after sphinx 9 - myst compat
     obs: pd.DataFrame | None
     var: pd.DataFrame | None
     index: np.ndarray | None

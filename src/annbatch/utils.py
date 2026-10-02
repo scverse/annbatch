@@ -304,3 +304,9 @@ def load_all_aligned(g: zarr.Group) -> ad.AnnData:
             if elem in g
         },
     )
+
+
+def _check_df_or_none(elem: object, name: str) -> pd.DataFrame | None:
+    if not isinstance(elem, pd.DataFrame | None):
+        raise TypeError(f"Expected DataFrame or None for {name}, not {type(elem)}")
+    return elem
