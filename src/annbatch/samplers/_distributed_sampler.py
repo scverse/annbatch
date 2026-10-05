@@ -144,10 +144,12 @@ class DistributedSampler(Sampler):
         return slice(rank_start, rank_stop)
 
     def n_batches(self, n_obs: int) -> int:
+        # Count this rank's shard. How to ask depends on where the wrapped sampler's mask is:
         if self._num_open_passes > 0:
-            # the shard is on the wrapped sampler for the pass, so it counts it directly
+            # during a pass the mask *is* the shard, so count it against the real n_obs
+            # (asking with the shard size would put the shard out of bounds on ranks > 0)
             return self._sampler.n_batches(n_obs)
-        # outside a pass the wrapped sampler spans its whole range, so the shard's size alone gives the count
+        # between passes the mask spans everything, so a shard-sized n_obs gives the shard's count
         shard = self._shard_mask(n_obs)
         return self._sampler.n_batches(shard.stop - shard.start)
 
