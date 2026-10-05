@@ -232,13 +232,13 @@ class ClassSampler(Sampler):
         if worker_info is not None and worker_info.num_workers > 1:
             raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
 
-        return self._count_open_pass(self._iter_requests())
+        return self._count_open_pass()
 
-    def _count_open_pass(self, requests: Iterator[LoadRequest]) -> Iterator[LoadRequest]:
+    def _count_open_pass(self) -> Iterator[LoadRequest]:
         """Mark this pass open so :attr:`mask` can refuse to move under it."""
         self._num_open_passes += 1
         try:
-            yield from requests
+            yield from self._iter_requests()
         finally:
             self._num_open_passes -= 1
 

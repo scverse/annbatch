@@ -781,7 +781,7 @@ def test_sampler_is_validated_against_the_whole_loader(sampler: Sampler, n_batch
     # 200 obs then 50: each add used to be validated against only the rows it added
     loader = Loader(batch_sampler=sampler, to=None, preload_to_gpu=False)
     loader.add_adata(_in_memory_adata(200)).add_adata(_in_memory_adata(50))
-    assert sum(1 for _ in loader) == n_batches
+    assert len(list(iter(loader))) == n_batches
 
 
 def test_invalid_sampler_raises_at_iteration_not_on_add():
@@ -791,7 +791,7 @@ def test_invalid_sampler_raises_at_iteration_not_on_add():
     with pytest.raises(ValueError, match="exceeds loader n_obs"):
         next(iter(loader))
     loader.add_adata(_in_memory_adata(400))  # a failed iteration does not leave the loader locked
-    assert sum(1 for _ in loader) == 50
+    assert len(list(iter(loader))) == 50
 
 
 @pytest.mark.parametrize("end", ["exhaust", "close"])

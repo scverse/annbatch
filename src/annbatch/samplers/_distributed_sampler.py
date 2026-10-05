@@ -144,7 +144,23 @@ class DistributedSampler(Sampler):
         return slice(rank_start, rank_stop)
 
     def n_batches(self, n_obs: int) -> int:
-        # Count this rank's shard. How to ask depends on where the wrapped sampler's mask is:
+        """Return the number of batches this rank yields per pass.
+
+        This counts only this rank's shard of ``n_obs``, whether or not a pass is running,
+        and never moves the wrapped sampler's mask, so it is safe to call mid-pass
+        (e.g. ``len(loader)`` inside an epoch).
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations across all ranks.
+
+        Returns
+        -------
+        int
+            The number of batches in this rank's shard.
+        """
+        # How to ask depends on where the wrapped sampler's mask is:
         if self._num_open_passes > 0:
             # during a pass the mask *is* the shard, so count it against the real n_obs
             # (asking with the shard size would put the shard out of bounds on ranks > 0)
@@ -154,15 +170,14 @@ class DistributedSampler(Sampler):
         return self._sampler.n_batches(shard.stop - shard.start)
 
     def validate(self, n_obs: int) -> None:
-        # checks that don't depend on the shard; _sample validates the shard itself when the pass starts
+        # checks that don't depend on the shard; the shard is validated by the wrapped sampler's sample() in _sample
         self._sampler.validate(n_obs)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         self._sampler.mask = self._shard_mask(n_obs)
         self._num_open_passes += 1
         try:
-            self._sampler.validate(n_obs)
-            yield from self._sampler._sample(n_obs)
+            yield from self._sampler.sample(n_obs)
         finally:
             self._num_open_passes -= 1
             self._sampler.mask = slice(0, None)
