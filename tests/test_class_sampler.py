@@ -194,8 +194,26 @@ def test_invalid_construction(
         make_sampler(classes, cls=sampler_cls, **kwargs)
 
 
-def test_a_seed_passed_as_rng_is_rejected(sampler_cls: type[ClassSampler]):
+def test_a_seed_passed_as_rng_warns_and_seeds(sampler_cls: type[ClassSampler]):
     # `rng=0` is falsy, so it used to be swapped for a fresh unseeded generator
+    def build(rng):
+        return sampler_cls(
+            chunk_size=10,
+            preload_nchunks=4,
+            batch_size=10,
+            classes=pd.Categorical(np.repeat([0, 1], 50)),
+            num_samples=100,
+            rng=rng,
+        )
+
+    with pytest.warns(FutureWarning, match="Passing a seed as rng is deprecated") as record:
+        seeded = build(0)
+    assert record[0].filename == __file__
+    expected = build(np.random.default_rng(0))
+    assert [lr["requests"] for lr in seeded.sample(100)] == [lr["requests"] for lr in expected.sample(100)]
+
+
+def test_a_non_generator_rng_is_rejected(sampler_cls: type[ClassSampler]):
     with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
         sampler_cls(
             chunk_size=10,
@@ -203,7 +221,7 @@ def test_a_seed_passed_as_rng_is_rejected(sampler_cls: type[ClassSampler]):
             batch_size=10,
             classes=pd.Categorical(np.repeat([0, 1], 50)),
             num_samples=100,
-            rng=0,
+            rng=np.random.RandomState(0),
         )
 
 
