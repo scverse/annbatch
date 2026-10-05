@@ -88,7 +88,8 @@ class DistributedSampler(Sampler):
     ----------
     sampler
         The :class:`~annbatch.abc.Sampler` to distribute. It is copied, so changes made to it
-        after wrapping (``sampler.rng``, say) do not reach the copy.
+        after wrapping (``sampler.rng``, say) do not reach the copy. Its own ``mask`` is ignored:
+        the copy spans the whole range and is restricted to this rank's shard only while a pass runs.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
@@ -102,6 +103,7 @@ class DistributedSampler(Sampler):
     _world_size: int
     _enforce_equal_batches: bool
     _sampler: Sampler
+    _num_open_passes: int
 
     def __init__(
         self,
@@ -117,8 +119,10 @@ class DistributedSampler(Sampler):
         else:
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
-        # a copy: n_batches/validate/_sample re-shard this sampler's mask on every call
+        # a copy: _sample moves this sampler's mask onto the shard for each pass
         self._sampler = copy.deepcopy(sampler)
+        self._sampler.mask = slice(0, None)
+        self._num_open_passes = 0
         if self._sampler.rng is not None:
             self._sampler.rng = _spawn_worker_rng(self._sampler.rng, self._rank)
 
@@ -140,13 +144,23 @@ class DistributedSampler(Sampler):
         return slice(rank_start, rank_stop)
 
     def n_batches(self, n_obs: int) -> int:
-        self._sampler.mask = self._shard_mask(n_obs)
-        return self._sampler.n_batches(n_obs)
+        if self._num_open_passes > 0:
+            # the shard is on the wrapped sampler for the pass, so it counts it directly
+            return self._sampler.n_batches(n_obs)
+        # outside a pass the wrapped sampler spans its whole range, so the shard's size alone gives the count
+        shard = self._shard_mask(n_obs)
+        return self._sampler.n_batches(shard.stop - shard.start)
 
     def validate(self, n_obs: int) -> None:
-        self._sampler.mask = self._shard_mask(n_obs)
+        # checks that don't depend on the shard; _sample validates the shard itself when the pass starts
         self._sampler.validate(n_obs)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         self._sampler.mask = self._shard_mask(n_obs)
-        yield from self._sampler._sample(n_obs)
+        self._num_open_passes += 1
+        try:
+            self._sampler.validate(n_obs)
+            yield from self._sampler._sample(n_obs)
+        finally:
+            self._num_open_passes -= 1
+            self._sampler.mask = slice(0, None)

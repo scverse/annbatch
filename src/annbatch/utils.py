@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import inspect
 import itertools
 import re
 import warnings
 from dataclasses import dataclass
-from functools import wraps
-from typing import TYPE_CHECKING, Any, Concatenate, Literal, Protocol, overload
+from typing import TYPE_CHECKING, Any, Literal, Protocol, overload
 
 import anndata as ad
 import numpy as np
@@ -17,40 +15,9 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Iterable
 
-    from annbatch.loader import Loader
     from annbatch.types import OutputInMemoryArray_T
-
-
-def validate_sampler[**Param, RetType](
-    method: Callable[Concatenate[Loader, Param], RetType],
-) -> Callable[Concatenate[Loader, Param], RetType]:
-    """Decorator that validates n_obs before modifying state.
-
-    Expects the first positional argument to be either:
-    - A single object with a `.shape` attribute
-    - A list of objects with `.shape` attributes
-
-    The total n_obs is computed as sum of shape[0] values for a list of objects or the shape[0] value for a single object.
-    """
-    sig = inspect.signature(method)
-    if len(sig.parameters) < 2:
-        raise ValueError("validate_sampler decorator expects at least two positional arguments after 'self'")
-    first_param_name = list(sig.parameters.keys())[1]
-
-    @wraps(method)
-    def wrapper(self: Loader, *args: Param.args, **kwargs: Param.kwargs) -> RetType:
-        if len(args) > 0:
-            first_arg = args[0]
-        else:
-            first_arg = kwargs[first_param_name]
-
-        n_obs = sum(item.shape[0] for item in first_arg) if isinstance(first_arg, list) else first_arg.shape[0]
-        self.batch_sampler.validate(n_obs)
-        return method(self, *args, **kwargs)
-
-    return wrapper
 
 
 def split_given_size(a: np.ndarray, size: int, *, copy: bool = False) -> list[np.ndarray]:

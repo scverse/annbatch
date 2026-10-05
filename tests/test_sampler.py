@@ -9,10 +9,17 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from annbatch.abc import Sampler
-from annbatch.samplers import DistributedSampler, RandomSampler, SequentialSampler
+from annbatch.samplers import (
+    ClassSampler,
+    DistributedSampler,
+    RandomSampler,
+    SequentialSampler,
+    WeightedClassSampler,
+)
 from annbatch.samplers._utils import WorkerInfo
 
 if TYPE_CHECKING:
@@ -683,30 +690,94 @@ def make_distributed_sampler(request: pytest.FixtureRequest):
     return _SAMPLER_FACTORIES[request.param]
 
 
-def test_yielded_splits_are_not_reshuffled():
+# =============================================================================
+# Behaviour shared by all samplers
+# =============================================================================
+
+
+def _small_sampler(cls: type[Sampler], rng: object = None) -> Sampler:
+    """A seeded sampler over 200 obs in 10-row batches; the class samplers draw 100 obs from two 100-obs runs."""
+    kwargs = {"chunk_size": 10, "preload_nchunks": 4, "batch_size": 10}
+    kwargs["rng"] = np.random.default_rng(0) if rng is None else rng
+    if issubclass(cls, ClassSampler):
+        kwargs |= {"classes": pd.Categorical(np.repeat([0, 1], 100)), "num_samples": 100}
+    return cls(**kwargs)
+
+
+def _bounds(requests) -> list[tuple[int, int]]:
+    return [(s.start, s.stop) for s in requests]
+
+
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+def test_yielded_splits_are_not_reshuffled(cls: type[Sampler]):
     """Splits already handed out must survive the sampler shuffling the next window."""
+    consumed = [np.concatenate(lr["splits"]) for lr in _small_sampler(cls).sample(200)]
+    held = [np.concatenate(lr["splits"]) for lr in list(_small_sampler(cls).sample(200))]
+    for c, h in zip(consumed, held, strict=True):
+        np.testing.assert_array_equal(c, h)
 
-    def sampler():
-        return RandomSampler(chunk_size=10, preload_nchunks=4, batch_size=10, rng=np.random.default_rng(0))
 
-    consumed = [np.concatenate(lr["splits"]) for lr in sampler().sample(400)]
-    held = [np.concatenate(lr["splits"]) for lr in list(sampler().sample(400))]
-    assert all(map(np.array_equal, consumed, held))
+@pytest.mark.parametrize("seed", [0, np.int64(0)], ids=["int", "np_integer"])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler])
+def test_a_seed_passed_as_rng_warns_and_seeds(cls: type[Sampler], seed: int):
+    # `rng=0` is falsy, so it used to be swapped for a fresh unseeded generator
+    with pytest.warns(FutureWarning, match="Passing a seed as rng is deprecated") as record:
+        seeded = _small_sampler(cls, rng=seed)
+    assert record[0].filename == __file__, "the warning must point at the caller, not into annbatch"
+    expected = _small_sampler(cls, rng=np.random.default_rng(0))
+    assert [_bounds(lr["requests"]) for lr in seeded.sample(200)] == [
+        _bounds(lr["requests"]) for lr in expected.sample(200)
+    ]
+
+
+@pytest.mark.parametrize("rng", [np.random.RandomState(0), True], ids=["random_state", "bool"])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler])
+def test_a_non_generator_rng_is_rejected(cls: type[Sampler], rng: object):
+    with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
+        _small_sampler(cls, rng=rng)
+
+
+def test_distributed_does_not_mutate_the_sampler_it_wraps():
+    """Wrapping shards and re-seeds a copy, leaving the caller's own sampler usable."""
+    sampler = _small_sampler(RandomSampler)
+    before_mask, before_rng = sampler.mask, sampler.rng
+
+    list(DistributedSampler(sampler, dist_info=lambda: (0, 2)).sample(200))
+
+    assert sampler.mask == before_mask
+    assert sampler.rng is before_rng
+    rows = sorted(i for lr in sampler.sample(200) for s in lr["requests"] for i in range(s.start, s.stop))
+    assert rows == list(range(200)), "the caller's sampler still reads the whole range"
+
+
+@pytest.mark.parametrize("end", ["exhaust", "close"])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+def test_distributed_queries_leave_the_shard_alone(cls: type[Sampler], end: str):
+    """`len(loader)` before, during and after a pass gives rank 1's count and never moves the range a pass reads."""
+    dist = DistributedSampler(_small_sampler(cls), dist_info=lambda: (1, 2))
+    expected = 100 // dist.batch_size  # rank 1 of 2 owns 100 of 200 obs; the class samplers draw 100
+    assert dist.n_batches(200) == expected
+    dist.validate(200)
+
+    it = dist.sample(200)
+    first = next(it)
+    assert dist.n_batches(200) == expected, "mid-pass"
+    dist.validate(200)
+    requests = _bounds(first["requests"])
+    if end == "exhaust":
+        rest = list(it)
+        requests += [b for lr in rest for b in _bounds(lr["requests"])]
+        assert len(first["splits"]) + sum(len(lr["splits"]) for lr in rest) == expected
+    else:
+        it.close()
+    assert all(100 <= start and stop <= 200 for start, stop in requests), "rank 1 reads only its shard"
+
+    assert dist.n_batches(200) == expected, "after the pass"
+    assert all(100 <= start for lr in dist.sample(200) for start, _ in _bounds(lr["requests"]))
 
 
 class TestDistributedSampler:
     """Tests for DistributedSampler, parameterized over all backends."""
-
-    def test_does_not_mutate_the_sampler_it_wraps(self):
-        """Wrapping shards and re-seeds a copy, leaving the caller's own sampler usable."""
-        sampler = RandomSampler(chunk_size=10, preload_nchunks=4, batch_size=10, rng=np.random.default_rng(0))
-        before_mask, before_rng = sampler.mask, sampler.rng
-
-        DistributedSampler(sampler, dist_info=lambda: (0, 2)).n_batches(400)
-
-        assert sampler.mask == before_mask
-        assert sampler.rng is before_rng
-        assert len(list(sampler.sample(400))) == 10  # still reads the whole range
 
     def test_not_initialized_raises_torch(self):
         """RuntimeError when torch.distributed is not initialized."""

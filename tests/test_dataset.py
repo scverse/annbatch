@@ -15,8 +15,7 @@ import scipy.sparse as sp
 import zarr
 
 from annbatch import Loader, write_sharded
-from annbatch.abc import Sampler
-from annbatch.samplers import SequentialSampler
+from annbatch.samplers import ClassSampler, SequentialSampler
 from annbatch.utils import load_all_aligned
 from tests.conftest import load_x_obs_var
 
@@ -31,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from annbatch.abc import Sampler
     from annbatch.io import DatasetCollection
 
 skip_if_no_cupy = pytest.mark.skipif(find_spec("cupy") is None, reason="Can't test for preload_to_gpu without cupy")
@@ -761,61 +761,54 @@ def test_preload_dtype(tmp_path: Path, dtype_in: np.dtype, expected: np.dtype):
     assert next(iter(loader))["X"].dtype == expected
 
 
-def test_add_dataset_validation_failure_preserves_state(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
-):
-    """Test that failed validation in add_dataset doesn't modify internal state."""
+def _in_memory_adata(n_obs: int) -> ad.AnnData:
+    return ad.AnnData(X=np.ones((n_obs, 5), dtype="f4"), var=pd.DataFrame(index=[f"gene_{i}" for i in range(5)]))
 
-    class FailOnSecondValidateSampler(Sampler):
-        """A sampler that fails validation after the first call."""
 
-        def __init__(self):
-            self._validate_count = 0
+@pytest.mark.parametrize(
+    ("sampler", "n_batches"),
+    [
+        pytest.param(
+            SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10, mask=slice(0, 150)), 15, id="mask"
+        ),
+        pytest.param(
+            ClassSampler(10, 2, 10, classes=pd.Categorical(np.repeat([0, 1], 125)), num_samples=50), 5, id="classes"
+        ),
+    ],
+)
+def test_sampler_is_validated_against_the_whole_loader(sampler: Sampler, n_batches: int):
+    """Datasets can be added one at a time; the sampler is checked once, against all of them, at iteration."""
+    # 200 obs then 50: each add used to be validated against only the rows it added
+    loader = Loader(batch_sampler=sampler, to=None, preload_to_gpu=False)
+    loader.add_adata(_in_memory_adata(200)).add_adata(_in_memory_adata(50))
+    assert sum(1 for _ in loader) == n_batches
 
-        def n_batches(self, n_obs: int) -> int:
-            return math.ceil(n_obs / self.batch_size)
 
-        def validate(self, n_obs: int) -> None:
-            self._validate_count += 1
-            if self._validate_count > 1:
-                raise ValueError("Validation failed on second add")
+def test_invalid_sampler_raises_at_iteration_not_on_add():
+    sampler = SequentialSampler(chunk_size=10, preload_nchunks=2, batch_size=10, mask=slice(0, 500))
+    loader = Loader(batch_sampler=sampler, to=None, preload_to_gpu=False)
+    loader.add_adata(_in_memory_adata(100))  # no longer validated here
+    with pytest.raises(ValueError, match="exceeds loader n_obs"):
+        next(iter(loader))
+    loader.add_adata(_in_memory_adata(400))  # a failed iteration does not leave the loader locked
+    assert sum(1 for _ in loader) == 50
 
-        @property
-        def batch_size(self) -> int:
-            return 10
 
-        @property
-        def shuffle(self) -> bool:
-            return False
-
-        @property
-        def worker_handle(self):
-            return None
-
-        def _sample(self, n_obs: int, worker_handle=None):
-            yield from []
-
-    paths = list(adata_with_zarr_path_same_var_space[1].glob("*.zarr"))
-    data1 = open_dense(paths[0])
-    data2 = open_dense(paths[1])
-
-    sampler = FailOnSecondValidateSampler()
-    loader = Loader(batch_sampler=sampler, preload_to_gpu=False, to=None)
-
-    # First add succeeds
-    loader.add_dataset(**data1)
-
-    # Capture state before failed add
-    n_datasets_before = len(loader._train_datasets)
-    shapes_before = loader._shapes.copy()
-
-    # Second add should fail validation BEFORE modifying state
-    with pytest.raises(ValueError, match="Validation failed on second add"):
-        loader.add_dataset(**data2)
-
-    # State should be unchanged
-    assert len(loader._train_datasets) == n_datasets_before
-    assert loader._shapes == shapes_before
+@pytest.mark.parametrize("end", ["exhaust", "close"])
+def test_cannot_add_datasets_while_iterating(end: str):
+    loader = Loader(chunk_size=10, preload_nchunks=2, batch_size=10, to=None, preload_to_gpu=False)
+    loader.add_adata(_in_memory_adata(40))
+    it = iter(loader)
+    next(it)
+    with pytest.raises(RuntimeError, match="while the loader is being iterated"):
+        loader.add_adata(_in_memory_adata(40))
+    assert loader.n_obs == 40, "the refused dataset must not be added"
+    if end == "exhaust":
+        list(it)
+    else:
+        it.close()
+    loader.add_adata(_in_memory_adata(40))
+    assert loader.n_obs == 80
 
 
 def test_given_batch_sampler_samples_subset_of_combined_datasets(

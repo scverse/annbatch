@@ -194,37 +194,6 @@ def test_invalid_construction(
         make_sampler(classes, cls=sampler_cls, **kwargs)
 
 
-def test_a_seed_passed_as_rng_warns_and_seeds(sampler_cls: type[ClassSampler]):
-    # `rng=0` is falsy, so it used to be swapped for a fresh unseeded generator
-    def build(rng):
-        return sampler_cls(
-            chunk_size=10,
-            preload_nchunks=4,
-            batch_size=10,
-            classes=pd.Categorical(np.repeat([0, 1], 50)),
-            num_samples=100,
-            rng=rng,
-        )
-
-    with pytest.warns(FutureWarning, match="Passing a seed as rng is deprecated") as record:
-        seeded = build(0)
-    assert record[0].filename == __file__
-    expected = build(np.random.default_rng(0))
-    assert [lr["requests"] for lr in seeded.sample(100)] == [lr["requests"] for lr in expected.sample(100)]
-
-
-def test_a_non_generator_rng_is_rejected(sampler_cls: type[ClassSampler]):
-    with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
-        sampler_cls(
-            chunk_size=10,
-            preload_nchunks=4,
-            batch_size=10,
-            classes=pd.Categorical(np.repeat([0, 1], 50)),
-            num_samples=100,
-            rng=np.random.RandomState(0),
-        )
-
-
 def test_validate_rejects_n_obs_mismatch(sampler_cls: type[ClassSampler]):
     sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 50)), cls=sampler_cls, num_samples=50)
     with pytest.raises(ValueError, match="does not match loader n_obs"):
@@ -406,13 +375,6 @@ def test_absent_class_weight_is_ignored(sampler_cls: type[ClassSampler]):
     _assert_shares(sampler, codes, {0: 0.5, 1: 0.5})
 
 
-def test_each_window_gets_its_own_splits(sampler_cls: type[ClassSampler]):
-    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
-    sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls)
-    windows = [tuple(np.concatenate(lr["splits"])) for lr in list(sampler.sample(200))]
-    assert len(set(windows)) == len(windows), "windows must not share one row-id buffer"
-
-
 # =============================================================================
 # Mask
 # =============================================================================
@@ -456,25 +418,20 @@ def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[ClassSam
             sampler.mask = slice(50, 100)
 
 
-def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[ClassSampler]):
+@pytest.mark.parametrize("end", ["exhaust", "close"])
+def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[ClassSampler], end: str):
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
     sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, mask=slice(0, 100))
     it = sampler.sample(len(codes))
     next(it)  # starting the iterator draws every slice of the pass up front
+    sampler.mask = slice(0, 100)  # the range the pass is already reading -> allowed
     with pytest.raises(ValueError, match="while a pass is being iterated"):
         sampler.mask = slice(100, 200)
-    list(it)  # exhausting (or closing) the iterator ends the pass
+    if end == "exhaust":
+        list(it)
+    else:
+        it.close()
     sampler.mask = slice(100, 200)  # no pass open -> allowed again
-
-
-def test_distributed_reassigns_same_mask_while_pass_is_open(sampler_cls: type[ClassSampler]):
-    # DistributedSampler assigns this rank's shard as the mask on each call; assigning
-    # the mask an open pass is already using is a no-op and must not raise
-    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
-    dist = DistributedSampler(make_sampler(pd.Categorical(codes), cls=sampler_cls), dist_info=lambda: (0, 2))
-    it = dist.sample(len(codes))
-    next(it)
-    dist.validate(len(codes))  # must not raise
 
 
 # =============================================================================
