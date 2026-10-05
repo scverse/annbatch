@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -128,7 +129,7 @@ class Sampler(ABC):
             # close the pass explicitly: CPython <= 3.12.3 leaves an abandoned generator unfinalized when
             # the yield it was closed at has no enclosing try (https://github.com/python/cpython/issues/118272),
             # which would skip _sample's cleanup (open-pass counters, restored masks)
-            if hasattr(requests, "close"):
+            if isinstance(requests, Generator):
                 requests.close()
 
     @abstractmethod
