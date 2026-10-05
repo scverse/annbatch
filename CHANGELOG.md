@@ -10,10 +10,6 @@ and this project adheres to [Semantic Versioning][].
 
 ## Unreleased
 
-### Added
-
-- `copy` on {class}`~annbatch.samplers.RandomSampler`, {class}`~annbatch.samplers.ClassSampler` and {class}`~annbatch.samplers.WeightedClassSampler`. By default `splits` are views into a buffer the sampler reshuffles for the next load request, so a request kept past the next one (e.g. `list(sampler.sample(n_obs))`) has its splits changed underneath it; `copy=True` copies them out.
-
 ### Deprecated
 
 - Passing an integer seed as `rng` now seeds a generator from it with a {class}`FutureWarning`; pass a {class}`numpy.random.Generator` such as `np.random.default_rng(0)` instead.
@@ -23,6 +19,7 @@ and this project adheres to [Semantic Versioning][].
 - `class_weights` given as a {class}`pandas.Series` was read positionally, discarding the index and attaching the weights to the wrong classes; it now raises {class}`TypeError`. Pass `class_weights.reindex(classes.categories).to_numpy()` instead.
 - A falsy seed such as `rng=0` was silently swapped for a fresh unseeded {class}`numpy.random.Generator`, losing reproducibility; it now seeds the generator (see Deprecated).
 - {class}`~annbatch.samplers.DistributedSampler` rank-sharded and re-seeded the sampler it wrapped in place, leaving the caller's own sampler stuck on one rank's shard.
+- {class}`~annbatch.samplers.RandomSampler` and {class}`~annbatch.samplers.WeightedClassSampler` handed out `splits` that were views into one row-id buffer they reshuffled between load requests, so an already-yielded request's splits changed underneath the caller (e.g. with `list(sampler.sample(n_obs))`).
 - A {attr}`~annbatch.samplers.ClassSampler.mask` assigned part-way through a pass had no effect on that pass, whose slices are all drawn when it starts; it now raises.
 - {class}`~annbatch.samplers.ClassSampler`'s summary said a class is drawn per batch; it is drawn per `lcm(chunk_size, batch_size)` rows, so consecutive batches share a draw unless `batch_size` is a multiple of `chunk_size`.
 

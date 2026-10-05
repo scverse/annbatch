@@ -134,11 +134,6 @@ class ClassSampler(Sampler):
     rng
         Random number generator. Note that :func:`torch.manual_seed` has no effect
         here; pass a seeded :class:`numpy.random.Generator` to control randomness.
-    copy
-        Whether each load request's ``splits`` are copied out of the buffer the sampler
-        reshuffles for the next request. The :class:`~annbatch.Loader` consumes a request
-        before asking for the next, so it does not need this; set it to ``True`` if you
-        hold on to load requests, e.g. ``list(sampler.sample(n_obs))``.
     """
 
     _batch_size: int
@@ -150,7 +145,6 @@ class ClassSampler(Sampler):
     _drop_last: bool
     _rle_manager: RLEManager
     _num_open_passes: int
-    _copy: bool
 
     def __init__(
         self,
@@ -164,7 +158,6 @@ class ClassSampler(Sampler):
         mask: slice | None = None,
         drop_last: bool = False,
         rng: np.random.Generator | None = None,
-        copy: bool = False,
     ):
         check_lt_1([num_samples], ["num_samples"])
         if not isinstance(classes, pd.Categorical):
@@ -183,7 +176,6 @@ class ClassSampler(Sampler):
         self._rng = resolve_rng(rng)
         self._num_samples = num_samples
         self._drop_last = drop_last
-        self._copy = copy
         self._num_open_passes = 0
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
 
@@ -266,7 +258,7 @@ class ClassSampler(Sampler):
             slices[-1] = slice(last, last + remainder)
         for window in itertools.batched(slices, self._preload_nchunks):
             n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
-            splits = split_given_size(np.arange(n_rows), self._batch_size, copy=self._copy)
+            splits = split_given_size(np.arange(n_rows), self._batch_size)
             if self._drop_last and splits[-1].size < self._batch_size:
                 splits = splits[:-1]
                 if not splits:

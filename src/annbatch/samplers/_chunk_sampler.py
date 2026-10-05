@@ -36,7 +36,6 @@ class _ChunkSampler(Sampler):
     _in_memory_size: int
     _replacement: bool
     _num_samples: int | None
-    _copy: bool
 
     def __init__(
         self,
@@ -50,7 +49,6 @@ class _ChunkSampler(Sampler):
         drop_last: bool = False,
         mask: slice | None = None,
         rng: np.random.Generator | None = None,
-        copy: bool = False,
     ):
         if num_samples is not None:
             check_lt_1([num_samples], ["num_samples"])
@@ -62,7 +60,6 @@ class _ChunkSampler(Sampler):
         self._rng = resolve_rng(rng)
         self._replacement = replacement
         self._num_samples = num_samples
-        self._copy = copy
         self._in_memory_size = chunk_size * preload_nchunks
         self._batch_size, self._chunk_size, self._shuffle = batch_size, chunk_size, shuffle
         self._preload_nchunks, self._mask, self._drop_last = (
@@ -178,9 +175,9 @@ class _ChunkSampler(Sampler):
         split_batch_indices = split_given_size(batch_indices, self.batch_size)
         for request_slices in slices_per_request[:-1]:
             if self.shuffle:
-                # shuffled in place, so earlier splits (views into it) change unless copied
+                # shuffled in place, so copy the splits out: views would change under already-yielded requests
                 batch_rng.shuffle(batch_indices)
-                split_batch_indices = split_given_size(batch_indices, self.batch_size, copy=self._copy)
+                split_batch_indices = split_given_size(batch_indices, self.batch_size, copy=True)
             yield {"requests": request_slices, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nchunks * chunk_size
         final_slices = slices_per_request[-1]
