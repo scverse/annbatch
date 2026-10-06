@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.1]
+
+### Changed
+
+- {class}`~annbatch.Loader` no longer validates its batch sampler each time datasets are added; the sampler is validated against the loader's full `n_obs` when iteration starts, so a misconfigured sampler now raises on the first `next(iter(loader))` rather than in `add_adata`/`add_dataset` (https://github.com/scverse/annbatch/issues/289).
+- Adding datasets to a {class}`~annbatch.Loader` while it is being iterated now raises {class}`RuntimeError`; finish or close the iterator first.
+- `rng=True`/`rng=False` now raise {class}`TypeError` instead of being taken as a seed.
+
+### Deprecated
+
+- Passing an integer seed as `rng` now seeds a generator from it with a {class}`FutureWarning`; pass a {class}`numpy.random.Generator` such as `np.random.default_rng(0)` instead.
+
+### Fixed
+
+- `class_weights` given as a {class}`pandas.Series` was read positionally, discarding the index and attaching the weights to the wrong classes; it now raises {class}`TypeError`. Pass `class_weights.reindex(classes.categories).to_numpy()` instead.
+- A falsy seed such as `rng=0` was silently swapped for a fresh unseeded {class}`numpy.random.Generator`, losing reproducibility; it now seeds the generator (see Deprecated).
+- {class}`~annbatch.samplers.DistributedSampler` rank-sharded and re-seeded the sampler it wrapped in place, leaving the caller's own sampler stuck on one rank's shard.
+- {class}`~annbatch.samplers.DistributedSampler`'s `len`/`n_batches` and `validate` re-assigned the wrapped sampler's mask on every call; they now only read it, and the shard is applied for the duration of each pass.
+- Adding datasets one at a time to a {class}`~annbatch.Loader` validated the sampler against only the rows being added, so a valid `mask` or a {class}`~annbatch.samplers.ClassSampler` covering all datasets was rejected (e.g. `add_adata(a).add_adata(b)` with `classes` for both); see https://github.com/scverse/annbatch/issues/289.
+- {class}`~annbatch.samplers.RandomSampler` and {class}`~annbatch.samplers.WeightedClassSampler` handed out `splits` that were views into one row-id buffer they reshuffled between load requests, so an already-yielded request's splits changed underneath the caller (e.g. with `list(sampler.sample(n_obs))`).
+- A {attr}`~annbatch.samplers.ClassSampler.mask` assigned part-way through a pass had no effect on that pass, whose slices are all drawn when it starts; it now raises.
+- {class}`~annbatch.samplers.ClassSampler`'s summary said a class is drawn per batch; it is drawn per `lcm(chunk_size, batch_size)` rows, so consecutive batches share a draw unless `batch_size` is a multiple of `chunk_size`.
+
 ## [0.3.0]
 
 ### Feature

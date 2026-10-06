@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Literal
 
 from annbatch.abc import Sampler
@@ -86,7 +87,9 @@ class DistributedSampler(Sampler):
     Parameters
     ----------
     sampler
-        The :class:`~annbatch.abc.Sampler` to distribute.
+        The :class:`~annbatch.abc.Sampler` to distribute. It is copied, so changes made to it
+        after wrapping (``sampler.rng``, say) do not reach the copy. Its own ``mask`` is ignored:
+        the copy spans the whole range and is restricted to this rank's shard only while a pass runs.
     dist_info
         How to obtain rank and world size.
         Either a string naming a distributed backend (``"torch"`` or ``"jax"``),
@@ -100,6 +103,7 @@ class DistributedSampler(Sampler):
     _world_size: int
     _enforce_equal_batches: bool
     _sampler: Sampler
+    _num_open_passes: int
 
     def __init__(
         self,
@@ -115,9 +119,12 @@ class DistributedSampler(Sampler):
         else:
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
         self._enforce_equal_batches = enforce_equal_batches
-        self._sampler = sampler
-        if sampler.rng is not None:
-            sampler.rng = _spawn_worker_rng(sampler.rng, self._rank)
+        # a copy: _sample moves this sampler's mask onto the shard for each pass
+        self._sampler = copy.deepcopy(sampler)
+        self._sampler.mask = slice(0, None)
+        self._num_open_passes = 0
+        if self._sampler.rng is not None:
+            self._sampler.rng = _spawn_worker_rng(self._sampler.rng, self._rank)
 
     @property
     def batch_size(self) -> int:
@@ -137,13 +144,40 @@ class DistributedSampler(Sampler):
         return slice(rank_start, rank_stop)
 
     def n_batches(self, n_obs: int) -> int:
-        self._sampler.mask = self._shard_mask(n_obs)
-        return self._sampler.n_batches(n_obs)
+        """Return the number of batches this rank yields per pass.
+
+        This counts only this rank's shard of ``n_obs``, whether or not a pass is running,
+        and never moves the wrapped sampler's mask, so it is safe to call mid-pass
+        (e.g. ``len(loader)`` inside an epoch).
+
+        Parameters
+        ----------
+        n_obs
+            The total number of observations across all ranks.
+
+        Returns
+        -------
+        int
+            The number of batches in this rank's shard.
+        """
+        # How to ask depends on where the wrapped sampler's mask is:
+        if self._num_open_passes > 0:
+            # during a pass the mask *is* the shard, so count it against the real n_obs
+            # (asking with the shard size would put the shard out of bounds on ranks > 0)
+            return self._sampler.n_batches(n_obs)
+        # between passes the mask spans everything, so a shard-sized n_obs gives the shard's count
+        shard = self._shard_mask(n_obs)
+        return self._sampler.n_batches(shard.stop - shard.start)
 
     def validate(self, n_obs: int) -> None:
-        self._sampler.mask = self._shard_mask(n_obs)
+        # checks that don't depend on the shard; the shard is validated by the wrapped sampler's sample() in _sample
         self._sampler.validate(n_obs)
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         self._sampler.mask = self._shard_mask(n_obs)
-        yield from self._sampler._sample(n_obs)
+        self._num_open_passes += 1
+        try:
+            yield from self._sampler.sample(n_obs)
+        finally:
+            self._num_open_passes -= 1
+            self._sampler.mask = slice(0, None)

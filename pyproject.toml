@@ -155,6 +155,8 @@ ini_options.filterwarnings = [
   "ignore::scipy.sparse.SparseEfficiencyWarning",
   "ignore:Consolidated metadata is:UserWarning",
   "ignore:Only some AnnData objects have `.raw` attribute:UserWarning",
+  # Remove after anndata 0.13.5 is released
+  "ignore:.*option is deprecated.*:pandas.errors.Pandas4Warning",
 ]
 # https://github.com/pytest-dev/pytest/issues/10965
 # addopts = [

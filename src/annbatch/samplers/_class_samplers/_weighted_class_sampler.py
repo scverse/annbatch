@@ -41,7 +41,8 @@ class WeightedClassSampler(ClassSampler):
             n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
             ids_to_use = ids if n_rows == window_size else np.arange(n_rows)
             self._rng.shuffle(ids_to_use)
-            splits = split_given_size(ids_to_use, self._batch_size)
+            # `ids` is shuffled in place every window, so copy the splits out: views would change under already-yielded requests
+            splits = split_given_size(ids_to_use, self._batch_size, copy=True)
             if self._drop_last and splits[-1].size < self._batch_size:
                 splits = splits[:-1]
                 if not splits:
