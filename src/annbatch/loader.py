@@ -26,7 +26,6 @@ from annbatch.utils import (
     check_var_shapes,
     convert,
     load_all_aligned,
-    validate_sampler,
     warn_ignored_obs_aligned,
 )
 
@@ -174,6 +173,7 @@ class Loader[
     _sparse_dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _collection_added: bool = False
+    _num_open_iters: int = 0
     _dtypes_homogeneous: bool = True
 
     def __init__(
@@ -344,7 +344,6 @@ class Loader[
         self._collection_added = True
         return self
 
-    @validate_sampler
     def add_adatas(
         self,
         adatas: list[ad.AnnData],
@@ -362,7 +361,6 @@ class Loader[
             self._add_adata_unchecked(adata)
         return self
 
-    @validate_sampler
     def add_adata(self, adata: ad.AnnData) -> Self:
         """Append an adata to this dataset.
 
@@ -396,7 +394,6 @@ class Loader[
 
         return cast("BackingArray", dataset), obs, var
 
-    @validate_sampler
     def add_datasets(
         self,
         datasets: list[BackingArray],
@@ -424,7 +421,6 @@ class Loader[
             self._add_dataset_unchecked(ds, o, v)
         return self
 
-    @validate_sampler
     def add_dataset(
         self,
         dataset: BackingArray,
@@ -452,6 +448,11 @@ class Loader[
         obs: pd.DataFrame | None = None,
         var: pd.DataFrame | None = None,
     ) -> Self:
+        # the sampler is validated against n_obs when iteration starts, so n_obs must not move under an open one
+        if self._num_open_iters > 0:
+            raise RuntimeError(
+                "Cannot add datasets while the loader is being iterated. Finish or close the iterator first."
+            )
         if len(self._train_datasets) > 0:
             if self._obs is None and obs is not None:
                 raise ValueError(
@@ -949,10 +950,20 @@ class Loader[
         buffer, converted to the output format once, and then yielded as direct row-index
         subsets — no vstack or intermediate concatenation is required.
 
+        The batch sampler is validated against the loader's ``n_obs`` here, not when datasets are added,
+        and no datasets can be added until the iteration finishes or is closed.
+
         Yields
         ------
             A batch of data along with its obs and index (both optional).
         """
+        self._num_open_iters += 1
+        try:
+            yield from self._iter()
+        finally:
+            self._num_open_iters -= 1
+
+    def _iter(self) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
         check_lt_1(
             [len(self._train_datasets), self.n_obs],
             ["Number of datasets", "Number of observations"],

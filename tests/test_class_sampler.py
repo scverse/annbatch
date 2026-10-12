@@ -145,6 +145,13 @@ def _assert_shares(sampler: ClassSampler, codes: np.ndarray, expected: dict[int,
         ),
         pytest.param(
             pd.Categorical(np.repeat([0, 1], 50)),
+            {"class_weights": pd.Series([9.0, 1.0], index=[1, 0])},
+            TypeError,
+            "not a pandas Series",
+            id="weights_series",
+        ),
+        pytest.param(
+            pd.Categorical(np.repeat([0, 1], 50)),
             {"mask": slice(0, 500)},
             ValueError,
             "exceeds loader n_obs",
@@ -409,6 +416,22 @@ def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[ClassSam
         sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, class_weights=weights)
         with pytest.raises(ValueError, match="positive weight is present"):
             sampler.mask = slice(50, 100)
+
+
+@pytest.mark.parametrize("end", ["exhaust", "close"])
+def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[ClassSampler], end: str):
+    codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
+    sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, mask=slice(0, 100))
+    it = sampler.sample(len(codes))
+    next(it)  # starting the iterator draws every slice of the pass up front
+    sampler.mask = slice(0, 100)  # the range the pass is already reading -> allowed
+    with pytest.raises(ValueError, match="while a pass is being iterated"):
+        sampler.mask = slice(100, 200)
+    if end == "exhaust":
+        list(it)
+    else:
+        it.close()
+    sampler.mask = slice(100, 200)  # no pass open -> allowed again
 
 
 # =============================================================================

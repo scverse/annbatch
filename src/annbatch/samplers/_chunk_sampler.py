@@ -11,6 +11,7 @@ import numpy as np
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     get_torch_worker_info,
+    resolve_rng,
     validate_chunk_batch_preload_sizes,
     validate_mask_and_resolve,
     validate_mask_n_obs_and_resolve,
@@ -56,7 +57,7 @@ class _ChunkSampler(Sampler):
 
         start, stop = validate_mask_and_resolve(mask)
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        self._rng = rng or np.random.default_rng()
+        self._rng = resolve_rng(rng)
         self._replacement = replacement
         self._num_samples = num_samples
         self._in_memory_size = chunk_size * preload_nchunks
@@ -174,9 +175,9 @@ class _ChunkSampler(Sampler):
         split_batch_indices = split_given_size(batch_indices, self.batch_size)
         for request_slices in slices_per_request[:-1]:
             if self.shuffle:
-                # Avoid copies using in-place shuffling since `self.shuffle` should not change mid-training
+                # shuffled in place, so copy the splits out: views would change under already-yielded requests
                 batch_rng.shuffle(batch_indices)
-                split_batch_indices = split_given_size(batch_indices, self.batch_size)
+                split_batch_indices = split_given_size(batch_indices, self.batch_size, copy=True)
             yield {"requests": request_slices, "splits": split_batch_indices}
         # On the last yield, drop the last uneven batch and create new batch_indices since the in-memory size of this last yield could be divisible by batch_size but smaller than preload_nchunks * chunk_size
         final_slices = slices_per_request[-1]
