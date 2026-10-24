@@ -61,10 +61,18 @@ jobs:
           persist-credentials: false
 
       # https://github.com/scverse/gpu-ci-config/issues/4#issuecomment-5511975344
+      # Ubuntu's (ESM) gh is too old for Projects (classic) deprecation and outranks GitHub's apt repo,
+      # so add GitHub's repo and pin it: https://lukemanning.ie/blog/gh-issue-view-failing-ubuntu-deprecation-apt-pin
       - name: Update gh CLI
         run: |
+          sudo mkdir -p -m 755 /etc/apt/keyrings
+          wget -nv -O- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          printf 'Package: gh\nPin: origin cli.github.com\nPin-Priority: 600\n' | sudo tee /etc/apt/preferences.d/gh > /dev/null
           sudo apt update
-          sudo apt install gh=2.99.0
+          sudo apt install -y gh
+          gh --version
 
       - name: Nvidia SMI sanity check
         run: nvidia-smi
