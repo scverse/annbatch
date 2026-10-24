@@ -54,6 +54,11 @@ class RLEManager:
         n_classes = len(self._classes.categories)
         if class_weights is None:
             weights = np.ones(n_classes, dtype=float)
+        elif isinstance(class_weights, pd.Series):
+            raise TypeError(
+                "class_weights must be an array, not a pandas Series: a Series would be read positionally, "
+                "ignoring its index. Pass class_weights.reindex(classes.categories).to_numpy()."
+            )
         else:
             weights = np.array(class_weights, dtype=float)
             if weights.shape != (n_classes,):
