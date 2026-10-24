@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -104,24 +105,32 @@ class Sampler(ABC):
             Load requests for batching data.
         """
         self.validate(n_obs)
-        for load_request in self._sample(n_obs):
-            # If splits are not provided, generate them based on batch_size
-            if "splits" not in load_request:
-                batch_size = self.batch_size
-                if batch_size is None:
-                    raise ValueError("batch_size must be set when splits are not provided in LoadRequest")
-                shuffle = self.shuffle
-                if shuffle is None:
-                    raise ValueError("shuffle must be set when splits are not provided in LoadRequest")
+        requests = self._sample(n_obs)
+        try:
+            for load_request in requests:
+                # If splits are not provided, generate them based on batch_size
+                if "splits" not in load_request:
+                    batch_size = self.batch_size
+                    if batch_size is None:
+                        raise ValueError("batch_size must be set when splits are not provided in LoadRequest")
+                    shuffle = self.shuffle
+                    if shuffle is None:
+                        raise ValueError("shuffle must be set when splits are not provided in LoadRequest")
 
-                # Calculate total observations from requests
-                total_obs = sum(chunk.stop - chunk.start for chunk in load_request["requests"])
+                    # Calculate total observations from requests
+                    total_obs = sum(chunk.stop - chunk.start for chunk in load_request["requests"])
 
-                # Generate indices with optional shuffling and split into batches
-                indices = np.random.permutation(total_obs) if shuffle else np.arange(total_obs)
-                load_request["splits"] = split_given_size(indices, batch_size)
+                    # Generate indices with optional shuffling and split into batches
+                    indices = np.random.permutation(total_obs) if shuffle else np.arange(total_obs)
+                    load_request["splits"] = split_given_size(indices, batch_size)
 
-            yield load_request
+                yield load_request
+        finally:
+            # close the pass explicitly: CPython <= 3.12.3 leaves an abandoned generator unfinalized when
+            # the yield it was closed at has no enclosing try (https://github.com/python/cpython/issues/118272),
+            # which would skip _sample's cleanup (open-pass counters, restored masks)
+            if isinstance(requests, Generator):
+                requests.close()
 
     @abstractmethod
     def validate(self, n_obs: int) -> None:
