@@ -27,7 +27,6 @@ from annbatch.utils import (
     check_lt_1,
     check_var_shapes,
     load_all_aligned,
-    validate_sampler,
 )
 
 from .compat import IterableDataset
