@@ -30,7 +30,7 @@ If you have genetics data, see {mod}`cellink` for info on converting to `anndata
 :link: installation
 :link-type: doc
 
-New to *annbatch*? Check out the installation guide and pick the right extras.
+New to _annbatch_? Check out the installation guide and pick the right extras.
 :::
 
 :::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Quickstart
@@ -58,7 +58,7 @@ An in-depth tour of preprocessing, chunked loading, sampling and benchmarks.
 :link: api
 :link-type: doc
 
-The API reference contains a detailed description of the *annbatch* API.
+The API reference contains a detailed description of the _annbatch_ API.
 :::
 
 :::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Discussion
@@ -130,5 +130,5 @@ GitHub <https://github.com/scverse/annbatch>
 Discourse <https://discourse.scverse.org/>
 ```
 
-[`webdataset`]:https://github.com/webdataset/webdataset
+[`webdataset`]: https://github.com/webdataset/webdataset
 [Merlin]: https://nvidia-merlin.github.io/dataloader/stable/

@@ -39,11 +39,11 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
   └─────────┴─────────┴─────────┴─────────┘
 ```
 
-  Note: The slices are purely virtual and are defined by the user through the `requests` argument.
-  They don't necessarily need to with the underlying zarr chunks.
+Note: The slices are purely virtual and are defined by the user through the `requests` argument.
+They don't necessarily need to with the underlying zarr chunks.
 
-  **Important:** The number of samples that get loaded into memory at once, must be divisible by the batch size.
-  Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
+**Important:** The number of samples that get loaded into memory at once, must be divisible by the batch size.
+Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
 
 - **{attr}`~annbatch.types.LoadRequest`** (optional): A list of numpy arrays that define how the loaded data should be split into batches after being read from disk and concatenated in memory.
   - If not supplied: batches are randomly created based on the loaded requests.
@@ -58,46 +58,46 @@ Split indices are always in **chunk order**. Internally the loader fetches chunk
 *Changed in 0.2.0:* splits previously had to index into the dataset-grouped physical layout; they now index in chunk order. Custom samplers that compensated for the dataset reordering must drop that compensation.
 ```
 
-  ```
+```
 
-  Concatenated in-memory data (top row) from slices (bottom row) of 400 observations:
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │  0   1   2   3  ...  99 100 101  ...  199 200  ...  299 300  ...  399   │
-  │                                                                         │
-  │  [Slice 200-299]    [Slice 700-799]   [Slice 0-99]   [Slice 500-599]    │
-  └─────────────────────────────────────────────────────────────────────────┘
+Concatenated in-memory data (top row) from slices (bottom row) of 400 observations:
+┌─────────────────────────────────────────────────────────────────────────┐
+│  0   1   2   3  ...  99 100 101  ...  199 200  ...  299 300  ...  399   │
+│                                                                         │
+│  [Slice 200-299]    [Slice 700-799]   [Slice 0-99]   [Slice 500-599]    │
+└─────────────────────────────────────────────────────────────────────────┘
 
-  `LoadRequest` with splits for batch size of 4 = [np.array([0,50,150,250]),
-                             np.array([1,51,151,251]),
-                             np.array([2,52,152]), ...]:
+`LoadRequest` with splits for batch size of 4 = [np.array([0,50,150,250]),
+                           np.array([1,51,151,251]),
+                           np.array([2,52,152]), ...]:
 
-  Batch 1 (4 observations):
-  ┌───────────────────────────────────────────────────────────────────┐
-  │  indices [0, 50, 150, 250]                                        │
-  │     ↓    ↓     ↓     ↓                                            │
-  │  ┌───┬────┬────┬────┐                                             │
-  │  │ 0 │ 50 │ 150│ 250│  → batch_size = 4                           │
-  │  └───┴────┴────┴────┘                                             │
-  └───────────────────────────────────────────────────────────────────┘
+Batch 1 (4 observations):
+┌───────────────────────────────────────────────────────────────────┐
+│  indices [0, 50, 150, 250]                                        │
+│     ↓    ↓     ↓     ↓                                            │
+│  ┌───┬────┬────┬────┐                                             │
+│  │ 0 │ 50 │ 150│ 250│  → batch_size = 4                           │
+│  └───┴────┴────┴────┘                                             │
+└───────────────────────────────────────────────────────────────────┘
 
-  Batch 2 (4 observations):
-  ┌───────────────────────────────────────────────────────────────────┐
-  │  indices [1, 51, 151, 251]                                        │
-  │     ↓   ↓    ↓     ↓                                              │
-  │  ┌───┬────┬────┬────┐                                             │
-  │  │ 1 │ 51 │ 151│ 251│  → batch_size = 4                           │
-  │  └───┴────┴────┴────┘                                             │
-  └───────────────────────────────────────────────────────────────────┘
+Batch 2 (4 observations):
+┌───────────────────────────────────────────────────────────────────┐
+│  indices [1, 51, 151, 251]                                        │
+│     ↓   ↓    ↓     ↓                                              │
+│  ┌───┬────┬────┬────┐                                             │
+│  │ 1 │ 51 │ 151│ 251│  → batch_size = 4                           │
+│  └───┴────┴────┴────┘                                             │
+└───────────────────────────────────────────────────────────────────┘
 
-  Batch 3 (3 observations):
-  ┌───────────────────────────────────────────────────────────────────┐
-  │  indices [2, 52, 152]                                             │
-  │     ↓   ↓    ↓                                                    │
-  │  ┌───┬────┬────┐                                                  │
-  │  │ 2 │ 52 │ 152│  → batch_size = 3 (last split can be partial)    │
-  │  └───┴────┴────┘                                                  │
-  └───────────────────────────────────────────────────────────────────┘
-  ```
+Batch 3 (3 observations):
+┌───────────────────────────────────────────────────────────────────┐
+│  indices [2, 52, 152]                                             │
+│     ↓   ↓    ↓                                                    │
+│  ┌───┬────┬────┐                                                  │
+│  │ 2 │ 52 │ 152│  → batch_size = 3 (last split can be partial)    │
+│  └───┴────┴────┘                                                  │
+└───────────────────────────────────────────────────────────────────┘
+```
 
 
 ## Example 1: Implementing a `InOrderSampler` class
