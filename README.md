@@ -14,7 +14,6 @@
 [![CZI's Essential Open Source Software for Science](https://img.shields.io/badge/funded%20by-EOSS-FF414B)](https://czi.co/EOSS)
 
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
-
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
 
 A data loader and io utilities for mini-batched data loading of on-disk AnnData files as well as in-memory data, co-developed by [Lamin Labs][] and [scverse][]
@@ -73,7 +72,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
+> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, _all_ columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path
@@ -144,29 +143,16 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 
 
 [uv]: https://github.com/astral-sh/uv
-
 [scverse discourse]: https://discourse.scverse.org/
-
 [issue tracker]: https://github.com/scverse/annbatch/issues
-
 [tests]: https://github.com/scverse/annbatch/actions/workflows/test.yaml
-
 [documentation]: https://annbatch.readthedocs.io
-
 [changelog]: https://annbatch.readthedocs.io/en/latest/changelog.html
-
 [api documentation]: https://annbatch.readthedocs.io/en/latest/api.html
-
 [pypi]: https://pypi.org/project/annbatch
-
 [`zarrs-python`]: https://zarrs-python.readthedocs.io/
-
 [Lamin Labs]: https://lamin.ai/
-
 [scverse]: https://scverse.org/
-
 [in-depth section of our docs]: https://annbatch.readthedocs.io/en/stable/tutorials/quickstart.html
-
 [installation]: https://annbatch.readthedocs.io/en/stable/installation.html
-
 [`numba`]: https://numba.readthedocs.io/en/stable/
