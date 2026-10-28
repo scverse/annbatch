@@ -52,7 +52,7 @@ This number can be quite large for pre-shuffled data but not for un-shuffled dat
 For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader` regardless of matrix type.
 Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
-In order to take advantage of the sharded zarr files performance, though, locally, you *must* set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
+In order to take advantage of the sharded zarr files performance, though, locally, you _must_ set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
 Using {mod}`zarr` on its own will not yield high performance for local filesystems.
 We have not tested remote data (i.e., using {func}`zarr.open` with a {class}`zarr.storage.ObjectStore`) but because we use {mod}`zarr`, this data loader should also work over cloud connections via relevant zarr stores.
 Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of non-local stores.

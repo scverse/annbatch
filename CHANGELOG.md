@@ -54,17 +54,20 @@ and this project adheres to [Semantic Versioning][].
 ## [0.2.1]
 
 ### Feature
+
 - A new `to` argument will replace `to_torch` (now deprecated) in {class}`~annbatch.Loader`. `to_torch` previously had automatic recognition of `torch` and would yield batches with {class}`torch.Tensor` if it were installed. The new `to` argument requires explicit setting as one of `torch` or `jax` (or `None` to disable automatic `torch` inference until `to_torch` is removed). `preload_to_gpu` will remain an in-memory shuffle-accelerator but now will go 0-copy to jax if `to="jax"` as well using `dlpack` (just as it did for `torch`).
 
 ## [0.2.0]
 
 ### Feature
+
 - Add a `merge` argument to {meth}`annbatch.DatasetCollection.add_adatas` to handle how columns in {attr}`~anndata.AnnData.var` are handled when creating the on-disk dataset.
 - Now {attr}`annbatch.types.LoadRequest.requests` (formerly `annbatch.types.LoadRequest.chunks`) can also be a numpy array of integers.
 - Support in memory matrices ({class}`scipy.sparse.csr_matrix`, {class}`scipy.sparse.csr_array`, {class}`numpy.ndarray`) requiring `numba` for the sparse cases (new additional dependency group for `numba` included).
 - Added {class}`annbatch.samplers.ClassSampler`: a replacement sampler that takes a {class}`pandas.Categorical` (e.g. `adata.obs["cell_type"].astype("category")`). Sampling is with replacement; for each batch, classes are drawn by `class_weights` (uniform by default).
 
 ### Breaking
+
 - Removal of deprecated `annbatch.ChunkSampler`
 - Deprecated `n_iters` method of {class}`~annbatch.abc.Sampler` in favor of `n_batches` to match the actual semantics of the returned value.
 - Added `n_batches` method to {class}`~annbatch.abc.Sampler` and all sampler implementations.
@@ -73,43 +76,51 @@ and this project adheres to [Semantic Versioning][].
 - Deprecated `annbatch.types.LoadRequest.chunks` in favor of {attr}`annbatch.types.LoadRequest.requests`.
 
 ### Fixed
+
 - Handling of different data types i.e., `float32` vs `float64` in the same {class}`~annbatch.Loader`
 
 ## [0.1.6]
 
 ### Performance
+
 - New internal use of {class}`numpy.ndarray` for indexing means the small chunk sizes (i.e., perfect random sampling) is much more performant.
 
 ### Docs
+
 - New docs including a logo!
 
 ## [0.1.5]
 
 ### Fixed
+
 - Handle indexers for `indices` and `data` separately because their underlying chunking can differ
 
 ## [0.1.4]
 
 ### Performance
-- Preallocate buffers for in-memory handling.  `concat_strategy` argument no longer has any affect as the new strategy is as memory efficient and as fast as both strategies.
+
+- Preallocate buffers for in-memory handling. `concat_strategy` argument no longer has any affect as the new strategy is as memory efficient and as fast as both strategies.
 
 ### Features
+
 - Added `groupby` support to {meth}`annbatch.DatasetCollection.add_adatas` to group observations per dataset before writing collections. When appending to an existing on-disk collection, groupby columns must already exist and categorical categories must be identical to those on-disk.
 
 ## [0.1.3]
 
 ### Features
+
 - Added {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler` as replacements for `annbatch.ChunkSampler`.
 - Exposed {class}`annbatch.samplers.DistributedSampler` for distributed training.
 
 ### Breaking
+
 - Deprecated `annbatch.ChunkSampler` in favor of {class}`annbatch.samplers.RandomSampler` and {class}`annbatch.samplers.SequentialSampler`.
 
 ## [0.1.2]
 
 ### Fixed
 
-- To handle `torch>=2.11` + `cupy-cuda12x`, because `torch` installs `cuda13` by default from this version onwards, we now install `cupy-cuda12x[ctk]` to ensure the `cuda` version used matches that of `cupy`.  For information on this change [see the cupy docs](https://docs.cupy.dev/en/stable/install.html#installing-cupy).
+- To handle `torch>=2.11` + `cupy-cuda12x`, because `torch` installs `cuda13` by default from this version onwards, we now install `cupy-cuda12x[ctk]` to ensure the `cuda` version used matches that of `cupy`. For information on this change [see the cupy docs](https://docs.cupy.dev/en/stable/install.html#installing-cupy).
 
 ## [0.1.1]
 
@@ -120,17 +131,20 @@ and this project adheres to [Semantic Versioning][].
 ## [0.1.0]
 
 ### Breaking
+
 - Renamed `annbatch.Loader.add_anndatas` to {meth}`annbatch.Loader.add_adatas`.
 - Renamed `annbatch.Loader.add_anndata` to {meth}`annbatch.Loader.add_adata`.
-- The ``sparse_chunk_size``, ``sparse_shard_size``, ``dense_chunk_size``, and ``dense_shard_size`` parameters of {func}`annbatch.write_sharded` have been replaced by ``n_obs_per_chunk`` (number of observations per chunk, automatically converted to element counts for sparse arrays) and ``shard_size`` (number of observations per shard or a size string). The corresponding parameters in {meth}`annbatch.DatasetCollection.add_adatas` are ``n_obs_per_chunk`` and ``shard_size``.
+- The `sparse_chunk_size`, `sparse_shard_size`, `dense_chunk_size`, and `dense_shard_size` parameters of {func}`annbatch.write_sharded` have been replaced by `n_obs_per_chunk` (number of observations per chunk, automatically converted to element counts for sparse arrays) and `shard_size` (number of observations per shard or a size string). The corresponding parameters in {meth}`annbatch.DatasetCollection.add_adatas` are `n_obs_per_chunk` and `shard_size`.
 
 ### Fixed
+
 - Formatted progress bar descriptions to be more readable.
 - {class}`annbatch.DatasetCollection` now accepts a `rng` argument to the {meth}`annbatch.DatasetCollection.add_adatas` method.
 
 ### Features
-- `shard_size` in {meth}`annbatch.DatasetCollection.add_adatas` and `shard_size` in {func}`annbatch.write_sharded` now accept a human-readable size string (e.g. ``'1GB'``, ``'512MB'``) in addition to an integer number of observations. When a string is provided, the observation count is derived independently for each array element from its uncompressed bytes-per-row so that every shard stays close to the target size.
-- ``dataset_size`` in {meth}`annbatch.DatasetCollection.add_adatas` now accepts a human-readable size string (e.g. ``'20GB'``, ``'512MB'``) in addition to an integer number of observations. When a string is provided, the per-row byte size is estimated from the on-disk metadata of the input datasets during validation and used to derive the observation count. The default has changed from ``2_097_152`` to ``'20GB'``.
+
+- `shard_size` in {meth}`annbatch.DatasetCollection.add_adatas` and `shard_size` in {func}`annbatch.write_sharded` now accept a human-readable size string (e.g. `'1GB'`, `'512MB'`) in addition to an integer number of observations. When a string is provided, the observation count is derived independently for each array element from its uncompressed bytes-per-row so that every shard stays close to the target size.
+- `dataset_size` in {meth}`annbatch.DatasetCollection.add_adatas` now accepts a human-readable size string (e.g. `'20GB'`, `'512MB'`) in addition to an integer number of observations. When a string is provided, the per-row byte size is estimated from the on-disk metadata of the input datasets during validation and used to derive the observation count. The default has changed from `2_097_152` to `'20GB'`.
 
 ## [0.0.8]
 
@@ -143,7 +157,7 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.6]
 
-- Don't concatenate all i/o-ed chunks in-memory, instead yielding from individual chunks as though they were concatenated (i.e., not abreaking hcange with the {class}`annbatch.abc.Sampler` API).  Should improve memory performance especially for dense data
+- Don't concatenate all i/o-ed chunks in-memory, instead yielding from individual chunks as though they were concatenated (i.e., not abreaking hcange with the {class}`annbatch.abc.Sampler` API). Should improve memory performance especially for dense data
 
 ## [0.0.5]
 
@@ -151,11 +165,13 @@ and this project adheres to [Semantic Versioning][].
 
 
 ### Breaking
-- Now {class}`annbatch.Loader` expects ``preload_nchunks * chunk_size % batch_size == 0`` for simplification and efficiency.
+
+- Now {class}`annbatch.Loader` expects `preload_nchunks * chunk_size % batch_size == 0` for simplification and efficiency.
 
 ### Added
-- Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the ``batch_sampler`` argument of {class}`annbatch.Loader`.
-- Exposed the older default sampling scheme as `annbatch.ChunkSampler`, which is used internally to match older behavior when ``batch_sampler`` isn't provided to {class}`annbatch.Loader`.
+
+- Introduced an {class}`annbatch.abc.Sampler` abstract base class. Users can implement and pass any class instance that is a subclass to the `batch_sampler` argument of {class}`annbatch.Loader`.
+- Exposed the older default sampling scheme as `annbatch.ChunkSampler`, which is used internally to match older behavior when `batch_sampler` isn't provided to {class}`annbatch.Loader`.
 
 ## [0.0.4]
 
@@ -170,13 +186,12 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.0.2]
 
-
 ### Breaking
 
 - `ZarrSparseDataset` and `ZarrDenseDataset` have been conslidated into {class}`annbatch.Loader`
 - `create_anndata_collection` and `add_to_collection` have been moved into the `annbatch.DatasetCollection.add_adatas` method
-- Default reading of input data is now fully lazy in `annbatch.DatasetCollection.add_adatas`, and therefore the shuffle process may now be slower although have better memory properties.  Use `load_adata` argument in `annbatch.DatasetCollection.add_adatas` to customize this behavior.
-- Files shuffled under the old `create_anndata_collection` will not be recognized by {class}`annbatch.DatasetCollection` and therefore are not usable with the new {class}`annbatch.Loader.use_collection` API.  At the moment, the file metadata we maintain is only for internal purposes - however, if you wish to migrate to be able to use {class}`annbatch.DatasetCollection` in conjunction with {class}`annbatch.Loader.use_collection`, the root folder of the old collection must have attrs `{"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}` and be a {class}`zarr.Group`. The subfolders (i.e., datasets) must be called `dataset_([0-9]*)`. Otherwise you can use the `annbatch.DatasetCollection.add_adatas` as before.
+- Default reading of input data is now fully lazy in `annbatch.DatasetCollection.add_adatas`, and therefore the shuffle process may now be slower although have better memory properties. Use `load_adata` argument in `annbatch.DatasetCollection.add_adatas` to customize this behavior.
+- Files shuffled under the old `create_anndata_collection` will not be recognized by {class}`annbatch.DatasetCollection` and therefore are not usable with the new {class}`annbatch.Loader.use_collection` API. At the moment, the file metadata we maintain is only for internal purposes - however, if you wish to migrate to be able to use {class}`annbatch.DatasetCollection` in conjunction with {class}`annbatch.Loader.use_collection`, the root folder of the old collection must have attrs `{"encoding-type": "annbatch-preshuffled", "encoding-version": "0.1.0"}` and be a {class}`zarr.Group`. The subfolders (i.e., datasets) must be called `dataset_([0-9]*)`. Otherwise you can use the `annbatch.DatasetCollection.add_adatas` as before.
 
 ### Changed
 
