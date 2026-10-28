@@ -26,6 +26,7 @@ from annbatch.utils import (
     _check_df_or_none,
     check_lt_1,
     check_var_shapes,
+    convert,
     load_all_aligned,
 )
 
@@ -176,7 +177,7 @@ class Loader[
     _batch_sampler: Sampler
     _collection_added: bool = False
     _num_open_iters: int = 0
-    _dtypes_homogeneous: dict[RefAcc, bool] = {}
+    _dtypes_homogeneous: dict[RefAcc, bool]
 
     def __init__(
         self,
@@ -233,6 +234,7 @@ class Loader[
         self._train_datasets = {}
         self._shapes = {}
         self._sparse_dataset_elem_cache = {}
+        self._dtypes_homogeneous = {}
 
     def __len__(self) -> int:
         return self._batch_sampler.n_batches(self.n_obs)
@@ -1083,7 +1085,10 @@ class Loader[
                         ref_json = ["X"]
                     else:
                         ref_json = [str(x) for x in ref_json]
-                    out[".".join(ref_json)] = in_memory_data[sel]
+                    batch = in_memory_data[sel]
+                    out[".".join(ref_json)] = (
+                        batch if self._to is None else convert(batch, self._preload_to_gpu, self._to)
+                    )
                 yield out
 
             # https://github.com/cupy/cupy/issues/9625
