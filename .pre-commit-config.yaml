@@ -15,6 +15,9 @@ repos:
     rev: v2.30.3
     hooks:
       - id: pyproject-fmt
+        # https://github.com/pytorch/pytorch/issues/184352
+        # https://github.com/cupy/cupy/issues/10259, waiting on release
+        args: ["--max-supported-python", "3.14"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.1
     hooks:
