@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import math
 from importlib.util import find_spec
 from types import NoneType
@@ -61,7 +60,7 @@ def open_sparse(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata
             "var": ad.io.read_elem(path["var"]),
         }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
+        return ad.AnnData(layers={"sparse": data["dataset"]}, obs=data["obs"], var=data["var"])
     return data
 
 
@@ -76,7 +75,7 @@ def open_in_memory_sparse(
         "var": ad.io.read_elem(path["var"]),
     }
     if use_anndata:
-        return ad.AnnData(X=data["dataset"], obs=data["obs"], var=data["var"])
+        return ad.AnnData(layers={"sparse": data["dataset"]}, obs=data["obs"], var=data["var"])
     return data
 
 
@@ -111,7 +110,7 @@ def open_dense(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata:
     return data
 
 
-def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
+def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False, use_anndata: bool = False) -> ad.AnnData:
     old_pipeline = zarr.config.get("codec_pipeline.path")
 
     with zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline" if use_zarrs else old_pipeline}):
@@ -122,6 +121,8 @@ def open_3d(path: Path | zarr.Group, *, use_zarrs: bool = False) -> Data:
             "obs": ad.io.read_elem(path["obs"]),
             "var": ad.io.read_elem(path["var"]),
         }
+    if use_anndata:
+        return ad.AnnData(obsm={"3d": data["dataset"]}, obs=data["obs"], var=data["var"])
     return data
 
 
@@ -238,7 +239,7 @@ def test_store_load_dataset(
     var_dfs = []
     expected_data = adata.X if is_dense else adata.layers["sparse"].toarray()
     for batch in loader:
-        x, label, var, index = batch["X"], batch["obs"], batch["var"], batch["index"]
+        x, label, var, index = batch["X" if is_dense else "layers.sparse"], batch["obs"], batch["var"], batch["index"]
         n_elems += x.shape[0]
         # Check feature dimension
         assert x.shape[1] == 100
@@ -300,6 +301,30 @@ def test_use_collection_twice(simple_collection: tuple[ad.AnnData, DatasetCollec
         ds.use_collection(simple_collection[1], load_adata=load_x_obs_var)
 
 
+def test_multiple_outputs(simple_collection: tuple[ad.AnnData, DatasetCollection], request: pytest.FixtureRequest):
+    adata = simple_collection[0]
+    ds = Loader(
+        chunk_size=10, preload_nchunks=4, batch_size=20, preload_to_gpu=False, to=None, return_index=True
+    ).use_collection(simple_collection[1])
+    batch = next(iter(ds))
+    assert set(batch.keys()) == {"X", "layers.sparse", "obsm.3d", "obs", "var", "index"}
+    subtest = request.getfixturevalue("subtests").test
+    index = batch["index"]
+    with subtest(msg="X"):
+        assert isinstance(batch["X"], np.ndarray)
+        np.testing.assert_array_equal(batch["X"], adata.X[index])
+    with subtest(msg="layers.sparse"):
+        assert isinstance(batch["layers.sparse"], sp.csr_matrix)
+        np.testing.assert_array_equal(batch["layers.sparse"].toarray(), adata.layers["sparse"][index].toarray())
+    with subtest(msg="obsm.3d"):
+        assert isinstance(batch["obsm.3d"], np.ndarray)
+        np.testing.assert_array_equal(batch["obsm.3d"], adata.obsm["3d"][index])
+    with subtest(msg="obs"):
+        pd.testing.assert_frame_equal(batch["obs"], adata.obs.iloc[index])
+    with subtest(msg="var"):
+        pd.testing.assert_frame_equal(batch["var"], adata.var)
+
+
 def test_load_all_aligned_backs_arrays_and_skips_the_rest(tmp_path: Path):
     """Everything backable stays backed; an `obsm` dataframe - which the loader cannot yield anyway - is skipped."""
     n_obs, n_var = 8, 5
@@ -323,61 +348,6 @@ def test_load_all_aligned_backs_arrays_and_skips_the_rest(tmp_path: Path):
     assert isinstance(loaded.layers["sparse"], ad.abc.CSRDataset)
     np.testing.assert_allclose(loaded.X[...], adata.X)
     np.testing.assert_allclose(loaded.layers["sparse"][...].toarray(), adata.layers["sparse"].toarray())
-
-
-@contextlib.contextmanager
-def expect_warning_about_additional_aligned_elems(*, is_expected: bool):
-    msg = "Only `X`, `obs`, and `var` are kept"
-    with pytest.warns(FutureWarning, match=msg) if is_expected else contextlib.nullcontext():
-        yield
-
-
-@pytest.mark.parametrize("use_custom_loader", [False, True], ids=["default", "use-custom-loader"])
-def test_use_collection_warns_about_additional_aligned_elems(
-    simple_collection: tuple[ad.AnnData, DatasetCollection], *, use_custom_loader: bool
-):
-    """`use_collection` defaults to `load_all_aligned` (warns on obsm/layers); a custom loader opts out."""
-    _, collection = simple_collection
-    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-    # the collection has obsm/layers on disk, so the default loader warns while the X/obs/var-only loader does not
-    load_adata = {"load_adata": lambda g: open_dense(g, use_anndata=True)} if use_custom_loader else {}
-    with expect_warning_about_additional_aligned_elems(is_expected=not use_custom_loader):
-        loader.use_collection(collection, **load_adata)
-
-
-@pytest.mark.parametrize("has_additional_aligned_elems", [True, False], ids=["with-additional", "without-additional"])
-@pytest.mark.parametrize("method", ["add_adata", "add_adatas"])
-def test_add_adata_warns_about_additional_aligned_elems(
-    adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path], *, method: str, has_additional_aligned_elems: bool
-):
-    """`add_adata`/`add_adatas` warn iff the in-memory AnnData carries obsm/layers that get dropped for now."""
-    adata = adata_with_zarr_path_same_var_space[0]  # has obsm/3d and layers/sparse
-    if not has_additional_aligned_elems:
-        adata = ad.AnnData(X=adata.X, obs=adata.obs, var=adata.var)
-    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-
-    with expect_warning_about_additional_aligned_elems(is_expected=has_additional_aligned_elems):
-        getattr(loader, method)(adata if method == "add_adata" else [adata])
-
-
-def test_add_adatas_warns_exactly_once_about_each_additional_aligned_elem():
-    """`add_adatas` warns once *per unique* dropped element: distinct elements each warn, duplicates are deduped."""
-    n_obs, n_var = 40, 100
-    var = pd.DataFrame(index=[f"gene_{i}" for i in range(n_var)])
-    x = np.random.default_rng().random((n_obs, n_var)).astype("f4")
-    adata_obsm = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
-    adata_layer = ad.AnnData(X=x.copy(), var=var, layers={"counts": x.copy()})
-    adata_obsm_again = ad.AnnData(X=x.copy(), var=var, obsm={"pca": np.zeros((n_obs, 5), dtype="f4")})
-
-    loader = Loader(chunk_size=10, preload_nchunks=4, to=None, preload_to_gpu=False)
-    with pytest.warns(FutureWarning) as record:
-        loader.add_adatas([adata_obsm, adata_layer, adata_obsm_again])
-
-    msgs = [str(w.message) for w in record if issubclass(w.category, FutureWarning)]
-    # `obsm/pca` is carried by two adatas but warned about once; `layers/counts` warns once -> two warnings total
-    assert len(msgs) == 2
-    assert sum("obsm/pca" in m for m in msgs) == 1
-    assert sum("layers/counts" in m for m in msgs) == 1
 
 
 @pytest.mark.gpu
@@ -504,7 +474,7 @@ def test_bad_adata_X_hdf5(
             preload_to_gpu=False,
             to=None,
         )
-        with pytest.raises(TypeError, match="Cannot add"):
+        with pytest.raises(ValueError, match="Cannot add"):
             ds.add_dataset(data)
 
 
@@ -582,11 +552,17 @@ def test_torch_multiprocess_dataloading_zarr(
     [None, pytest.param("torch", marks=[skip_if_no_torch]), pytest.param("jax", marks=[skip_if_no_jax])],
     ids=["no_to", "torch", "jax"],
 )
+@pytest.mark.parametrize(
+    "use_anndata",
+    [False, True],
+    ids=["without_adata", "with_adata"],
+)
 def test_3d(
     adata_with_zarr_path_same_var_space: tuple[ad.AnnData, Path],
     use_zarrs: bool,
     preload_to_gpu: bool,
     to: Literal["jax", "torch"] | None,
+    use_anndata: bool,
 ):
     ds = Loader(
         chunk_size=10,
@@ -596,14 +572,22 @@ def test_3d(
         preload_to_gpu=preload_to_gpu,
         to=to,
     )
-    ds.add_datasets(
-        **concat([open_3d(p, use_zarrs=use_zarrs) for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")])
+    datasets = concat(
+        [
+            open_3d(p, use_zarrs=use_zarrs, use_anndata=use_anndata)
+            for p in adata_with_zarr_path_same_var_space[1].glob("*.zarr")
+        ]
     )
+    if use_anndata:
+        ds.add_adatas(datasets)
+    else:
+        ds.add_datasets(**datasets)
+
     x_ref = adata_with_zarr_path_same_var_space[0].obsm["3d"]
 
     x_list, idx_list = [], []
     for batch in ds:
-        x, idxs = batch["X"], batch["index"]
+        x, idxs = batch["obsm.3d" if use_anndata else "X"], batch["index"]
         if preload_to_gpu and to is None:
             import cupy as cp
 
