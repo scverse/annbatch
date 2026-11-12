@@ -27,7 +27,6 @@ If your data fits in-memory, consider simply shuffling in-memory and passing it 
 
 [zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
 
-
 ## Data loading
 
 ### Chunked access
@@ -70,7 +69,6 @@ Please open an issue if you want to contribute a new sampler to this repo.
 
 :::{warning}
 Provided implementations of {class}`~annbatch.abc.Sampler`s use NumPy's random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
-
 
 To control reproducibility, pass a seeded {class}`numpy.random.Generator` via the `rng` parameter:
 

@@ -6,7 +6,6 @@ co-developed by [Lamin Labs](https://lamin.ai/) and [scverse](https://scverse.or
 `annbatch` lets you train models on terabyte-scale collections of `AnnData` files that do not fit
 into memory, while keeping your GPU fed with high-throughput, shuffled mini-batches by doing chunked fetching (similar to Nvidia's [Merlin][] or [`webdataset`][]). It also supports in-memory data.
 
-
 ```{note}
 You can also use the {class}`annbatch.Loader` on raw {class}`zarr.Array` objects via {meth}`~annbatch.Loader.add_datasets` if your object does not fit the {class}`anndata.AnnData` class object cleanly, as long as the data is semantically row-wise oriented on-disk.
 The {meth}`annbatch.Loader.__iter__` fetching of (contiguous) data is simply done along the first (0th) axis of your data i.e., on-disk zarr with potentially more than two dimensions.

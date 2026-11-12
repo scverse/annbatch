@@ -99,7 +99,6 @@ Batch 3 (3 observations):
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-
 ## Example 1: Implementing a `InOrderSampler` class
 
 This example demonstrates creating a simple sampler that only loads sequential, non-random requests of data from disk and yields them in-order:
@@ -137,10 +136,10 @@ class InOrderSampler(Sampler):
             yield {"requests": [chunk], "splits": batch_indices}
 ```
 
-
 ## Example 2: Implementing a `RandomSampler` class
 
 Here we have a sampler that just samples single observations off disk. This is extremely inefficient but instructive (see below for performance considerations):
+
 ```python
 from annbatch.abc import Sampler
 from collections.abc import Iterator
@@ -159,7 +158,6 @@ class RandomSampler(Sampler):
             yield {"splits": [np.arange(self.batch_size)], "requests": [slice(idx, idx + 1) for idx in i]}
 
 ```
-
 
 ## Performance Considerations
 
@@ -189,8 +187,8 @@ Recommended pattern:
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-
 This strategy stands in contrast to fully random reads:
+
 ```
 Anti-pattern (slow):
 Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
@@ -199,6 +197,7 @@ Read index 42 → Read index 789 → Read index 15 → Read index 456 → ...
 ```
 
 Each random read may:
+
 - Require loading an entire chunk just to extract one element (whereas sequential reads will use most if not all elements from every chunk)
 - Cause the disk head to seek to a completely different location orders of magnitude more often (e.g., a factor of `chunk_size` in {class}`~annbatch.samplers.RandomSampler`)
 
@@ -212,6 +211,7 @@ This means:
 - You get **local randomness** (within blocks) but not **global randomness** (across the entire dataset)
 
 That is why `annbatch` provides tools to:
+
 1. **Preshuffle your data** during dataset creation to break up correlations via {class}`~annbatch.DatasetCollection`
 2. **Load multiple random slices** per batch to increase diversity (see `preload_nchunks` parameter of {class}`~annbatch.Loader` or {class}`~annbatch.samplers.RandomSampler`)
 3. **Use larger in-memory buffers** to shuffle across more blocks (accelerated via `preload_to_gpu` argument to {class}`~annbatch.Loader`)

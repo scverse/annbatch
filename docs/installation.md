@@ -33,7 +33,6 @@ Otherwise, be sure to install the `[remote]` extra for `zarr-python` to be able 
 `cupy` provides accelerated handling of the data via `preload_to_gpu` once it has been read off disk, and does not need to be used in conjunction with `torch`.
 `cupy` is also compatible with `rocm` (AMD) devices, although we do not provide an extra for installing.
 
-
 To install several extras at once:
 
 ```bash
