@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
+import pandas as pd
 
 from annbatch.utils import check_lt_1
 
@@ -93,3 +94,34 @@ def validate_mask_n_obs_and_resolve(mask: slice, n_obs: int) -> tuple[int, int]:
     if start >= stop:
         raise ValueError(f"Sampler mask.start ({start}) must be < mask.stop ({stop}).")
     return start, stop
+
+
+def codes_without_na(categorical: pd.Categorical, name: str) -> np.ndarray:
+    """The codes of ``categorical``, rejecting anything but a :class:`pandas.Categorical` and NA values."""
+    if not isinstance(categorical, pd.Categorical):
+        raise TypeError(f"{name} must be a pandas.Categorical, got {type(categorical).__name__}.")
+    if (categorical.codes == -1).any():
+        raise ValueError(f"{name} contains NA values (codes == -1). Remove NAs before passing.")
+    return categorical.codes
+
+
+def resolve_class_weights(class_weights: np.ndarray | None, n_classes: int) -> np.ndarray:
+    """One float weight per class, uniform when ``class_weights`` is None; a non-positive weight excludes a class."""
+    if class_weights is None:
+        weights = np.ones(n_classes, dtype=float)
+    elif isinstance(class_weights, pd.Series):
+        raise TypeError(
+            "class_weights must be an array, not a pandas Series: a Series would be read positionally, "
+            "ignoring its index. Pass class_weights.reindex(classes.categories).to_numpy()."
+        )
+    else:
+        weights = np.array(class_weights, dtype=float)
+        if weights.shape != (n_classes,):
+            raise ValueError(
+                f"class_weights must have one weight per class in classes.categories "
+                f"(expected shape ({n_classes},), got {weights.shape})."
+            )
+    if not (weights > 0).any():
+        raise ValueError("class_weights must have at least one positive weight.")
+
+    return weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works

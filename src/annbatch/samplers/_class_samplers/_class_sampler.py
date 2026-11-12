@@ -13,6 +13,7 @@ import pandas as pd
 from annbatch.abc import Sampler
 from annbatch.samplers._utils import (
     check_lt_1,
+    codes_without_na,
     get_torch_worker_info,
     resolve_rng,
     validate_chunk_batch_preload_sizes,
@@ -54,11 +55,7 @@ class _ClassRunSampler(_OpenPassTracking, Sampler):
         rng: np.random.Generator | None = None,
     ):
         check_lt_1([num_samples], ["num_samples"])
-        if not isinstance(classes, pd.Categorical):
-            raise TypeError(f"classes must be a pandas.Categorical, got {type(classes).__name__}.")
-        codes = classes.codes
-        if (codes == -1).any():
-            raise ValueError("classes contains NA values (codes == -1). Remove NAs before passing.")
+        codes = codes_without_na(classes, "classes")
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
@@ -128,12 +125,38 @@ class _ClassRunSampler(_OpenPassTracking, Sampler):
         # each pass draws from its own generator, so a pass cut short leaves the next unchanged
         return self._track_pass(self._iter_requests(_derive_rng(self._rng, key=0)))
 
+    def _shuffled_batches(self, slices: list[slice], rng: np.random.Generator) -> Iterator[LoadRequest]:
+        """Load requests of ``preload_nchunks`` slices each, cut into batches shuffled within themselves."""
+        for window in itertools.batched(slices, self._preload_nchunks):
+            n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
+            splits = split_given_size(np.arange(n_rows), self._batch_size)
+            if self._drop_last and splits[-1].size < self._batch_size:
+                splits = splits[:-1]
+                if len(splits) == 0:
+                    continue
+            for batch in splits:
+                # can't vectorize this because we need to return a list, not ndarray
+                rng.shuffle(batch)
+            yield {"requests": list(window), "splits": splits}
+
     @abstractmethod
     def _iter_requests(self, rng: np.random.Generator) -> Iterator[LoadRequest]:
         """The load requests of one pass, drawn from ``rng``."""
 
 
-class ClassSampler(_ClassRunSampler):
+class _BatchClassPureSampler:
+    """A sampler whose every batch comes from a single class of :attr:`classes`."""
+
+    _rle_manager: RLEManager
+
+    @property
+    def classes(self) -> pd.Categorical:
+        """The class of every observation. Read-only, so in-place edits raise."""
+        own = self._rle_manager._classes
+        return pd.Categorical.from_codes(own.codes, dtype=own.dtype, validate=False)
+
+
+class ClassSampler(_BatchClassPureSampler, _ClassRunSampler):
     """Sample class-coherent batches with replacement.
 
     Every batch the :class:`~annbatch.Loader` yields is drawn from a single class:
@@ -256,14 +279,4 @@ class ClassSampler(_ClassRunSampler):
         if remainder > 0:
             last = int(slices[-1].start)
             slices[-1] = slice(last, last + remainder)
-        for window in itertools.batched(slices, self._preload_nchunks):
-            n_rows = (len(window) - 1) * self._chunk_size + (window[-1].stop - window[-1].start)
-            splits = split_given_size(np.arange(n_rows), self._batch_size)
-            if self._drop_last and splits[-1].size < self._batch_size:
-                splits = splits[:-1]
-                if not splits:
-                    continue
-            for batch in splits:
-                # can't vectorize this because we need to return a list, not ndarray
-                rng.shuffle(batch)
-            yield {"requests": list(window), "splits": splits}
+        yield from self._shuffled_batches(slices, rng)

@@ -6,6 +6,7 @@ import copy
 from typing import TYPE_CHECKING, Literal
 
 from annbatch.abc import Sampler
+from annbatch.samplers._class_samplers._bound_class_sampler import BoundClassSampler
 from annbatch.utils import _derive_rng, _OpenPassTracking
 
 if TYPE_CHECKING:
@@ -117,6 +118,10 @@ class DistributedSampler(_OpenPassTracking, Sampler):
             self._rank, self._world_size = DISTRIBUTED_BACKENDS[dist_info]()
         else:
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
+        if isinstance(sampler, BoundClassSampler):
+            raise TypeError(
+                "DistributedSampler cannot wrap a BoundClassSampler: sharding it would unpair it from the sampler it replays."
+            )
         self._enforce_equal_batches = enforce_equal_batches
         # a copy: _sample moves this sampler's mask onto the shard for each pass
         self._sampler = copy.deepcopy(sampler)

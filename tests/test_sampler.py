@@ -16,6 +16,7 @@ import pytest
 
 from annbatch.abc import Sampler
 from annbatch.samplers import (
+    BoundClassSampler,
     ClassSampler,
     DistributedSampler,
     RandomSampler,
@@ -701,6 +702,10 @@ def _small_sampler(cls: type[Sampler], rng: object = None) -> Sampler:
     """A seeded sampler over 200 obs in 10-row batches; the class samplers draw 100 obs from two 100-obs runs."""
     kwargs = {"chunk_size": 10, "preload_nchunks": 4, "batch_size": 10}
     kwargs["rng"] = np.random.default_rng(0) if rng is None else rng
+    if cls is BoundClassSampler:
+        classes = pd.Categorical(np.repeat([0, 1], 100))
+        inner = ClassSampler(10, 4, 10, classes=classes, num_samples=100, rng=np.random.default_rng(1))
+        return BoundClassSampler(**kwargs, inner_sampler=inner, classes=classes)
     if cls in (ClassSampler, WeightedClassSampler):
         kwargs |= {"classes": pd.Categorical(np.repeat([0, 1], 100)), "num_samples": 100}
     return cls(**kwargs)
@@ -710,7 +715,7 @@ def _bounds(requests) -> list[tuple[int, int]]:
     return [(s.start, s.stop) for s in requests]
 
 
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler, BoundClassSampler])
 def test_yielded_splits_are_not_reshuffled(cls: type[Sampler]):
     """Splits already handed out must survive the sampler shuffling the next window."""
     consumed = [np.concatenate(lr["splits"]) for lr in _small_sampler(cls).sample(200)]
@@ -729,7 +734,7 @@ def _cut_short(sampler: Sampler) -> None:
     batches.close()  # abandon the rest, as a `break` out of the loader does
 
 
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler, BoundClassSampler])
 def test_a_pass_cut_short_leaves_later_passes_unchanged(cls: type[Sampler]):
     """Each pass draws from its own generator, so how much of one pass is consumed cannot shift the next."""
     full, cut = _small_sampler(cls), _small_sampler(cls)
@@ -738,7 +743,7 @@ def test_a_pass_cut_short_leaves_later_passes_unchanged(cls: type[Sampler]):
     assert _one_pass(full) == _one_pass(cut)
 
 
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler, BoundClassSampler])
 def test_consecutive_passes_differ(cls: type[Sampler]):
     sampler = _small_sampler(cls)
     assert _one_pass(sampler) != _one_pass(sampler)
@@ -776,7 +781,7 @@ def test_workers_shuffle_their_batches_independently():
 
 
 @pytest.mark.parametrize("seed", [0, np.int64(0)], ids=["int", "np_integer"])
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, BoundClassSampler])
 def test_a_seed_passed_as_rng_warns_and_seeds(cls: type[Sampler], seed: int):
     # `rng=0` is falsy, so it used to be swapped for a fresh unseeded generator
     with pytest.warns(FutureWarning, match="Passing a seed as rng is deprecated") as record:
@@ -789,7 +794,7 @@ def test_a_seed_passed_as_rng_warns_and_seeds(cls: type[Sampler], seed: int):
 
 
 @pytest.mark.parametrize("rng", [np.random.RandomState(0), True], ids=["random_state", "bool"])
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, BoundClassSampler])
 def test_a_non_generator_rng_is_rejected(cls: type[Sampler], rng: object):
     with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
         _small_sampler(cls, rng=rng)
@@ -803,7 +808,7 @@ def _distributed(rank: int = 1) -> DistributedSampler:
     return DistributedSampler(_small_sampler(RandomSampler), dist_info=lambda: (rank, 2))
 
 
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler, BoundClassSampler])
 def test_a_shallow_copy_is_refused(cls: type[Sampler]):
     with pytest.raises(TypeError, match="cannot be shallow-copied"):
         copy.copy(_small_sampler(cls))
@@ -815,7 +820,7 @@ def test_a_shallow_copy_of_a_distributed_sampler_is_refused():
 
 
 @pytest.mark.parametrize("clone", [copy.deepcopy, _pickled], ids=["deepcopy", "pickle"])
-@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler, BoundClassSampler])
 def test_a_copy_is_independent_and_reproduces_the_passes(cls: type[Sampler], clone):
     sampler = _small_sampler(cls)
     copied = clone(sampler)
@@ -825,14 +830,14 @@ def test_a_copy_is_independent_and_reproduces_the_passes(cls: type[Sampler], clo
 
 
 @pytest.mark.parametrize("clone", [copy.deepcopy, _pickled], ids=["deepcopy", "pickle"])
-@pytest.mark.parametrize("cls", [ClassSampler, WeightedClassSampler])
+@pytest.mark.parametrize("cls", [ClassSampler, WeightedClassSampler, BoundClassSampler])
 def test_a_copy_taken_mid_pass_has_no_pass_open(cls: type[Sampler], clone):
     sampler = _small_sampler(cls)
     batches = sampler.sample(200)
     next(batches)
     copied = clone(sampler)
     batches.close()
-    copied.mask = slice(0, 100)  # would raise if the copy still had a pass open
+    copied.mask = slice(50, 150)  # would raise if the copy still had a pass open
 
 
 @pytest.mark.parametrize("clone", [copy.deepcopy, _pickled], ids=["deepcopy", "pickle"])

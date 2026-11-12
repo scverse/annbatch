@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning][].
 
 ## [Unreleased]
 
+### Feature
+
+- New {class}`~annbatch.samplers.BoundClassSampler`: draws each batch from the class of the matching batch of a {class}`~annbatch.samplers.ClassSampler` or {class}`~annbatch.samplers.BoundClassSampler` it replays, so a second dataset (e.g. controls) stays paired with the first every pass.
+- {class}`~annbatch.samplers.ClassSampler` and {class}`~annbatch.samplers.BoundClassSampler` expose their `classes` as a read-only property.
+
 ### Breaking
 
 - {class}`~annbatch.samplers.WeightedClassSampler` no longer subclasses {class}`~annbatch.samplers.ClassSampler`, since its batches mix classes. `isinstance(sampler, ClassSampler)` is now `False` for it; check `isinstance(sampler, (ClassSampler, WeightedClassSampler))` to accept both.

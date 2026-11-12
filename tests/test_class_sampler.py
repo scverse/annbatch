@@ -626,3 +626,13 @@ def test_distributed_ranks_draw_independently(sampler_cls: type[AnyClassSampler]
         return [s.start - shard_start for lr in dist.sample(len(classes)) for s in lr["requests"]]
 
     assert shard_offsets(0) != shard_offsets(1), "both ranks drew identical offsets within their shard"
+
+
+def test_classes_is_read_only():
+    classes = pd.Categorical(np.repeat(["B", "T"], 100))
+    sampler = make_sampler(classes, num_samples=100)
+    assert sampler.classes.equals(classes)
+    with pytest.raises(ValueError, match="read-only"):
+        sampler.classes[0] = "T"
+    with pytest.raises(AttributeError):
+        sampler.classes = classes
