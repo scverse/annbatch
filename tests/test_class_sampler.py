@@ -26,12 +26,14 @@ from annbatch.samplers._distributed_sampler import DistributedSampler
 from annbatch.samplers._utils import WorkerInfo
 from tests.conftest import load_x_obs_var
 
+AnyClassSampler = ClassSampler | WeightedClassSampler
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
 @pytest.fixture(params=[ClassSampler, WeightedClassSampler], ids=["coherent", "weighted"])
-def sampler_cls(request) -> type[ClassSampler]:
+def sampler_cls(request) -> type[AnyClassSampler]:
     """Both samplers, for everything that is not about within-batch coherence."""
     return request.param
 
@@ -39,14 +41,14 @@ def sampler_cls(request) -> type[ClassSampler]:
 def make_sampler(
     classes: pd.Categorical,
     *,
-    cls: type[ClassSampler] = ClassSampler,
+    cls: type[AnyClassSampler] = ClassSampler,
     num_samples: int = 1000,
     chunk_size: int = 10,
     preload_nchunks: int = 4,
     batch_size: int = 10,
     seed: int = 0,
     **kwargs,
-) -> ClassSampler:
+) -> AnyClassSampler:
     """Build a sampler with sane defaults so each test only states what matters."""
     return cls(
         chunk_size=chunk_size,
@@ -64,18 +66,18 @@ def _chunk_classes(chunks: list[slice], codes: np.ndarray) -> list[int]:
     return [int(u[0]) if (u := np.unique(codes[c])).size == 1 else -1 for c in chunks]
 
 
-def _collect_chunks(sampler: ClassSampler, n_obs: int) -> list[slice]:
+def _collect_chunks(sampler: AnyClassSampler, n_obs: int) -> list[slice]:
     return [c for load_request in sampler.sample(n_obs) for c in load_request["requests"]]
 
 
-def _windows(sampler: ClassSampler, codes: np.ndarray) -> Iterator[tuple[np.ndarray, list[np.ndarray]]]:
+def _windows(sampler: AnyClassSampler, codes: np.ndarray) -> Iterator[tuple[np.ndarray, list[np.ndarray]]]:
     """Per preload window: the class of every observation, and of every batch's."""
     for load_request in sampler.sample(len(codes)):
         concat = np.concatenate([codes[s] for s in load_request["requests"]])
         yield concat, [concat[split] for split in load_request["splits"]]
 
 
-def _batch_codes(sampler: ClassSampler, codes: np.ndarray) -> Iterator[np.ndarray]:
+def _batch_codes(sampler: AnyClassSampler, codes: np.ndarray) -> Iterator[np.ndarray]:
     """The class of every observation of every batch, batch by batch."""
     return (batch for _, batches in _windows(sampler, codes) for batch in batches)
 
@@ -84,7 +86,7 @@ def _shares(batch_codes: np.ndarray, n_classes: int) -> np.ndarray:
     return np.bincount(batch_codes, minlength=n_classes) / batch_codes.size
 
 
-def _draw_shares(sampler: ClassSampler, codes: np.ndarray) -> dict[int, float]:
+def _draw_shares(sampler: AnyClassSampler, codes: np.ndarray) -> dict[int, float]:
     """Fraction of drawn observations belonging to each class.
 
     For :class:`~annbatch.samplers.ClassSampler` (pure batches) this is the share of
@@ -97,7 +99,7 @@ def _draw_shares(sampler: ClassSampler, codes: np.ndarray) -> dict[int, float]:
     return {int(v): cnt / counts.sum() for v, cnt in zip(vals, counts, strict=True)}
 
 
-def _assert_shares(sampler: ClassSampler, codes: np.ndarray, expected: dict[int, float], atol: float = 0.02):
+def _assert_shares(sampler: AnyClassSampler, codes: np.ndarray, expected: dict[int, float], atol: float = 0.02):
     shares = _draw_shares(sampler, codes)
     assert set(shares) == set(expected), f"sampled classes {sorted(shares)} != {sorted(expected)}"
     for cat, exp in expected.items():
@@ -184,7 +186,7 @@ def _assert_shares(sampler: ClassSampler, codes: np.ndarray, expected: dict[int,
     ],
 )
 def test_invalid_construction(
-    sampler_cls: type[ClassSampler],
+    sampler_cls: type[AnyClassSampler],
     classes: pd.Categorical | np.ndarray,
     kwargs: dict,
     error_type: type[Exception],
@@ -194,20 +196,20 @@ def test_invalid_construction(
         make_sampler(classes, cls=sampler_cls, **kwargs)
 
 
-def test_validate_rejects_n_obs_mismatch(sampler_cls: type[ClassSampler]):
+def test_validate_rejects_n_obs_mismatch(sampler_cls: type[AnyClassSampler]):
     sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 50)), cls=sampler_cls, num_samples=50)
     with pytest.raises(ValueError, match="does not match loader n_obs"):
         sampler.validate(n_obs=999)
 
 
-def test_multiple_workers_not_supported(sampler_cls: type[ClassSampler]):
+def test_multiple_workers_not_supported(sampler_cls: type[AnyClassSampler]):
     sampler = make_sampler(pd.Categorical(np.repeat([0, 1], 50)), cls=sampler_cls, num_samples=50)
     with (
         patch(
             "annbatch.samplers._class_samplers._class_sampler.get_torch_worker_info",
             return_value=WorkerInfo(id=0, num_workers=2),
         ),
-        pytest.raises(NotImplementedError, match="Multiple workers"),
+        pytest.raises(NotImplementedError, match=f"Multiple workers are not supported with {sampler_cls.__name__}"),
     ):
         list(sampler.sample(100))
 
@@ -242,7 +244,7 @@ def test_chunks_are_class_coherent(codes: np.ndarray):
     ],
 )
 def test_batch_class_composition(
-    sampler_cls: type[ClassSampler], chunk_size: int, batch_size: int, preload_nchunks: int
+    sampler_cls: type[AnyClassSampler], chunk_size: int, batch_size: int, preload_nchunks: int
 ):
     # the preload window mixes several classes: ClassSampler keeps each *batch* (split)
     # pure, WeightedClassSampler deliberately mixes them.
@@ -283,11 +285,11 @@ def test_batch_class_composition(
         assert np.mean(deviations) <= 2 * sd, f"batches deviate from their window's classes: {np.mean(deviations):.3f}"
 
 
-def test_shuffle_is_true(sampler_cls: type[ClassSampler]):
+def test_shuffle_is_true(sampler_cls: type[AnyClassSampler]):
     assert make_sampler(pd.Categorical(np.repeat([0, 1], 50)), cls=sampler_cls).shuffle is True
 
 
-def test_runs_are_drawn_in_proportion_to_length(sampler_cls: type[ClassSampler]):
+def test_runs_are_drawn_in_proportion_to_length(sampler_cls: type[AnyClassSampler]):
     # class 0 lives in a 400-row run and a 40-row run. With chunk_size=10 the long run holds 391
     # of the class's 422 chunk starts, so it should get about 92.7% of the chunks. Picking one of
     # the two runs uniformly gives each 50% and oversamples the short run's rows 10x.
@@ -305,7 +307,7 @@ def test_runs_are_drawn_in_proportion_to_length(sampler_cls: type[ClassSampler])
     assert abs(long_run_share - expected) < 0.01, f"{long_run_share:.3f} vs expected {expected:.3f}"
 
 
-def test_noncontiguous_class_samples_all_runs(sampler_cls: type[ClassSampler]):
+def test_noncontiguous_class_samples_all_runs(sampler_cls: type[AnyClassSampler]):
     # class 0 lives in two separate runs; over many draws both should be hit.
     codes = np.array([0] * 50 + [1] * 50 + [0] * 50, dtype=np.int64)
     starts = [
@@ -329,13 +331,13 @@ def test_noncontiguous_class_samples_all_runs(sampler_cls: type[ClassSampler]):
     ],
 )
 def test_class_draw_shares(
-    sampler_cls: type[ClassSampler], codes: np.ndarray, weights: np.ndarray | None, expected: dict[int, float]
+    sampler_cls: type[AnyClassSampler], codes: np.ndarray, weights: np.ndarray | None, expected: dict[int, float]
 ):
     sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, num_samples=40_000, class_weights=weights)
     _assert_shares(sampler, codes, expected)
 
 
-def test_class_draw_shares_batch_exceeds_chunk(sampler_cls: type[ClassSampler]):
+def test_class_draw_shares_batch_exceeds_chunk(sampler_cls: type[AnyClassSampler]):
     # batch_size > chunk_size draws one class per 2-chunk batch; shares must still track weights
     codes = np.repeat([0, 1, 2], 100)
     sampler = make_sampler(
@@ -348,7 +350,7 @@ def test_class_draw_shares_batch_exceeds_chunk(sampler_cls: type[ClassSampler]):
     _assert_shares(sampler, codes, {0: 0.6, 1: 0.3, 2: 0.1})
 
 
-def test_zero_weight_class_exempt_from_run_length_rule(sampler_cls: type[ClassSampler]):
+def test_zero_weight_class_exempt_from_run_length_rule(sampler_cls: type[AnyClassSampler]):
     codes = np.array([0] * 30 + [1] * 3 + [2] * 30, dtype=np.int64)  # class 1 has a 3-row run
     # excluding class 1 with a zero weight -> its short run is exempt, no error
     make_sampler(pd.Categorical(codes), cls=sampler_cls, class_weights=np.array([1.0, 0.0, 1.0]))
@@ -366,7 +368,7 @@ def test_run_length_error_names_class_labels():
         make_sampler(cat, chunk_size=10)
 
 
-def test_absent_class_weight_is_ignored(sampler_cls: type[ClassSampler]):
+def test_absent_class_weight_is_ignored(sampler_cls: type[AnyClassSampler]):
     # "c" is declared but has no observations; its weight must be silently dropped and
     # the present classes renormalize among themselves (here -> 50/50).
     cat = pd.Categorical(["a"] * 100 + ["b"] * 100, categories=["a", "b", "c"])
@@ -381,7 +383,7 @@ def test_absent_class_weight_is_ignored(sampler_cls: type[ClassSampler]):
 
 
 @pytest.mark.parametrize("via", ["constructor", "setter"])
-def test_mask_restricts_range(sampler_cls: type[ClassSampler], via: str):
+def test_mask_restricts_range(sampler_cls: type[AnyClassSampler], via: str):
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
     if via == "constructor":
         sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, num_samples=500, mask=slice(0, 100))
@@ -393,7 +395,7 @@ def test_mask_restricts_range(sampler_cls: type[ClassSampler], via: str):
     assert {int(np.unique(codes[c])[0]) for c in chunks} == {0}
 
 
-def test_mask_renormalizes_from_original_weights(sampler_cls: type[ClassSampler]):
+def test_mask_renormalizes_from_original_weights(sampler_cls: type[AnyClassSampler]):
     codes = np.concatenate([np.full(100, 0), np.full(100, 1), np.full(100, 2)]).astype(np.int64)
     sampler = make_sampler(
         pd.Categorical(codes), cls=sampler_cls, num_samples=40_000, class_weights=np.array([3.0, 1.0, 6.0])
@@ -406,7 +408,7 @@ def test_mask_renormalizes_from_original_weights(sampler_cls: type[ClassSampler]
 
 
 @pytest.mark.parametrize("via", ["constructor", "setter"])
-def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[ClassSampler], via: str):
+def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[AnyClassSampler], via: str):
     codes = np.array([0] * 50 + [1] * 50, dtype=np.int64)
     weights = np.array([1.0, 0.0])  # class 1 excluded -> the [50, 100) range has no sampleable class
     if via == "constructor":
@@ -419,7 +421,7 @@ def test_mask_with_no_positive_weight_in_range_raises(sampler_cls: type[ClassSam
 
 
 @pytest.mark.parametrize("end", ["exhaust", "close"])
-def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[ClassSampler], end: str):
+def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[AnyClassSampler], end: str):
     codes = np.array([0] * 100 + [1] * 100, dtype=np.int64)
     sampler = make_sampler(pd.Categorical(codes), cls=sampler_cls, mask=slice(0, 100))
     it = sampler.sample(len(codes))
@@ -448,7 +450,7 @@ def test_mask_cannot_move_while_pass_is_open(sampler_cls: type[ClassSampler], en
     ],
 )
 def test_n_batches(
-    sampler_cls: type[ClassSampler], num_samples: int, batch_size: int, drop_last: bool, expected_iters: int
+    sampler_cls: type[AnyClassSampler], num_samples: int, batch_size: int, drop_last: bool, expected_iters: int
 ):
     sampler = make_sampler(
         pd.Categorical(np.repeat([0, 1], 100)),
@@ -491,7 +493,7 @@ def test_n_batches(
     ],
 )
 def test_sampling_invariants(
-    sampler_cls: type[ClassSampler],
+    sampler_cls: type[AnyClassSampler],
     chunk_size: int,
     batch_size: int,
     preload_nchunks: int,
@@ -536,7 +538,7 @@ def test_sampling_invariants(
 
 
 @pytest.mark.parametrize("preload_nchunks", [2, 4], ids=["pn2_one_category", "pn4_two_categories"])
-def test_max_classes_per_window(sampler_cls: type[ClassSampler], preload_nchunks: int):
+def test_max_classes_per_window(sampler_cls: type[AnyClassSampler], preload_nchunks: int):
     # chunk_size=9, batch_size=6: gcd=3, lcm=18, group_chunks=lcm/cs=2. A window holds
     # preload_nchunks // group_chunks classes, so pn=2 -> 1 per window, pn=4 -> 2 per window.
     # This fails for weighted samplers.
@@ -565,7 +567,7 @@ def test_max_classes_per_window(sampler_cls: type[ClassSampler], preload_nchunks
     assert min(classes_per_window) >= 1
 
 
-def test_class_sampler_from_collection(sampler_cls: type[ClassSampler], simple_collection):
+def test_class_sampler_from_collection(sampler_cls: type[AnyClassSampler], simple_collection):
     from annbatch import Loader
 
     _, collection = simple_collection
@@ -600,7 +602,7 @@ def test_class_sampler_from_collection(sampler_cls: type[ClassSampler], simple_c
         assert max(n_labels) > 1, "batches must mix classes"
 
 
-def test_assigning_rng_reaches_the_slice_draw(sampler_cls: type[ClassSampler]):
+def test_assigning_rng_reaches_the_slice_draw(sampler_cls: type[AnyClassSampler]):
     """`Sampler.rng` is public and settable, so assigning it must change what is drawn."""
     classes = pd.Categorical(np.repeat([0, 1], 250))
 
@@ -612,7 +614,7 @@ def test_assigning_rng_reaches_the_slice_draw(sampler_cls: type[ClassSampler]):
     assert starts(1) != starts(2), "reassigning .rng did not affect the slices drawn"
 
 
-def test_distributed_ranks_draw_independently(sampler_cls: type[ClassSampler]):
+def test_distributed_ranks_draw_independently(sampler_cls: type[AnyClassSampler]):
     """DistributedSampler spawns a per-rank rng, so ranks must not draw the same offsets."""
     classes = pd.Categorical(np.repeat([0, 1, 2, 3], 250))
 
