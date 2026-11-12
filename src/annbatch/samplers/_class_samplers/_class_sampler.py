@@ -18,7 +18,7 @@ from annbatch.samplers._utils import (
     validate_chunk_batch_preload_sizes,
     validate_mask_n_obs_and_resolve,
 )
-from annbatch.utils import split_given_size
+from annbatch.utils import _OpenPassTracking, split_given_size
 
 from ._rle_manager import RLEManager
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class _ClassRunSampler(Sampler):
+class _ClassRunSampler(_OpenPassTracking, Sampler):
     """Construction, masking and pass bookkeeping shared by samplers that read whole single-class chunks."""
 
     _batch_size: int
@@ -39,7 +39,6 @@ class _ClassRunSampler(Sampler):
     _rng: np.random.Generator
     _drop_last: bool
     _rle_manager: RLEManager
-    _num_open_passes: int
 
     def __init__(
         self,
@@ -71,7 +70,6 @@ class _ClassRunSampler(Sampler):
         self._rng = resolve_rng(rng)
         self._num_samples = num_samples
         self._drop_last = drop_last
-        self._num_open_passes = 0
         self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
 
         # classes and their weights are mask-independent; kept so any mask can renormalize from them
@@ -127,15 +125,7 @@ class _ClassRunSampler(Sampler):
         if worker_info is not None and worker_info.num_workers > 1:
             raise NotImplementedError(f"Multiple workers are not supported with {type(self).__name__}.")
 
-        return self._count_open_pass()
-
-    def _count_open_pass(self) -> Iterator[LoadRequest]:
-        """Mark this pass open so :attr:`mask` can refuse to move under it."""
-        self._num_open_passes += 1
-        try:
-            yield from self._iter_requests()
-        finally:
-            self._num_open_passes -= 1
+        return self._track_pass(self._iter_requests())
 
     @abstractmethod
     def _iter_requests(self) -> Iterator[LoadRequest]:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import math
+import pickle
 from importlib.util import find_spec
 from types import NoneType
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -809,6 +811,18 @@ def test_cannot_add_datasets_while_iterating(end: str):
         it.close()
     loader.add_adata(_in_memory_adata(40))
     assert loader.n_obs == 80
+
+
+@pytest.mark.parametrize("clone", [copy.deepcopy, lambda x: pickle.loads(pickle.dumps(x))], ids=["deepcopy", "pickle"])
+def test_a_loader_copied_mid_iteration_accepts_datasets(clone):
+    loader = Loader(chunk_size=10, preload_nchunks=2, batch_size=10, to=None, preload_to_gpu=False)
+    loader.add_adata(_in_memory_adata(40))
+    it = iter(loader)
+    next(it)
+    copied = clone(loader)
+    it.close()
+    copied.add_adata(_in_memory_adata(40))  # refused while an iteration is open
+    assert copied.n_obs == 80
 
 
 def test_given_batch_sampler_samples_subset_of_combined_datasets(
