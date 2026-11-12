@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from annbatch.samplers._utils import validate_mask_n_obs_and_resolve
+from annbatch.samplers._utils import resolve_class_weights, validate_mask_n_obs_and_resolve
 
 
 class RLEManager:
@@ -45,31 +45,9 @@ class RLEManager:
         self._mask = slice(start, stop)
         self._chunk_size = chunk_size
         self._classes = classes
-        self._weights = self._build_class_weights(weights)
+        self._weights = resolve_class_weights(weights, len(classes.categories))
 
         self._build_rle(self._mask)
-
-    def _build_class_weights(self, class_weights: np.ndarray | None) -> np.ndarray:
-        """Resolve the (non-excluded) classes and their renormalizable weights."""
-        n_classes = len(self._classes.categories)
-        if class_weights is None:
-            weights = np.ones(n_classes, dtype=float)
-        elif isinstance(class_weights, pd.Series):
-            raise TypeError(
-                "class_weights must be an array, not a pandas Series: a Series would be read positionally, "
-                "ignoring its index. Pass class_weights.reindex(classes.categories).to_numpy()."
-            )
-        else:
-            weights = np.array(class_weights, dtype=float)
-            if weights.shape != (n_classes,):
-                raise ValueError(
-                    f"class_weights must have one weight per class in classes.categories "
-                    f"(expected shape ({n_classes},), got {weights.shape})."
-                )
-        if not (weights > 0).any():
-            raise ValueError("class_weights must have at least one positive weight.")
-
-        return weights  # full array (0 for excluded); codes are 0..N-1 so direct indexing works
 
     def _build_rle(self, mask: slice):
         start, stop = mask.start, mask.stop

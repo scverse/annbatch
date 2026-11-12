@@ -22,6 +22,7 @@ from annbatch.types import BackingArray_T, LoaderOutput, OutputInMemoryArray_T
 from annbatch.utils import (
     CSRContainer,
     MultiBasicIndexer,
+    _OpenPassTracking,
     check_lt_1,
     check_var_shapes,
     convert,
@@ -92,7 +93,7 @@ def _cupy_dtype(dtype: np.dtype) -> np.dtype:
 class Loader[
     BackingArray: BackingArray_T,
     OutputInMemoryArray: OutputInMemoryArray_T,
-](IterableDataset):
+](_OpenPassTracking, IterableDataset):
     """A loader for on-disk data anndata stores.
 
     This loader by default batches together slice requests (`chunk_size` parameter) to the underlying stores to achieve higher performance.
@@ -173,7 +174,6 @@ class Loader[
     _sparse_dataset_elem_cache: dict[int, CSRDatasetElems]
     _batch_sampler: Sampler
     _collection_added: bool = False
-    _num_open_iters: int = 0
     _dtypes_homogeneous: bool = True
 
     def __init__(
@@ -449,7 +449,7 @@ class Loader[
         var: pd.DataFrame | None = None,
     ) -> Self:
         # the sampler is validated against n_obs when iteration starts, so n_obs must not move under an open one
-        if self._num_open_iters > 0:
+        if self._num_open_passes > 0:
             raise RuntimeError(
                 "Cannot add datasets while the loader is being iterated. Finish or close the iterator first."
             )
@@ -957,11 +957,7 @@ class Loader[
         ------
             A batch of data along with its obs and index (both optional).
         """
-        self._num_open_iters += 1
-        try:
-            yield from self._iter()
-        finally:
-            self._num_open_iters -= 1
+        yield from self._track_pass(self._iter())
 
     def _iter(self) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
         check_lt_1(

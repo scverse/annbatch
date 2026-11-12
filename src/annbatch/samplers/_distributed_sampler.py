@@ -6,7 +6,8 @@ import copy
 from typing import TYPE_CHECKING, Literal
 
 from annbatch.abc import Sampler
-from annbatch.utils import _spawn_worker_rng
+from annbatch.samplers._class_samplers._bound_class_sampler import BoundClassSampler
+from annbatch.utils import _derive_rng, _OpenPassTracking
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -44,7 +45,7 @@ DISTRIBUTED_BACKENDS: dict[str, Callable[[], tuple[int, int]]] = {
 }
 
 
-class DistributedSampler(Sampler):
+class DistributedSampler(_OpenPassTracking, Sampler):
     """Distributed chunk-based sampler that shards data across distributed processes.
 
     Partitions the full observation range into ``world_size`` contiguous shards
@@ -103,7 +104,6 @@ class DistributedSampler(Sampler):
     _world_size: int
     _enforce_equal_batches: bool
     _sampler: Sampler
-    _num_open_passes: int
 
     def __init__(
         self,
@@ -118,13 +118,16 @@ class DistributedSampler(Sampler):
             self._rank, self._world_size = DISTRIBUTED_BACKENDS[dist_info]()
         else:
             raise ValueError(f"Unknown dist_info {dist_info!r}. Supported backends: {sorted(DISTRIBUTED_BACKENDS)}")
+        if isinstance(sampler, BoundClassSampler):
+            raise TypeError(
+                "DistributedSampler cannot wrap a BoundClassSampler: sharding it would unpair it from the sampler it replays."
+            )
         self._enforce_equal_batches = enforce_equal_batches
         # a copy: _sample moves this sampler's mask onto the shard for each pass
         self._sampler = copy.deepcopy(sampler)
         self._sampler.mask = slice(0, None)
-        self._num_open_passes = 0
         if self._sampler.rng is not None:
-            self._sampler.rng = _spawn_worker_rng(self._sampler.rng, self._rank)
+            self._sampler.rng = _derive_rng(self._sampler.rng, key=self._rank)
 
     @property
     def batch_size(self) -> int:
@@ -175,9 +178,12 @@ class DistributedSampler(Sampler):
 
     def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
         self._sampler.mask = self._shard_mask(n_obs)
-        self._num_open_passes += 1
         try:
-            yield from self._sampler.sample(n_obs)
+            yield from self._track_pass(self._sampler.sample(n_obs))
         finally:
-            self._num_open_passes -= 1
             self._sampler.mask = slice(0, None)
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        # an open pass left this rank's shard as the wrapped sampler's mask
+        self._sampler.mask = slice(0, None)
