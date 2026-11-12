@@ -163,7 +163,6 @@ and this project adheres to [Semantic Versioning][].
 
 - Fix bug with bringing the nullable/categorical columns into memory by default
 
-
 ### Breaking
 
 - Now {class}`annbatch.Loader` expects `preload_nchunks * chunk_size % batch_size == 0` for simplification and efficiency.

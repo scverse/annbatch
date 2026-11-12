@@ -5,14 +5,14 @@
 While the preshuffler can operate out-of-core in {func}`annbatch.Loader.add_adatas`, each individual shuffled dataset is read into memory before being written to disk.
 The amount of memory is configurable with the `dataset_size` parameter.
 Upstream of that is the `shuffle_chunk_size` parameter, which controls the (location-randomized) contiguous block size on-disk from your input data that is read into memory before an in-memory shuffle.
-This parameter's interaction with `dask` chunks is important - if your dask chunks are very large and `shuffle_chunk_size` considerably smaller, more memory is needed.
-For this reason, {func}`anndata.experimental.read_lazy` and {func}`anndata.experimental.read_elem_lazy`'s default chunk size of 1000 is very reasonable.
+This parameter’s interaction with `dask` chunks is important - if your dask chunks are very large and `shuffle_chunk_size` considerably smaller, more memory is needed.
+For this reason, {func}`anndata.experimental.read_lazy` and {func}`anndata.experimental.read_elem_lazy`’s default chunk size of 1000 is very reasonable.
 
 ## Speed
 
 HDF5 files are quite slow as they are single-threaded (controlled by a global lock) and involve repeatedly opening and closing file handles.
 In our paper {cite:p}`Gold_2026`, we showed that staring with zarr files gives a nearly 2x speedup for preshuffling.
-To accelerate using hdf5 files, though, you can "virtualize" critical parts of your input datasets using [`virtualizarr`](https://virtualizarr.readthedocs.io/en/stable/) to be read through the {mod}`zarr` multihtreaded reader e.g.,
+To accelerate using hdf5 files, though, you can “virtualize” critical parts of your input datasets using [`virtualizarr`](https://virtualizarr.readthedocs.io/en/stable/) to be read through the {mod}`zarr` multihtreaded reader e.g.,
 
 ```python
 import anndata as ad
@@ -53,5 +53,5 @@ collection.add_adatas(
 )
 ```
 
-If you can open remote hdf5 files, using zarr's internal `async` engine will also likely accelerate i/o as well.
+If you can open remote hdf5 files, using zarr’s internal `async` engine will also likely accelerate i/o as well.
 In the future, we hope to offer full anndata object virtualization.
