@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from abc import abstractmethod
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -27,7 +28,121 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class ClassSampler(Sampler):
+class _ClassRunSampler(Sampler):
+    """Construction, masking and pass bookkeeping shared by samplers that read whole single-class chunks."""
+
+    _batch_size: int
+    _chunk_size: int
+    _preload_nchunks: int
+    _num_samples: int
+    _n_obs: int
+    _rng: np.random.Generator
+    _drop_last: bool
+    _rle_manager: RLEManager
+    _num_open_passes: int
+
+    def __init__(
+        self,
+        chunk_size: int,
+        preload_nchunks: int,
+        batch_size: int,
+        *,
+        classes: pd.Categorical,
+        num_samples: int,
+        class_weights: np.ndarray | None = None,
+        mask: slice | None = None,
+        drop_last: bool = False,
+        rng: np.random.Generator | None = None,
+    ):
+        check_lt_1([num_samples], ["num_samples"])
+        if not isinstance(classes, pd.Categorical):
+            raise TypeError(f"classes must be a pandas.Categorical, got {type(classes).__name__}.")
+        codes = classes.codes
+        if (codes == -1).any():
+            raise ValueError("classes contains NA values (codes == -1). Remove NAs before passing.")
+        n_obs = int(codes.shape[0])
+
+        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
+        if mask is None:
+            mask = slice(0, None)
+        start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
+
+        self._n_obs = n_obs
+        self._rng = resolve_rng(rng)
+        self._num_samples = num_samples
+        self._drop_last = drop_last
+        self._num_open_passes = 0
+        self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
+
+        # classes and their weights are mask-independent; kept so any mask can renormalize from them
+        self._rle_manager = RLEManager(
+            mask=slice(start, stop),
+            classes=classes,
+            weights=class_weights,
+            chunk_size=self._chunk_size,
+        )
+
+    @property
+    def mask(self) -> slice:
+        return self._rle_manager.mask
+
+    @mask.setter
+    def mask(self, value: slice) -> None:
+        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
+        start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
+        mask = slice(start, stop)
+        # a pass draws all its slices up front, so a mask moved now would be reported by the
+        # getter but never read
+        if mask != self.mask and self._num_open_passes > 0:
+            raise ValueError(
+                f"mask cannot move to {mask} while a pass is being iterated, since that pass's slices "
+                "are already drawn. Finish or close the iterator first."
+            )
+        self._rle_manager.mask = mask
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    @property
+    def shuffle(self) -> bool:
+        return True
+
+    def n_batches(self, n_obs: int) -> int:
+        del n_obs  # determined by num_samples, not the loader size
+        if self._drop_last:
+            return self._num_samples // self._batch_size
+        return math.ceil(self._num_samples / self._batch_size)
+
+    def validate(self, n_obs: int) -> None:
+        """Validate that the codes describe exactly the loader's observations."""
+        if n_obs != self._n_obs:
+            raise ValueError(
+                f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
+                "The classes column must describe exactly the loader's observations."
+            )
+
+    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
+        worker_info = get_torch_worker_info()
+        if worker_info is not None and worker_info.num_workers > 1:
+            raise NotImplementedError(f"Multiple workers are not supported with {type(self).__name__}.")
+
+        return self._count_open_pass()
+
+    def _count_open_pass(self) -> Iterator[LoadRequest]:
+        """Mark this pass open so :attr:`mask` can refuse to move under it."""
+        self._num_open_passes += 1
+        try:
+            yield from self._iter_requests()
+        finally:
+            self._num_open_passes -= 1
+
+    @abstractmethod
+    def _iter_requests(self) -> Iterator[LoadRequest]:
+        """The load requests of one pass."""
+
+
+class ClassSampler(_ClassRunSampler):
     """Sample class-coherent batches with replacement.
 
     Every batch the :class:`~annbatch.Loader` yields is drawn from a single class:
@@ -135,112 +250,6 @@ class ClassSampler(Sampler):
         Random number generator. Note that :func:`torch.manual_seed` has no effect
         here; pass a seeded :class:`numpy.random.Generator` to control randomness.
     """
-
-    _batch_size: int
-    _chunk_size: int
-    _preload_nchunks: int
-    _num_samples: int
-    _n_obs: int
-    _rng: np.random.Generator
-    _drop_last: bool
-    _rle_manager: RLEManager
-    _num_open_passes: int
-
-    def __init__(
-        self,
-        chunk_size: int,
-        preload_nchunks: int,
-        batch_size: int,
-        *,
-        classes: pd.Categorical,
-        num_samples: int,
-        class_weights: np.ndarray | None = None,
-        mask: slice | None = None,
-        drop_last: bool = False,
-        rng: np.random.Generator | None = None,
-    ):
-        check_lt_1([num_samples], ["num_samples"])
-        if not isinstance(classes, pd.Categorical):
-            raise TypeError(f"classes must be a pandas.Categorical, got {type(classes).__name__}.")
-        codes = classes.codes
-        if (codes == -1).any():
-            raise ValueError("classes contains NA values (codes == -1). Remove NAs before passing.")
-        n_obs = int(codes.shape[0])
-
-        validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
-        if mask is None:
-            mask = slice(0, None)
-        start, stop = validate_mask_n_obs_and_resolve(mask, n_obs)
-
-        self._n_obs = n_obs
-        self._rng = resolve_rng(rng)
-        self._num_samples = num_samples
-        self._drop_last = drop_last
-        self._num_open_passes = 0
-        self._batch_size, self._chunk_size, self._preload_nchunks = batch_size, chunk_size, preload_nchunks
-
-        # classes and their weights are mask-independent; kept so any mask can renormalize from them
-        self._rle_manager = RLEManager(
-            mask=slice(start, stop),
-            classes=classes,
-            weights=class_weights,
-            chunk_size=self._chunk_size,
-        )
-
-    @property
-    def mask(self) -> slice:
-        return self._rle_manager.mask
-
-    @mask.setter
-    def mask(self, value: slice) -> None:
-        # resolve + eagerly rebuild so range errors (run-length, no active class) surface on assignment
-        start, stop = validate_mask_n_obs_and_resolve(value, self._n_obs)
-        mask = slice(start, stop)
-        # a pass draws all its slices up front, so a mask moved now would be reported by the
-        # getter but never read
-        if mask != self.mask and self._num_open_passes > 0:
-            raise ValueError(
-                f"mask cannot move to {mask} while a pass is being iterated, since that pass's slices "
-                "are already drawn. Finish or close the iterator first."
-            )
-        self._rle_manager.mask = mask
-
-    @property
-    def batch_size(self) -> int:
-        return self._batch_size
-
-    @property
-    def shuffle(self) -> bool:
-        return True
-
-    def n_batches(self, n_obs: int) -> int:
-        del n_obs  # determined by num_samples, not the loader size
-        if self._drop_last:
-            return self._num_samples // self._batch_size
-        return math.ceil(self._num_samples / self._batch_size)
-
-    def validate(self, n_obs: int) -> None:
-        """Validate that the codes describe exactly the loader's observations."""
-        if n_obs != self._n_obs:
-            raise ValueError(
-                f"classes length ({self._n_obs}) does not match loader n_obs ({n_obs}). "
-                "The classes column must describe exactly the loader's observations."
-            )
-
-    def _sample(self, n_obs: int) -> Iterator[LoadRequest]:
-        worker_info = get_torch_worker_info()
-        if worker_info is not None and worker_info.num_workers > 1:
-            raise NotImplementedError("Multiple workers are not supported with ClassSampler.")
-
-        return self._count_open_pass()
-
-    def _count_open_pass(self) -> Iterator[LoadRequest]:
-        """Mark this pass open so :attr:`mask` can refuse to move under it."""
-        self._num_open_passes += 1
-        try:
-            yield from self._iter_requests()
-        finally:
-            self._num_open_passes -= 1
 
     def _iter_requests(self) -> Iterator[LoadRequest]:
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)
