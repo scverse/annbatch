@@ -18,7 +18,7 @@ from annbatch.samplers._utils import (
     validate_chunk_batch_preload_sizes,
     validate_mask_n_obs_and_resolve,
 )
-from annbatch.utils import _OpenPassTracking, split_given_size
+from annbatch.utils import _derive_rng, _OpenPassTracking, split_given_size
 
 from ._rle_manager import RLEManager
 
@@ -125,11 +125,12 @@ class _ClassRunSampler(_OpenPassTracking, Sampler):
         if worker_info is not None and worker_info.num_workers > 1:
             raise NotImplementedError(f"Multiple workers are not supported with {type(self).__name__}.")
 
-        return self._track_pass(self._iter_requests())
+        # each pass draws from its own generator, so a pass cut short leaves the next unchanged
+        return self._track_pass(self._iter_requests(_derive_rng(self._rng, key=0)))
 
     @abstractmethod
-    def _iter_requests(self) -> Iterator[LoadRequest]:
-        """The load requests of one pass."""
+    def _iter_requests(self, rng: np.random.Generator) -> Iterator[LoadRequest]:
+        """The load requests of one pass, drawn from ``rng``."""
 
 
 class ClassSampler(_ClassRunSampler):
@@ -241,7 +242,7 @@ class ClassSampler(_ClassRunSampler):
         here; pass a seeded :class:`numpy.random.Generator` to control randomness.
     """
 
-    def _iter_requests(self) -> Iterator[LoadRequest]:
+    def _iter_requests(self, rng: np.random.Generator) -> Iterator[LoadRequest]:
         n_slices, remainder = divmod(self._num_samples, self._chunk_size)
         if remainder > 0:
             n_slices += 1
@@ -250,8 +251,8 @@ class ClassSampler(_ClassRunSampler):
         # chunks. Draw one class per group and repeat it across the group's chunks.
         group_chunks = self._batch_size // math.gcd(self._chunk_size, self._batch_size)
         n_groups = math.ceil(n_slices / group_chunks)
-        group_classes = self._rng.choice(self._rle_manager.codes, size=n_groups, p=self._rle_manager.weights)
-        slices = self._rle_manager.slices_from_classes(np.repeat(group_classes, group_chunks)[:n_slices], self.rng)
+        group_classes = rng.choice(self._rle_manager.codes, size=n_groups, p=self._rle_manager.weights)
+        slices = self._rle_manager.slices_from_classes(np.repeat(group_classes, group_chunks)[:n_slices], rng)
         if remainder > 0:
             last = int(slices[-1].start)
             slices[-1] = slice(last, last + remainder)
@@ -264,5 +265,5 @@ class ClassSampler(_ClassRunSampler):
                     continue
             for batch in splits:
                 # can't vectorize this because we need to return a list, not ndarray
-                self._rng.shuffle(batch)
+                rng.shuffle(batch)
             yield {"requests": list(window), "splits": splits}

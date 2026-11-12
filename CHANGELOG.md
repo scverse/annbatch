@@ -14,12 +14,14 @@ and this project adheres to [Semantic Versioning][].
 
 - {class}`~annbatch.samplers.WeightedClassSampler` no longer subclasses {class}`~annbatch.samplers.ClassSampler`, since its batches mix classes. `isinstance(sampler, ClassSampler)` is now `False` for it; check `isinstance(sampler, (ClassSampler, WeightedClassSampler))` to accept both.
 - `copy.copy` of a {class}`~annbatch.abc.Sampler` now raises {class}`TypeError`: a shallow copy shares the sampler's random number generator and state. Use `copy.deepcopy`.
+- Seeded output of {class}`~annbatch.samplers.RandomSampler`, {class}`~annbatch.samplers.ClassSampler` and {class}`~annbatch.samplers.WeightedClassSampler` differs from 0.3.1, since each pass now draws from its own generator (see Fixed).
 
 ### Fixed
 
 - A {class}`~annbatch.samplers.ClassSampler` or {class}`~annbatch.samplers.WeightedClassSampler` deep-copied or pickled during a pass refused every later `mask` change.
 - A {class}`~annbatch.samplers.DistributedSampler` copied during a pass reported the wrong number of batches afterwards.
 - A {class}`~annbatch.Loader` copied or pickled during iteration refused every later dataset.
+- A pass of {class}`~annbatch.samplers.RandomSampler`, {class}`~annbatch.samplers.ClassSampler` or {class}`~annbatch.samplers.WeightedClassSampler` that was cut short (e.g. a `break` or `limit_train_batches`) changed every later pass. Each pass now draws from its own generator, seeded by one draw from `rng`.
 
 ## [0.3.1]
 

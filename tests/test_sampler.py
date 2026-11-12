@@ -719,6 +719,62 @@ def test_yielded_splits_are_not_reshuffled(cls: type[Sampler]):
         np.testing.assert_array_equal(c, h)
 
 
+def _one_pass(sampler: Sampler) -> list:
+    return [(_bounds(lr["requests"]), [split.tolist() for split in lr["splits"]]) for lr in sampler.sample(200)]
+
+
+def _cut_short(sampler: Sampler) -> None:
+    batches = sampler.sample(200)
+    next(batches)  # take only the first request of the pass
+    batches.close()  # abandon the rest, as a `break` out of the loader does
+
+
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+def test_a_pass_cut_short_leaves_later_passes_unchanged(cls: type[Sampler]):
+    """Each pass draws from its own generator, so how much of one pass is consumed cannot shift the next."""
+    full, cut = _small_sampler(cls), _small_sampler(cls)
+    _one_pass(full)
+    _cut_short(cut)
+    assert _one_pass(full) == _one_pass(cut)
+
+
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+def test_consecutive_passes_differ(cls: type[Sampler]):
+    sampler = _small_sampler(cls)
+    assert _one_pass(sampler) != _one_pass(sampler)
+
+
+def test_a_worker_pass_cut_short_leaves_later_passes_unchanged():
+    with patch(
+        "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+        return_value=WorkerInfo(id=0, num_workers=2),
+    ):
+        full, cut = (RandomSampler(10, 4, 10, drop_last=True, rng=np.random.default_rng(0)) for _ in range(2))
+        _one_pass(full)
+        _cut_short(cut)
+        assert _one_pass(full) == _one_pass(cut)
+
+
+@pytest.mark.parametrize("worker_info", [None, WorkerInfo(id=0, num_workers=1)], ids=["no_workers", "one_worker"])
+def test_a_sequential_sampler_without_rng_still_iterates(worker_info):
+    sampler = SequentialSampler(10, 4, 10)
+    sampler.rng = None
+    with patch("annbatch.samplers._chunk_sampler.get_torch_worker_info", return_value=worker_info):
+        assert len(_one_pass(sampler)) > 0
+
+
+def test_workers_shuffle_their_batches_independently():
+    def splits_of(worker_id):
+        sampler = RandomSampler(10, 4, 10, drop_last=True, rng=np.random.default_rng(0))
+        with patch(
+            "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+            return_value=WorkerInfo(id=worker_id, num_workers=2),
+        ):
+            return [s.tolist() for lr in sampler.sample(400) for s in lr["splits"]]
+
+    assert splits_of(0) != splits_of(1)
+
+
 @pytest.mark.parametrize("seed", [0, np.int64(0)], ids=["int", "np_integer"])
 @pytest.mark.parametrize("cls", [RandomSampler, ClassSampler])
 def test_a_seed_passed_as_rng_warns_and_seeds(cls: type[Sampler], seed: int):
@@ -737,10 +793,6 @@ def test_a_seed_passed_as_rng_warns_and_seeds(cls: type[Sampler], seed: int):
 def test_a_non_generator_rng_is_rejected(cls: type[Sampler], rng: object):
     with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
         _small_sampler(cls, rng=rng)
-
-
-def _one_pass(sampler: Sampler) -> list:
-    return [(_bounds(lr["requests"]), [split.tolist() for split in lr["splits"]]) for lr in sampler.sample(200)]
 
 
 def _pickled(sampler: Sampler) -> Sampler:

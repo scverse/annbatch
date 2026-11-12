@@ -6,7 +6,7 @@ import copy
 from typing import TYPE_CHECKING, Literal
 
 from annbatch.abc import Sampler
-from annbatch.utils import _OpenPassTracking, _spawn_worker_rng
+from annbatch.utils import _derive_rng, _OpenPassTracking
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -122,7 +122,7 @@ class DistributedSampler(_OpenPassTracking, Sampler):
         self._sampler = copy.deepcopy(sampler)
         self._sampler.mask = slice(0, None)
         if self._sampler.rng is not None:
-            self._sampler.rng = _spawn_worker_rng(self._sampler.rng, self._rank)
+            self._sampler.rng = _derive_rng(self._sampler.rng, key=self._rank)
 
     @property
     def batch_size(self) -> int:
