@@ -5,6 +5,7 @@
 ```
 
 (loaders)=
+
 ## Loader
 
 <!-- panache-ignore-format-start -->
@@ -18,6 +19,7 @@
 <!-- panache-ignore-format-end -->
 
 (io-helpers)=
+
 ## io helpers
 
 ```{eval-rst}
@@ -32,6 +34,7 @@
 ```
 
 (samplers)=
+
 ## Samplers
 
 ```{eval-rst}
@@ -48,6 +51,7 @@
 ```
 
 (abc)=
+
 ## abc
 
 ```{eval-rst}
@@ -60,6 +64,7 @@
 ```
 
 (types)=
+
 ## types
 
 ```{eval-rst}
