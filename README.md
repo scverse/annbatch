@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/annbatch.svg)](https://pypi.org/project/annbatch)
 [![Downloads](https://static.pepy.tech/badge/annbatch/month)](https://pepy.tech/project/annbatch)
 [![Downloads](https://static.pepy.tech/badge/annbatch)](https://pepy.tech/project/annbatch)
-[![CZI's Essential Open Source Software for Science](https://img.shields.io/badge/funded%20by-EOSS-FF414B)](https://czi.co/EOSS)
+[![CZI’s Essential Open Source Software for Science](https://img.shields.io/badge/funded%20by-EOSS-FF414B)](https://czi.co/EOSS)
 
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
@@ -72,7 +72,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, _all_ columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
+> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path

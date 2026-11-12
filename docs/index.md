@@ -4,7 +4,7 @@ A data loader and io utilities for mini-batched data loading of on-disk {mod}`an
 co-developed by [Lamin Labs](https://lamin.ai/) and [scverse](https://scverse.org/).
 
 `annbatch` lets you train models on terabyte-scale collections of `AnnData` files that do not fit
-into memory, while keeping your GPU fed with high-throughput, shuffled mini-batches by doing chunked fetching (similar to Nvidia's [Merlin][] or [`webdataset`][]). It also supports in-memory data.
+into memory, while keeping your GPU fed with high-throughput, shuffled mini-batches by doing chunked fetching (similar to Nvidia’s [Merlin][] or [`webdataset`][]). It also supports in-memory data.
 
 ```{note}
 You can also use the {class}`annbatch.Loader` on raw {class}`zarr.Array` objects via {meth}`~annbatch.Loader.add_datasets` if your object does not fit the {class}`anndata.AnnData` class object cleanly, as long as the data is semantically row-wise oriented on-disk.
@@ -29,7 +29,7 @@ If you have genetics data, see {mod}`cellink` for info on converting to `anndata
 :link: installation
 :link-type: doc
 
-New to _annbatch_? Check out the installation guide and pick the right extras.
+New to *annbatch*? Check out the installation guide and pick the right extras.
 :::
 
 :::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Quickstart
@@ -57,7 +57,7 @@ An in-depth tour of preprocessing, chunked loading, sampling and benchmarks.
 :link: api
 :link-type: doc
 
-The API reference contains a detailed description of the _annbatch_ API.
+The API reference contains a detailed description of the *annbatch* API.
 :::
 
 :::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Discussion
@@ -71,7 +71,6 @@ Need help? Reach out on the scverse forum to get your questions answered.
 
 Found a bug? Interested in contributing? Check out the source on GitHub.
 :::
-
 ::::
 
 ## Citation

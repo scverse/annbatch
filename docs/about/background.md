@@ -22,7 +22,7 @@ and builds directly on [anndata](https://anndata.readthedocs.io/),
 
 ## Funding
 
-annbatch is supported by the Chan Zuckerberg Initiative's
+annbatch is supported by the Chan Zuckerberg Initiative’s
 [Essential Open Source Software for Science (EOSS)](https://czi.co/EOSS) program.
 
 ## scverse
@@ -39,7 +39,7 @@ needs.
   <img
     src="https://raw.githubusercontent.com/numfocus/templates/master/images/numfocus-logo.png"
     width="200"
-  >
+>
 </a>
 </div>
 

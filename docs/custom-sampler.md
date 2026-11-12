@@ -40,7 +40,7 @@ This `TypedDict` is what {meth}`annbatch.abc.Sampler._sample` yields and specifi
 ```
 
 Note: The slices are purely virtual and are defined by the user through the `requests` argument.
-They don't necessarily need to with the underlying zarr chunks.
+They don’t necessarily need to with the underlying zarr chunks.
 
 **Important:** The number of samples that get loaded into memory at once, must be divisible by the batch size.
 Otherwise, the remainder will yield to a smaller batch size or will be dropped if `drop_last=True`.
@@ -161,7 +161,7 @@ class RandomSampler(Sampler):
 
 ## Performance Considerations
 
-When implementing a custom sampler, it's crucial to consider **disk access patterns** to ensure efficient data loading.
+When implementing a custom sampler, it’s crucial to consider **disk access patterns** to ensure efficient data loading.
 The performance of your sampler heavily depends on how it accesses data from disk-backed arrays.
 
 ### The Core Strategy: Chunked Reads + In-Memory Shuffling
