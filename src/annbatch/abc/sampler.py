@@ -25,6 +25,12 @@ class Sampler(ABC):
     _mask: slice = slice(0, None)
     _rng: np.random.Generator | None = None
 
+    def __copy__(self):
+        raise TypeError(
+            f"{type(self).__name__} cannot be shallow-copied: the copy would share its random number generator "
+            "and state with the original. Use copy.deepcopy."
+        )
+
     @property
     def mask(self) -> slice:
         """The observation range this sampler operates on."""

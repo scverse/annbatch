@@ -9,7 +9,7 @@ import numpy as np
 
 from annbatch.utils import split_given_size
 
-from ._class_sampler import ClassSampler
+from ._class_sampler import _ClassRunSampler
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from annbatch.types import LoadRequest
 
 
-class WeightedClassSampler(ClassSampler):
+class WeightedClassSampler(_ClassRunSampler):
     """Sample batches whose *class composition* follows ``class_weights``.
 
     Chunks are read exactly as :class:`~annbatch.samplers.ClassSampler` reads them --
