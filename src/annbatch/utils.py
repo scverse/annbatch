@@ -15,7 +15,7 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
     from annbatch.types import OutputInMemoryArray_T
 
@@ -74,14 +74,33 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 total += gap
 
 
-def _spawn_worker_rng(rng: np.random.Generator, worker_id: int) -> np.random.Generator:
-    """Create a worker-specific RNG using the sequence-of-integers seeding pattern.
+class _OpenPassTracking:
+    """Count the passes being iterated, so state that must not move mid-pass can refuse to.
 
-    Uses NumPy's recommended approach for multi-process RNG. See:
+    A copy or pickle has no pass open, even if the original does.
+    """
+
+    _num_open_passes: int = 0
+
+    def _track_pass[T](self, items: Iterator[T]) -> Iterator[T]:
+        self._num_open_passes += 1
+        try:
+            yield from items
+        finally:
+            self._num_open_passes -= 1
+
+    def __getstate__(self) -> dict:
+        return self.__dict__ | {"_num_open_passes": 0}
+
+
+def _derive_rng(rng: np.random.Generator, key: int) -> np.random.Generator:
+    """An independent generator seeded by one draw from ``rng``, keyed by ``key``.
+
+    Uses NumPy's sequence-of-integers seeding pattern, which works for any generator. See:
     https://numpy.org/doc/stable/reference/random/parallel.html#sequence-of-integer-seeds
     """
     root_seed = rng.integers(np.iinfo(np.int64).max)
-    return np.random.default_rng([worker_id, root_seed])
+    return np.random.default_rng([key, root_seed])
 
 
 def check_lt_1(vals: list[int], obs: list[str]) -> None:
