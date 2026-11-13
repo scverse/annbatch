@@ -162,9 +162,11 @@ class ClassSampler(Sampler):
         check_lt_1([num_samples], ["num_samples"])
         if not isinstance(classes, pd.Categorical):
             raise TypeError(f"classes must be a pandas.Categorical, got {type(classes).__name__}.")
-        codes = classes.codes
+        # our own copy of the codes, so editing the caller's categorical later cannot reach the sampler
+        codes = np.array(classes.codes)
         if (codes == -1).any():
             raise ValueError("classes contains NA values (codes == -1). Remove NAs before passing.")
+        classes = pd.Categorical.from_codes(codes, dtype=classes.dtype, validate=False)
         n_obs = int(codes.shape[0])
 
         validate_chunk_batch_preload_sizes(chunk_size, preload_nchunks, batch_size)
