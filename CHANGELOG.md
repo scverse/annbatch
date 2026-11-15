@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Fixed
+
+- A seeded {class}`~annbatch.samplers.RandomSampler` behind a single {class}`torch.utils.data.DataLoader` worker yielded different batches than with no workers, because the worker generator was spawned from the pass generator before the chunk slices were drawn; `num_workers=1` now matches `num_workers=0` (https://github.com/scverse/annbatch/issues/300).
+
 ## [0.3.1]
 
 ### Changed

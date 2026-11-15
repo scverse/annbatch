@@ -224,6 +224,38 @@ def test_workers_cover_full_dataset_without_overlap(
     assert set().union(*all_worker_indices) == set(range(n_obs))
 
 
+@pytest.mark.parametrize("drop_last", [True, False])
+def test_single_worker_matches_no_worker(drop_last: bool):
+    """A seeded sampler yields the same pass in one DataLoader worker as in the main process.
+
+    Regression test for https://github.com/scverse/annbatch/issues/300.
+    """
+
+    def make_sampler() -> RandomSampler:
+        return RandomSampler(
+            mask=slice(0, None),
+            batch_size=4,
+            chunk_size=10,
+            preload_nchunks=10,
+            drop_last=drop_last,
+            rng=np.random.default_rng(0),
+        )
+
+    n_obs = 400
+    no_worker_indices, no_worker_requests, no_worker_splits = collect_indices(make_sampler(), n_obs)
+    with patch(
+        "annbatch.samplers._chunk_sampler.get_torch_worker_info",
+        return_value=WorkerInfo(id=0, num_workers=1),
+    ):
+        worker_indices, worker_requests, worker_splits = collect_indices(make_sampler(), n_obs)
+
+    assert worker_requests == no_worker_requests
+    assert worker_indices == no_worker_indices
+    assert len(worker_splits) == len(no_worker_splits)
+    for worker_split, no_worker_split in zip(worker_splits, no_worker_splits, strict=True):
+        np.testing.assert_array_equal(worker_split, no_worker_split)
+
+
 @pytest.mark.parametrize(
     "sampler_factory",
     [
