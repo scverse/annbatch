@@ -632,5 +632,4 @@ def test_editing_classes_in_place_does_not_reach_the_sampler(sampler_cls: type[C
     sampler = make_sampler(classes, cls=sampler_cls)
     classes[:] = "B"
     sampler.mask = slice(0, 200)  # rebuilds the runs from the sampler's codes
-    chunks = [s for lr in sampler.sample(200) for s in lr["requests"]]
-    assert all((s.start < 100) == (s.stop <= 100) for s in chunks), "a chunk spans both original classes"
+    assert all((s.start < 100) == (s.stop <= 100) for lr in sampler.sample(200) for s in lr["requests"]), "a chunk spans both original classes"
