@@ -27,7 +27,6 @@ If your data fits in-memory, consider simply shuffling in-memory and passing it 
 
 [zarr docs on sharding]: https://zarr.readthedocs.io/en/stable/user-guide/arrays/#sharding
 
-
 ## Data loading
 
 ### Chunked access
@@ -52,7 +51,7 @@ This number can be quite large for pre-shuffled data but not for un-shuffled dat
 For performance reasons, you should use our dataloader directly without wrapping it into a {class}`torch.utils.data.DataLoader` regardless of matrix type.
 Your code will work the same way as with a {class}`torch.utils.data.DataLoader`, but you will get better performance.
 
-In order to take advantage of the sharded zarr files performance, though, locally, you _must_ set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
+In order to take advantage of the sharded zarr files performance, though, locally, you *must* set the codec pipeline to use {doc}`zarrs-python <zarrs:index>` when reading.
 Using {mod}`zarr` on its own will not yield high performance for local filesystems.
 We have not tested remote data (i.e., using {func}`zarr.open` with a {class}`zarr.storage.ObjectStore`) but because we use {mod}`zarr`, this data loader should also work over cloud connections via relevant zarr stores.
 Note that {doc}`zarrs-python <zarrs:index>` cannot be used with these sorts of non-local stores.
@@ -69,8 +68,7 @@ We support user-configurable sampling strategies like weighting or sampling by i
 Please open an issue if you want to contribute a new sampler to this repo.
 
 :::{warning}
-Provided implementations of {class}`~annbatch.abc.Sampler`s use NumPy's random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
-
+Provided implementations of {class}`~annbatch.abc.Sampler`s use NumPy’s random number generator to generate random numbers and do **not** use or respect {func}`torch.manual_seed`. Setting {func}`torch.manual_seed` will have no effect on the reproducibility of data loading.
 
 To control reproducibility, pass a seeded {class}`numpy.random.Generator` via the `rng` parameter:
 
@@ -99,7 +97,7 @@ This size differential puts significantly more pressure on the data loading pipe
 Intuitively, if the model is small, doing the actual computation is relatively fast.
 Hence, to keep the GPU fully utilized, the data loading needs to be a lot faster.
 
-As an illustrative example, let's train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
+As an illustrative example, let’s train a logistic regression model ([notebook hosted on LaminHub](https://lamin.ai/laminlabs/arrayloader-benchmarks/transform/cV00NQStCAzA?filter%5Band%5D%5B0%5D%5Bor%5D%5B0%5D%5Bbranch.name%5D%5Beq%5D=main&filter%5Band%5D%5B1%5D%5Bor%5D%5B0%5D%5Bis_latest%5D%5Beq%5D=true)).
 Our example model has 20.000 input features and 100 output classes.
 We can now look how the total fit time changes with data loading speed:
 
@@ -111,7 +109,7 @@ This speedup is more than 100x and shows the significant impact data loading has
 
 ## When would you use this data loader?
 
-As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a "foundation model").
+As we just showed, data loading speed matters for small models (e.g., on the order of an scVI model, but perhaps not a “foundation model”).
 But loading minibatches of bytes off disk will be almost certainly slower than loading them from an in-memory source.
 Thus, as a first step to assessing your needs, if your data fits in memory, load it into memory.
 To accelerate reading the data into memory, you may still find {doc}`zarrs-python <zarrs:index>` in conjunction with sharding still helpful in the same way it accelerates io here.
