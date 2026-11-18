@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+### Breaking
+
+- {class}`~annbatch.samplers.WeightedClassSampler` no longer subclasses {class}`~annbatch.samplers.ClassSampler`, since its batches mix classes. `isinstance(sampler, ClassSampler)` is now `False` for it; check `isinstance(sampler, (ClassSampler, WeightedClassSampler))` to accept both.
+
 ## [0.3.1]
 
 ### Changed

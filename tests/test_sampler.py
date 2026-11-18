@@ -699,7 +699,7 @@ def _small_sampler(cls: type[Sampler], rng: object = None) -> Sampler:
     """A seeded sampler over 200 obs in 10-row batches; the class samplers draw 100 obs from two 100-obs runs."""
     kwargs = {"chunk_size": 10, "preload_nchunks": 4, "batch_size": 10}
     kwargs["rng"] = np.random.default_rng(0) if rng is None else rng
-    if issubclass(cls, ClassSampler):
+    if cls in (ClassSampler, WeightedClassSampler):
         kwargs |= {"classes": pd.Categorical(np.repeat([0, 1], 100)), "num_samples": 100}
     return cls(**kwargs)
 
