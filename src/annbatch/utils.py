@@ -15,7 +15,7 @@ import zarr
 from .compat import CupyArray, CupyCSRMatrix, JaxArray, JAXCSRMatrix, Tensor
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
     from annbatch.types import OutputInMemoryArray_T
 
@@ -72,6 +72,25 @@ class MultiBasicIndexer(zarr.core.indexing.Indexer):
                 gap = out_selection[0].stop - out_selection[0].start
                 yield type(c)(c[0], c[1], (slice(total, total + gap), *out_selection[1:]), c[3])
                 total += gap
+
+
+class _OpenPassTracking:
+    """Count the passes being iterated, so state that must not move mid-pass can refuse to.
+
+    A copy or pickle has no pass open, even if the original does.
+    """
+
+    _num_open_passes: int = 0
+
+    def _track_pass[T](self, items: Iterator[T]) -> Iterator[T]:
+        self._num_open_passes += 1
+        try:
+            yield from items
+        finally:
+            self._num_open_passes -= 1
+
+    def __getstate__(self) -> dict:
+        return self.__dict__ | {"_num_open_passes": 0}
 
 
 def _spawn_worker_rng(rng: np.random.Generator, worker_id: int) -> np.random.Generator:

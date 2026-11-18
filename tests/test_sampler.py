@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import math
+import pickle
 import sys
 from functools import partial
 from typing import TYPE_CHECKING
@@ -699,7 +701,7 @@ def _small_sampler(cls: type[Sampler], rng: object = None) -> Sampler:
     """A seeded sampler over 200 obs in 10-row batches; the class samplers draw 100 obs from two 100-obs runs."""
     kwargs = {"chunk_size": 10, "preload_nchunks": 4, "batch_size": 10}
     kwargs["rng"] = np.random.default_rng(0) if rng is None else rng
-    if issubclass(cls, ClassSampler):
+    if cls in (ClassSampler, WeightedClassSampler):
         kwargs |= {"classes": pd.Categorical(np.repeat([0, 1], 100)), "num_samples": 100}
     return cls(**kwargs)
 
@@ -735,6 +737,62 @@ def test_a_seed_passed_as_rng_warns_and_seeds(cls: type[Sampler], seed: int):
 def test_a_non_generator_rng_is_rejected(cls: type[Sampler], rng: object):
     with pytest.raises(TypeError, match="must be a numpy.random.Generator"):
         _small_sampler(cls, rng=rng)
+
+
+def _one_pass(sampler: Sampler) -> list:
+    return [(_bounds(lr["requests"]), [split.tolist() for split in lr["splits"]]) for lr in sampler.sample(200)]
+
+
+def _pickled(sampler: Sampler) -> Sampler:
+    return pickle.loads(pickle.dumps(sampler))
+
+
+def _distributed(rank: int = 1) -> DistributedSampler:
+    return DistributedSampler(_small_sampler(RandomSampler), dist_info=lambda: (rank, 2))
+
+
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+def test_a_shallow_copy_is_refused(cls: type[Sampler]):
+    with pytest.raises(TypeError, match="cannot be shallow-copied"):
+        copy.copy(_small_sampler(cls))
+
+
+def test_a_shallow_copy_of_a_distributed_sampler_is_refused():
+    with pytest.raises(TypeError, match="cannot be shallow-copied"):
+        copy.copy(_distributed())
+
+
+@pytest.mark.parametrize("clone", [copy.deepcopy, _pickled], ids=["deepcopy", "pickle"])
+@pytest.mark.parametrize("cls", [RandomSampler, ClassSampler, WeightedClassSampler])
+def test_a_copy_is_independent_and_reproduces_the_passes(cls: type[Sampler], clone):
+    sampler = _small_sampler(cls)
+    copied = clone(sampler)
+    # the original runs first, so a copy sharing its generator would draw a different pass
+    for _ in range(2):
+        assert _one_pass(sampler) == _one_pass(copied)
+
+
+@pytest.mark.parametrize("clone", [copy.deepcopy, _pickled], ids=["deepcopy", "pickle"])
+@pytest.mark.parametrize("cls", [ClassSampler, WeightedClassSampler])
+def test_a_copy_taken_mid_pass_has_no_pass_open(cls: type[Sampler], clone):
+    sampler = _small_sampler(cls)
+    batches = sampler.sample(200)
+    next(batches)
+    copied = clone(sampler)
+    batches.close()
+    copied.mask = slice(0, 100)  # would raise if the copy still had a pass open
+
+
+@pytest.mark.parametrize("clone", [copy.deepcopy, _pickled], ids=["deepcopy", "pickle"])
+def test_a_distributed_copy_taken_mid_pass_counts_its_shard(clone):
+    dist = _distributed()
+    batches = dist.sample(200)
+    next(batches)
+    copied = clone(dist)
+    batches.close()
+    assert copied.n_batches(200) == _distributed().n_batches(200)  # e.g. len(loader) right after restoring
+    _one_pass(copied)
+    assert copied.n_batches(200) == _distributed().n_batches(200)
 
 
 def test_distributed_does_not_mutate_the_sampler_it_wraps():
