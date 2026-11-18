@@ -136,8 +136,16 @@ class _ChunkSampler(Sampler):
         worker_info = get_torch_worker_info()
         self._validate_worker_mode(worker_info)
 
-        worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
+        # Draw the slices before deriving a worker generator: spawning consumes a draw from
+        # `self._rng`, which would otherwise shift the slices away from the no-worker stream.
+        # Every worker holds an identical copy of `self._rng`, so they still agree on `slices`.
         slices = self._compute_slices(n_obs, rng=self._rng)
+        # A single worker reads every slice, exactly like the main process, so it keeps the
+        # pass generator and `num_workers=1` yields the same batches as `num_workers=0`.
+        if worker_info is None or worker_info.num_workers == 1:
+            worker_aware_rng = self._rng
+        else:
+            worker_aware_rng = _spawn_worker_rng(self._rng, worker_info.id)
         yield from self._iter_from_slices(n_obs, slices, batch_rng=worker_aware_rng, worker_info=worker_info)
 
     def _iter_from_slices(
