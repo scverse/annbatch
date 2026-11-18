@@ -16,7 +16,7 @@ from annbatch.samplers._utils import (
     validate_mask_and_resolve,
     validate_mask_n_obs_and_resolve,
 )
-from annbatch.utils import _spawn_worker_rng, check_lt_1, split_given_size
+from annbatch.utils import _derive_rng, check_lt_1, split_given_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -136,8 +136,9 @@ class _ChunkSampler(Sampler):
         worker_info = get_torch_worker_info()
         self._validate_worker_mode(worker_info)
 
-        worker_aware_rng = self._rng if worker_info is None else _spawn_worker_rng(self._rng, worker_info.id)
-        slices = self._compute_slices(n_obs, rng=self._rng)
+        rng = None if self._rng is None else _derive_rng(self._rng, key=0)
+        worker_aware_rng = rng if worker_info is None or rng is None else _derive_rng(rng, key=worker_info.id)
+        slices = self._compute_slices(n_obs, rng=rng)
         yield from self._iter_from_slices(n_obs, slices, batch_rng=worker_aware_rng, worker_info=worker_info)
 
     def _iter_from_slices(
