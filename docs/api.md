@@ -5,8 +5,10 @@
 ```
 
 (loaders)=
+
 ## Loader
 
+<!-- panache-ignore-format-start -->
 ```{eval-rst}
 .. autosummary::
    :toctree: generated/
@@ -14,8 +16,10 @@
     Loader
     Loader.__iter__
 ```
+<!-- panache-ignore-format-end -->
 
 (io-helpers)=
+
 ## io helpers
 
 ```{eval-rst}
@@ -25,11 +29,12 @@
 .. autosummary::
    :toctree: generated/
 
-    write_sharded
-    DatasetCollection
+   write_sharded
+   DatasetCollection
 ```
 
 (samplers)=
+
 ## Samplers
 
 ```{eval-rst}
@@ -38,14 +43,15 @@
 .. autosummary::
    :toctree: generated/
 
-    ClassSampler
-    RandomSampler
-    SequentialSampler
-    DistributedSampler
-    WeightedClassSampler
+   ClassSampler
+   RandomSampler
+   SequentialSampler
+   DistributedSampler
+   WeightedClassSampler
 ```
 
 (abc)=
+
 ## abc
 
 ```{eval-rst}
@@ -54,10 +60,11 @@
 .. autosummary::
    :toctree: generated/
 
-    Sampler
+   Sampler
 ```
 
 (types)=
+
 ## types
 
 ```{eval-rst}
@@ -66,6 +73,6 @@
 .. autosummary::
    :toctree: generated/
 
-    LoaderOutput
-    LoadRequest
+   LoaderOutput
+   LoadRequest
 ```
