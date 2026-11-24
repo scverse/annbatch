@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/annbatch.svg)](https://pypi.org/project/annbatch)
 [![Downloads](https://static.pepy.tech/badge/annbatch/month)](https://pepy.tech/project/annbatch)
 [![Downloads](https://static.pepy.tech/badge/annbatch)](https://pepy.tech/project/annbatch)
-[![CZI's Essential Open Source Software for Science](https://img.shields.io/badge/funded%20by-EOSS-FF414B)](https://czi.co/EOSS)
+[![CZI’s Essential Open Source Software for Science](https://img.shields.io/badge/funded%20by-EOSS-FF414B)](https://czi.co/EOSS)
 
 [badge-tests]: https://img.shields.io/github/actions/workflow/status/scverse/annbatch/test.yaml?branch=main
 [badge-docs]: https://img.shields.io/readthedocs/annbatch
@@ -72,7 +72,7 @@ collection.add_adatas(
 Data loading:
 
 > [!IMPORTANT]
-> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, _all_ columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
+> Without custom loading via `annbatch.Loader.use_collection` or `load_adata{s}`  or `load_dataset{s}`, *all* columns of the (obs) `pandas.DataFrame` will be loaded and yielded potentially degrading performance.
 
 ```python
 from pathlib import Path
@@ -140,7 +140,6 @@ If you use `annbatch` in your work, please cite the `annbatch` publication as fo
 > **annbatch unlocks terabyte-scale training of biological data in anndata**
 >
 > Gold, I., Fischer, F., Arnoldt, L., Wolf, F. A., & Theis, F. J. (2026b). annbatch unlocks terabyte-scale training of biological data in anndata. arXiv (Cornell University). https://doi.org/10.48550/arxiv.2604.01949
-
 
 [uv]: https://github.com/astral-sh/uv
 [scverse discourse]: https://discourse.scverse.org/
