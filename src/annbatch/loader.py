@@ -1004,9 +1004,8 @@ class Loader[
     ) -> Iterator[LoaderOutput[OutputInMemoryArray]]:
         """Iterate over the on-disk datasets.
 
-        Data for all requested datasets is fetched concurrently into a single preallocated
-        buffer, converted to the output format once, and then yielded as direct row-index
-        subsets — no vstack or intermediate concatenation is required.
+        Data for each requested dataset (i.e., `X` and `obsm.3d`) is fetched concurrently into a single preallocated
+        buffer, converted to the output format once, and then yielded.
 
         The batch sampler is validated against the loader's ``n_obs`` here, not when datasets are added,
         and no datasets can be added until the iteration finishes or is closed.
