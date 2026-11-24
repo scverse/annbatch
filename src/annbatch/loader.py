@@ -780,9 +780,9 @@ class Loader[
         -------
             The constituent elems of the CSR dataset.
         """
-        if isinstance(ds := self._train_datasets[ref_acc][idx], ZarrArray):
+        if not isinstance(ds := self._train_datasets[ref_acc][idx], ad.abc.CSRDataset):
             raise ValueError(
-                f"Requested sparse dataset at idx {idx} of {self._train_datasets[ref_acc]} but found dense array"
+                f"Requested sparse dataset at idx {idx} of {self._train_datasets[ref_acc]} but found {type(ds)}"
             )
         indptr = await ds.group._async_group.getitem("indptr")
         return CSRDatasetElems(
